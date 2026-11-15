@@ -1,5 +1,25 @@
 import { expect, test } from '@playwright/test';
 
+test('create component stays in the fixed library footer in both modes', async ({ page }) => {
+  await page.goto('/');
+  for (const mode of ['Playground', 'Component designer']) {
+    await page.getByRole('button', { name: mode, exact: true }).click();
+    const create = page.locator('.library-footer').getByRole('button', { name: 'Create component', exact: true });
+    const list = page.locator('.component-library');
+    await expect(create).toBeVisible();
+    await expect(list.getByRole('button', { name: 'Create component', exact: true })).toHaveCount(0);
+    await list.evaluate(el => { el.scrollTop = 0; });
+    const initial = await create.boundingBox();
+    await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await expect(create).toBeInViewport();
+    expect(await create.boundingBox()).toEqual(initial);
+    await create.click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+  }
+});
+
 test('component library can be toggled in the designer and stays hidden across modes', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
