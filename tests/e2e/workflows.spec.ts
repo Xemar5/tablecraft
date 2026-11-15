@@ -111,11 +111,11 @@ test('flipping a stack while dragging retains the drag and displays the newly vi
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(from.x + from.width / 2 + 30, from.y + from.height / 2, { steps: 4 });
-  await expect(page.locator('.board-drag-preview .component-face')).toBeVisible();
-  await expect(page.locator('.board-drag-preview .component-face')).toHaveCSS('animation-name', 'none');
+  await expect(page.locator('.board-drag-preview > .component-face')).toBeVisible();
+  await expect(page.locator('.board-drag-preview > .component-face')).toHaveCSS('animation-name', 'none');
   await page.keyboard.press('f');
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.stackReversed).toBe(true);
-  await expect(page.locator('.board-drag-preview .component-face')).toHaveCSS('animation-name', 'piece-reveal');
+  await expect(page.locator('.board-drag-preview > .component-face')).toHaveCSS('animation-name', 'piece-reveal');
   await page.mouse.move(from.x + from.width / 2 + 90, from.y + from.height / 2 + 40, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.x).not.toBe(members[0].x);
@@ -134,7 +134,7 @@ test('flipping selected hand cards animates the ghost and keeps the drag capture
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.mouse.down();
   await page.mouse.move(viewport.x + viewport.width * .7, viewport.y + viewport.height * .6, { steps: 8 });
-  const ghost = page.locator('.hand-drag-preview .component-face');
+  const ghost = page.locator('.hand-drag-preview .component-face').first();
   await expect(ghost).toBeVisible();
   await expect(ghost).toHaveCSS('animation-name', 'none');
   const previousFace = await ghost.elementHandle();
@@ -284,7 +284,7 @@ test('stack search, draw, hotseat privacy, hand release and manipulation', async
   await page.getByRole('button', { name: 'Table', exact: true }).click();
   await stack.click();
   await page.getByRole('button', { name: 'Shuffle', exact: true }).click();
-  await page.getByRole('button', { name: 'Rotate R', exact: true }).click();
+  await page.getByRole('button', { name: 'Rotate +90° E', exact: true }).click();
   const rotated = (await workspace(page)).projects[0].instances.filter((i: { rotation: number }) => i.rotation === 90);
   expect(rotated).toHaveLength(11);
   await page.getByRole('button', { name: 'Spread stack', exact: true }).click();
