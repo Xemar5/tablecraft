@@ -465,7 +465,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         </div>
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
         {previewItem && !gesture.current && !altDown && (() => {
-          const item = p.instances.find(i => i.id === previewItem && (!i.holder || i.holder === actor));
+          const item = p.instances.find(i => i.id === previewItem && !i.locked && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
           return item && comp ? <div className="hover-preview" aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {

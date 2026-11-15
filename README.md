@@ -151,7 +151,7 @@ The table setting **Move cards between table hands** is off by default. When ena
 
 Cards turn to their front face when entering a hand by default, including number-key draws, double-clicks and transfers. Disable **Turn cards face up when entering a hand** in the bottom hand toolbar to preserve their current visible face instead. This preference is local to the current playground view. Dragging alone does not animate a flip; changing faces during a drag does.
 
-Previews disappear when the pointer leaves a piece or its preview. Holding Alt temporarily hides the currently hovered piece's preview; releasing Alt restores it while that piece is still hovered.
+Locked pieces do not show previews. Previews disappear when the pointer leaves a piece or its preview. Holding Alt temporarily hides the currently hovered piece's preview; releasing Alt restores it while that piece is still hovered.
 
 | Action | Shortcut / control |
 |---|---|

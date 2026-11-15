@@ -1,5 +1,32 @@
 import { expect, test } from '@playwright/test';
 
+test('scaled previews have no empty horizontal overflow and locked pieces have no preview', async ({ page }) => {
+  await page.goto('/');
+  const tokenId = await page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first().getAttribute('data-piece-id');
+  const token = page.locator(`[data-piece-id="${tokenId}"]`);
+  const preview = page.locator('.hover-preview');
+  await token.hover();
+  await expect(preview).toBeVisible();
+  await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
+  const thumbnail = preview.locator('.component-thumbnail');
+  const initialWidth = (await thumbnail.boundingBox())!.width;
+  await preview.hover();
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.up('Control');
+  await expect.poll(async () => (await thumbnail.boundingBox())!.width).toBeLessThan(initialWidth);
+  await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
+  await token.click();
+  await page.getByRole('button', { name: 'Lock', exact: true }).click();
+  await token.hover();
+  await expect(preview).toHaveCount(0);
+  await token.focus();
+  await expect(preview).toHaveCount(0);
+  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await token.hover();
+  await expect(preview).toBeVisible();
+});
+
 test('previews follow hover and Alt only temporarily suppresses the hovered piece', async ({ page }) => {
   await page.goto('/');
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
