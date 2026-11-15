@@ -29,27 +29,35 @@ function Botanical({ variant, color }: { variant: string; color: string }) {
   </svg>;
 }
 
-export function ComponentView({ component: c, row = 0, back = false, hidden = false, onNode, selectedNode }: {
-  component: Component; row?: number; back?: boolean; hidden?: boolean; onNode?: (id: string, event: PointerEvent<HTMLDivElement>) => void; selectedNode?: string;
+export function ComponentView({ component: c, row = 0, back = false, hidden = false, onNode, selectedNode, selectedNodes }: {
+  component: Component; row?: number; back?: boolean; hidden?: boolean; onNode?: (id: string, event: PointerEvent<HTMLDivElement>) => void; selectedNode?: string; selectedNodes?: string[];
 }) {
+  const selectedIds = selectedNodes ?? (selectedNode ? [selectedNode] : []);
   const nodes = hidden ? c.back : back && c.flippable ? c.back : c.front;
   const data = c.rows[row] ?? {};
   const render = (node: DesignNode, parent?: DesignNode) => {
     const flow = parent && parent.layout !== 'absolute';
     const text = bind(node.text, data);
+    const widthMode = node.widthMode ?? 'fixed', heightMode = node.heightMode ?? 'fixed';
+    const rowFlow = parent?.layout === 'row', columnFlow = parent?.layout === 'column';
+    const fillsMainAxis = flow && ((rowFlow && widthMode === 'fill') || (columnFlow && heightMode === 'fill'));
     const style: CSSProperties = {
       position: flow ? 'relative' : 'absolute', left: flow ? undefined : node.x, top: flow ? undefined : node.y,
-      width: node.width, height: node.height, flexShrink: 0, boxSizing: 'border-box',
+      width: widthMode === 'hug' ? 'max-content' : widthMode === 'fill' ? flow && rowFlow ? undefined : '100%' : node.width,
+      height: heightMode === 'hug' ? 'max-content' : heightMode === 'fill' ? flow && columnFlow ? undefined : '100%' : node.height,
+      flex: fillsMainAxis ? '1 1 0' : undefined, flexShrink: widthMode === 'fill' || heightMode === 'fill' ? undefined : 0, boxSizing: 'border-box',
       background: node.fill, color: node.color, borderRadius: node.radius,
       fontSize: node.fontSize, fontFamily: `"${node.font}", sans-serif`,
       transform: `rotate(${node.rotation}deg)`, opacity: node.opacity,
-      padding: node.padding, gap: node.gap,
+      paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
+      paddingBottom: node.paddingBottom ?? node.padding, paddingLeft: node.paddingLeft ?? node.padding, gap: node.gap,
       display: node.type === 'frame' ? 'flex' : node.type === 'text' ? 'flex' : 'block',
       flexDirection: node.layout === 'row' ? 'row' : 'column',
+      flexWrap: node.type === 'frame' && node.wrap ? 'wrap' : 'nowrap',
       alignItems: node.type === 'text' ? undefined : node.align === 'start' ? 'flex-start' : node.align === 'end' ? 'flex-end' : 'center',
       justifyContent: node.type === 'text' ? 'center' : undefined,
       textAlign: node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : 'center',
-      outline: selectedNode === node.id ? '2px solid #c5e497' : undefined,
+      outline: selectedIds.includes(node.id) ? '2px solid #c5e497' : undefined,
     };
     return <div key={node.id} style={style} className={`design-node node-${node.type}`}
       onPointerDown={onNode ? e => { e.stopPropagation(); onNode(node.id, e); } : undefined}>

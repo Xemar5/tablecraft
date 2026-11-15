@@ -1,10 +1,71 @@
-import { useEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, ImagePlus, Layers, Redo2, Square, Trash2, Type, Undo2, Upload } from 'lucide-react';
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView } from './ComponentView';
-import { makeNode, type Component, type DesignNode } from './domain';
+import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { download } from './storage';
 import { Field, Modal, NumberField, Toggle } from './ui';
+
+type Face = 'front' | 'back';
+type DragPosition = { x: number; y: number };
+type LayerDrag = { ids: string[]; pointer: number; clientX: number; clientY: number; positions: Record<string, DragPosition>; angles: Record<string, number> };
+
+function descendantsOf(nodes: DesignNode[], ids: string[]) {
+  const descendants = new Set(ids);
+  let previousSize = -1;
+  while (previousSize !== descendants.size) {
+    previousSize = descendants.size;
+    nodes.forEach(node => { if (node.parent && descendants.has(node.parent)) descendants.add(node.id); });
+  }
+  return descendants;
+}
+
+function worldPosition(node: DesignNode, nodes: DesignNode[]): DragPosition | undefined {
+  const byId = new Map(nodes.map(item => [item.id, item]));
+  let point = { x: node.x, y: node.y };
+  let parent = node.parent ? byId.get(node.parent) : undefined;
+  while (parent) {
+    if (parent.layout !== 'absolute') return undefined;
+    const radians = parent.rotation * Math.PI / 180;
+    const cos = Math.cos(radians), sin = Math.sin(radians);
+    const cx = parent.width / 2, cy = parent.height / 2;
+    point = {
+      x: parent.x + cx + (point.x - cx) * cos - (point.y - cy) * sin,
+      y: parent.y + cy + (point.x - cx) * sin + (point.y - cy) * cos,
+    };
+    parent = parent.parent ? byId.get(parent.parent) : undefined;
+  }
+  return point;
+}
+
+function localPositionWithin(point: DragPosition, parentId: string | null, nodes: DesignNode[]): DragPosition | undefined {
+  if (!parentId) return point;
+  const byId = new Map(nodes.map(item => [item.id, item]));
+  const chain: DesignNode[] = [];
+  let parent = byId.get(parentId);
+  while (parent) {
+    if (parent.layout !== 'absolute') return undefined;
+    chain.unshift(parent);
+    parent = parent.parent ? byId.get(parent.parent) : undefined;
+  }
+  let local = point;
+  for (const ancestor of chain) {
+    const radians = -ancestor.rotation * Math.PI / 180;
+    const cos = Math.cos(radians), sin = Math.sin(radians);
+    const cx = ancestor.width / 2, cy = ancestor.height / 2;
+    const x = local.x - ancestor.x - cx, y = local.y - ancestor.y - cy;
+    local = { x: cx + x * cos - y * sin, y: cy + x * sin + y * cos };
+  }
+  return local;
+}
+
+function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
+  const byId = new Map(nodes.map(item => [item.id, item]));
+  let parent = node.parent ? byId.get(node.parent) : undefined;
+  let angle = 0;
+  while (parent) { angle += parent.rotation; parent = parent.parent ? byId.get(parent.parent) : undefined; }
+  return angle * Math.PI / 180;
+}
 
 export function Designer({ component: incoming, onChange, onDelete, notify }: {
   component: Component; onChange: (c: Component) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
@@ -14,8 +75,11 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const latestIncoming = useRef(incoming);
   latestIncoming.current = incoming;
   useEffect(() => { if (!pending.current) setComponent(incoming); }, [incoming]);
-  const [face, setFace] = useState<'front' | 'back'>('front');
-  const [selected, setSelected] = useState<string>();
+  const [face, setFace] = useState<Face>('front');
+  const [selected, setSelected] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [draggedLayer, setDraggedLayer] = useState<string[]>([]);
+  const [dropTarget, setDropTarget] = useState<{ id: string; mode: 'inside' | 'before' | 'after' }>();
   const [tab, setTab] = useState<'design' | 'behavior'>('design');
   const [dataOpen, setDataOpen] = useState(false);
   const [csv, setCsv] = useState(component.csv);
@@ -24,11 +88,12 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const [history, setHistory] = useState<Component[]>([]);
   const [future, setFuture] = useState<Component[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [dragPreview, setDragPreview] = useState<{ id: string; x: number; y: number }>();
+  const [dragPreview, setDragPreview] = useState<Record<string, DragPosition>>();
   const artboard = useRef<HTMLDivElement>(null);
-  const dragging = useRef<{ id: string; pointer: number; clientX: number; clientY: number; x: number; y: number; angle: number }>(null);
+  const dragging = useRef<LayerDrag>(null);
   const nodes = component[face];
-  const node = nodes.find(n => n.id === selected);
+  const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
+  const node = selectedNodes[0];
   const commit = async (next: Component) => {
     pending.current++;
     setComponent(next);
@@ -42,26 +107,112 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
     setFuture([]);
     return commit({ ...component, ...patch });
   };
-  const updateNode = (patch: Partial<DesignNode>) => update({ [face]: nodes.map(n => n.id === selected ? { ...n, ...patch } : n) });
-  const addNode = (type: DesignNode['type']) => {
-    const next = makeNode(type, { parent: node?.type === 'frame' ? node.id : null });
-    update({ [face]: [...nodes, next] }); setSelected(next.id);
+  const updateNode = (patch: Partial<DesignNode>) => update({
+    [face]: nodes.map(item => selected.includes(item.id) ? { ...item, ...patch } : item),
+  });
+  const addNode = (type: DesignNode['type'], empty = false) => {
+    const parent = selectedNodes.length === 1 && selectedNodes[0].type === 'frame' ? selectedNodes[0].id : null;
+    const next = makeNode(type, empty ? { name: 'Empty element', fill: 'transparent', width: 150, height: 100, parent } : { parent });
+    update({ [face]: [...nodes, next] });
+    setSelected([next.id]);
+  };
+  const createGroup = () => {
+    const chosen = selectedNodes.filter(item => !selectedNodes.some(other => other.id !== item.id && descendantsOf(nodes, [other.id]).has(item.id)));
+    if (!chosen.length) {
+      const empty = makeNode('frame', { name: 'Group', fill: 'transparent', width: 180, height: 120 });
+      update({ [face]: [...nodes, empty] }); setSelected([empty.id]); return;
+    }
+    const shareParent = chosen.every(item => item.parent === chosen[0].parent);
+    const commonParent = shareParent ? chosen[0].parent : null;
+    const parent = commonParent ? nodes.find(item => item.id === commonParent) : undefined;
+    const flowing = shareParent && !!parent && parent.layout !== 'absolute';
+    const positions = chosen.map(item => shareParent ? { x: item.x, y: item.y } : worldPosition(item, nodes) ?? { x: item.x, y: item.y });
+    const minX = Math.min(...positions.map(point => point.x));
+    const minY = Math.min(...positions.map(point => point.y));
+    const maxX = Math.max(...chosen.map((item, index) => positions[index].x + item.width));
+    const maxY = Math.max(...chosen.map((item, index) => positions[index].y + item.height));
+    const group = makeNode('frame', {
+      name: 'Group', parent: commonParent, x: flowing ? 0 : minX, y: flowing ? 0 : minY,
+      width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY),
+      fill: 'transparent', layout: flowing ? parent!.layout : 'absolute',
+      widthMode: flowing ? 'hug' : 'fixed', heightMode: flowing ? 'hug' : 'fixed',
+      gap: flowing ? parent!.gap : 8, align: flowing ? parent!.align : 'start',
+    });
+    const chosenIds = new Set(chosen.map(item => item.id));
+    const firstIndex = Math.min(...chosen.map(item => nodes.findIndex(existing => existing.id === item.id)));
+    const grouped = nodes.map(item => {
+      if (!chosenIds.has(item.id)) return item;
+      const point = positions[chosen.findIndex(chosenNode => chosenNode.id === item.id)];
+      const position = { x: point.x - minX, y: point.y - minY };
+      return { ...item, parent: group.id, ...position };
+    });
+    grouped.splice(firstIndex, 0, group);
+    update({ [face]: grouped });
+    setSelected([group.id]);
+    if (!shareParent && chosen.some(item => !worldPosition(item, nodes))) notify('Grouped layers from different layouts; review their placement.', true);
   };
   const removeNode = () => {
-    const remove = new Set([selected]);
-    let previous = 0;
-    while (remove.size !== previous) { previous = remove.size; nodes.forEach(n => { if (remove.has(n.parent ?? '')) remove.add(n.id); }); }
-    update({ [face]: nodes.filter(n => !remove.has(n.id)) }); setSelected(undefined);
+    const remove = descendantsOf(nodes, selected);
+    update({ [face]: nodes.filter(item => !remove.has(item.id)) });
+    setSelected([]);
   };
-  const descendants = new Set([selected]);
-  let count = -1;
-  while (count !== descendants.size) { count = descendants.size; nodes.forEach(n => { if (descendants.has(n.parent ?? '')) descendants.add(n.id); }); }
-  const layers = (parent: string | null, depth = 0): React.ReactNode => nodes.filter(n => n.parent === parent).map(n =>
-    <div key={n.id}><button className={`layer-row ${selected === n.id ? 'active' : ''}`} style={{ paddingLeft: 14 + depth * 15 }}
-      onClick={() => setSelected(n.id)}>
-      {n.type === 'text' ? <Type size={14} /> : n.type === 'frame' ? <Frame size={14} /> : n.type === 'image' ? <ImagePlus size={14} /> : <Square size={14} />}
-      <span>{n.name}</span>{n.type === 'frame' && <ChevronDown size={12} />}
-    </button>{layers(n.id, depth + 1)}</div>);
+  const selectFromTree = (id: string, event: MouseEvent<HTMLButtonElement>) => {
+    if (event.metaKey || event.ctrlKey || event.shiftKey) {
+      setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+    } else setSelected(current => current.length > 1 && current.includes(id) ? current : [id]);
+  };
+  const movePreservingPosition = (sourceId: string, parentId: string | null, beforeId?: string, currentNodes = nodes) => {
+    const source = currentNodes.find(item => item.id === sourceId);
+    let moved = moveLayer(currentNodes, sourceId, parentId, beforeId);
+    if (source && source.parent !== parentId) {
+      const world = worldPosition(source, currentNodes);
+      const local = world && localPositionWithin(world, parentId, currentNodes);
+      if (local) moved = moved.map(item => item.id === sourceId ? { ...item, ...local } : item);
+    }
+    return moved;
+  };
+  const dropLayers = (sourceIds: string[], targetId: string, mode: 'inside' | 'before' | 'after') => {
+    if (!sourceIds.length || sourceIds.includes(targetId)) return;
+    const target = nodes.find(item => item.id === targetId);
+    if (!target) return;
+    const selectedIds = new Set(sourceIds);
+    const sources = nodes.filter(item => selectedIds.has(item.id) && !nodes.some(other =>
+      selectedIds.has(other.id) && other.id !== item.id && descendantsOf(nodes, [other.id]).has(item.id)));
+    let next = nodes;
+    try {
+      if (mode === 'inside') {
+        sources.forEach(source => { next = movePreservingPosition(source.id, target.id, undefined, next); });
+      } else {
+        const remainingSiblings = nodes.filter(item => item.parent === target.parent && !selectedIds.has(item.id));
+        const targetIndex = remainingSiblings.findIndex(item => item.id === target.id);
+        const anchor = mode === 'before' ? target.id : remainingSiblings[targetIndex + 1]?.id;
+        sources.forEach(source => { next = movePreservingPosition(source.id, target.parent, anchor, next); });
+      }
+      update({ [face]: next });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Unable to move layer.', true);
+    }
+  };
+  const dropModeFor = (event: DragEvent<HTMLDivElement>, item: DesignNode): 'inside' | 'before' | 'after' => {
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const relativeY = (event.clientY - bounds.top) / Math.max(1, bounds.height);
+    return item.type === 'frame' && relativeY > .28 && relativeY < .72 ? 'inside' : relativeY < .5 ? 'before' : 'after';
+  };
+  const dropAtRoot = (sourceIds: string[]) => {
+    const selectedIds = new Set(sourceIds);
+    const sources = nodes.filter(item => selectedIds.has(item.id) && !nodes.some(other =>
+      selectedIds.has(other.id) && other.id !== item.id && descendantsOf(nodes, [other.id]).has(item.id)));
+    const firstRoot = nodes.find(item => item.parent === null && !selectedIds.has(item.id));
+    let next = nodes;
+    try {
+      sources.forEach(source => { next = movePreservingPosition(source.id, null, firstRoot?.id, next); });
+      update({ [face]: next });
+    } catch (error) { notify(error instanceof Error ? error.message : 'Unable to move layer.', true); }
+  };
+  const layerDragOver = (event: DragEvent<HTMLDivElement>, item: DesignNode) => {
+    event.preventDefault();
+    setDropTarget({ id: item.id, mode: dropModeFor(event, item) });
+  };
   const saveCsv = async () => {
     const result = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: 'greedy' });
     if (result.errors.length) { notify(result.errors[0].message, true); return; }
@@ -71,12 +222,63 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
       notify(`Updated ${result.data.length} data rows. All instances are live.`);
     }
   };
+  const layers = (parent: string | null, depth = 0): ReactNode => nodes.filter(item => item.parent === parent).map(item => {
+    const hasChildren = item.type === 'frame' && nodes.some(child => child.parent === item.id);
+    const dragClass = dropTarget?.id === item.id ? ` drop-${dropTarget.mode}` : '';
+    return <div className={`layer-tree-item${dragClass}`} key={item.id}>
+      <div className="layer-tree-row" style={{ paddingLeft: 8 + depth * 14 }}
+        onDragOver={event => layerDragOver(event, item)}
+        onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined); }}
+        onDrop={event => { event.preventDefault(); event.stopPropagation(); if (draggedLayer.length) dropLayers(draggedLayer, item.id, dropModeFor(event, item)); setDraggedLayer([]); setDropTarget(undefined); }}>
+        <button className={`layer-row ${selected.includes(item.id) ? 'active' : ''}`} draggable
+          onClick={event => selectFromTree(item.id, event)}
+          onDragStart={event => {
+            event.dataTransfer.effectAllowed = 'move';
+            const moving = selected.includes(item.id) ? selected : [item.id];
+            event.dataTransfer.setData('text/plain', moving.join(','));
+            setDraggedLayer(moving);
+          }}
+          onDragEnd={() => { setDraggedLayer([]); setDropTarget(undefined); }}>
+          {item.type === 'text' ? <Type size={14} /> : item.type === 'frame' ? <Frame size={14} /> : item.type === 'image' ? <ImagePlus size={14} /> : <Square size={14} />}
+          <span>{item.name}</span>
+        </button>
+        {hasChildren && <button className="tree-disclosure" aria-label={`${collapsed.has(item.id) ? 'Expand' : 'Collapse'} ${item.name}`}
+          onClick={() => setCollapsed(current => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>
+          {hasChildren && (collapsed.has(item.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />)}
+        </button>}
+      </div>
+      {item.type === 'frame' && !collapsed.has(item.id) && layers(item.id, depth + 1)}
+    </div>;
+  });
+  const beginCanvasDrag = (id: string, event: PointerEvent<HTMLDivElement>) => {
+    const layer = nodes.find(item => item.id === id);
+    if (!layer) return;
+    if (event.metaKey || event.ctrlKey || event.shiftKey) {
+      setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+      return;
+    }
+    const activeIds = selected.includes(id) ? selected : [id];
+    setSelected(activeIds);
+    const moving = nodes.filter(item => activeIds.includes(item.id));
+    if (moving.some(item => item.parent && nodes.find(parent => parent.id === item.parent)?.layout !== 'absolute')) return;
+    const positions = Object.fromEntries(moving.map(item => [item.id, { x: item.x, y: item.y }]));
+    const angles = Object.fromEntries(moving.map(item => [item.id, nodeAngle(item, nodes)]));
+    dragging.current = { ids: activeIds, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, positions, angles };
+    artboard.current?.setPointerCapture(event.pointerId);
+  };
+  const rootIds = nodes.filter(item => item.parent === null).map(item => item.id);
   return <div className="designer-layout">
     <aside className="layers-panel">
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
-      <div className="face-tabs"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected(undefined); }}>Front</button>
-        <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected(undefined); }}>Back</button></div>
-      <div className="layer-list">{layers(null)}{!nodes.length && <p className="empty-note">A blank canvas.<br />Add your first layer above.</p>}</div>
+      <div className="face-tabs"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
+        <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></div>
+      <div className="layer-list">
+        <div className={`layer-root-drop${dropTarget?.id === '__root' ? ' active' : ''}`} onDragOver={event => { event.preventDefault(); setDropTarget({ id: '__root', mode: 'inside' }); }}
+          onDrop={event => { event.preventDefault(); if (draggedLayer.length) dropAtRoot(draggedLayer); setDraggedLayer([]); setDropTarget(undefined); }}>
+          <ChevronRight size={12} /> Component root <span>{rootIds.length}</span>
+        </div>
+        {layers(null)}{!nodes.length && <p className="empty-note">A blank canvas.<br />Add your first layer above.</p>}
+      </div>
       <div className="layer-footer"><button onClick={() => { setCsv(component.csv); setDataOpen(true); }}><Database size={16} /><span>Data bindings<small>{component.rows.length} rows connected</small></span><ChevronRight size={14} /></button></div>
     </aside>
     <section className="designer-canvas">
@@ -86,52 +288,54 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
           <button title="Add shape" aria-label="Add shape" onClick={() => addNode('shape')}><Square size={18} /></button>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title="Add frame" aria-label="Add frame" onClick={() => addNode('frame')}><Frame size={18} /></button>
+          <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><SquareDashed size={17} /></button>
+          <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
         </div><span className="toolbar-divider" />
+        <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={() => {
-          const previous = history.at(-1)!; setHistory(history.slice(0, -1)); setFuture([...future, component]); void commit(previous);
+          const previous = history.at(-1)!; setHistory(history.slice(0, -1)); setFuture([...future, component]);
+          setSelected(current => current.filter(id => previous[face].some(item => item.id === id))); void commit(previous);
         }}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={() => {
-          const next = future.at(-1)!; setFuture(future.slice(0, -1)); setHistory([...history, component]); void commit(next);
+          const next = future.at(-1)!; setFuture(future.slice(0, -1)); setHistory([...history, component]);
+          setSelected(current => current.filter(id => next[face].some(item => item.id === id))); void commit(next);
         }}><Redo2 size={17} /></button>
-        <div className="toolbar-end"><select aria-label="Preview data row" value={row} onChange={e => setRow(Number(e.target.value))}>
-          {component.rows.length ? component.rows.map((r, i) => <option key={i} value={i}>{r.name ?? `Row ${i + 1}`}</option>) : <option value="0">No data source</option>}
+        <div className="toolbar-end"><select aria-label="Preview data row" value={row} onChange={event => setRow(Number(event.target.value))}>
+          {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{dataRow.name ?? `Row ${index + 1}`}</option>) : <option value="0">No data source</option>}
         </select></div>
       </div>
-      <div className="designer-stage" onPointerDown={() => setSelected(undefined)}>
+      <div className="designer-stage" onPointerDown={() => setSelected([])}>
         <span className="artboard-label">{component.name} / {face} <span>{component.width} x {component.height}</span></span>
         <div ref={artboard} className="artboard" style={{ width: component.width * zoom, height: component.height * zoom }}
           onPointerMove={event => {
             const drag = dragging.current;
             if (!drag || drag.pointer !== event.pointerId) return;
             const dx = (event.clientX - drag.clientX) / zoom, dy = (event.clientY - drag.clientY) / zoom;
-            setDragPreview({ id: drag.id, x: Math.round(drag.x + dx * Math.cos(drag.angle) + dy * Math.sin(drag.angle)), y: Math.round(drag.y - dx * Math.sin(drag.angle) + dy * Math.cos(drag.angle)) });
+            const next: Record<string, DragPosition> = {};
+            drag.ids.forEach(id => {
+              const angle = drag.angles[id], origin = drag.positions[id];
+              next[id] = { x: Math.round(origin.x + dx * Math.cos(angle) + dy * Math.sin(angle)), y: Math.round(origin.y - dx * Math.sin(angle) + dy * Math.cos(angle)) };
+            });
+            setDragPreview(next);
           }}
           onPointerUp={event => {
             const drag = dragging.current;
-            if (drag && dragPreview && drag.pointer === event.pointerId && Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) > 2) {
-              update({ [face]: nodes.map(n => n.id === drag.id ? { ...n, x: dragPreview.x, y: dragPreview.y } : n) });
+            if (drag && drag.pointer === event.pointerId && Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) > 2) {
+              const positions = dragPreview ?? Object.fromEntries(drag.ids.map(id => [id, drag.positions[id]]));
+              update({ [face]: nodes.map(item => positions[item.id] ? { ...item, ...positions[item.id] } : item) });
             }
             dragging.current = null; setDragPreview(undefined);
           }}
           onPointerCancel={() => { dragging.current = null; setDragPreview(undefined); }}>
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-            <ComponentView component={dragPreview ? { ...component, [face]: nodes.map(n => n.id === dragPreview.id ? { ...n, x: dragPreview.x, y: dragPreview.y } : n) } : component}
-              row={row} back={face === 'back'} selectedNode={selected} onNode={(id, event) => {
-                setSelected(id);
-                const layer = nodes.find(n => n.id === id)!;
-                let ancestor = nodes.find(n => n.id === layer.parent);
-                if (ancestor && ancestor.layout !== 'absolute') return;
-                let angle = 0;
-                while (ancestor) { angle += ancestor.rotation; ancestor = nodes.find(n => n.id === ancestor!.parent); }
-                dragging.current = { id, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, x: layer.x, y: layer.y, angle: angle * Math.PI / 180 };
-                artboard.current?.setPointerCapture(event.pointerId);
-              }} />
+            <ComponentView component={dragPreview ? { ...component, [face]: nodes.map(item => dragPreview[item.id] ? { ...item, ...dragPreview[item.id] } : item) } : component}
+              row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} />
           </div>
         </div>
         <div className="canvas-caption"><span className="live-dot" /> Live component <span>Changes appear on every instance</span></div>
       </div>
       <div className="canvas-bottom"><span><Square size={12} /> {component.kind} component</span>
-        <div><button onClick={() => setZoom(z => Math.max(.25, z - .25))}>-</button><button onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button onClick={() => setZoom(z => Math.min(3, z + .25))}>+</button></div></div>
+        <div><button onClick={() => setZoom(value => Math.max(.25, value - .25))}>-</button><button onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div></div>
     </section>
     <aside className="inspector">
       <div className="inspector-tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></div>
@@ -143,65 +347,80 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
             <Toggle label="Hide front in hand" description="Only the holder sees the front" checked={component.hideInHand} onChange={hideInHand => update({ hideInHand })} disabled={!component.hand} />
             <Toggle label="Can be stacked" checked={component.stackable} onChange={stackable => update({ stackable })} />
             <Toggle label="Shufflable" checked={component.shufflable} onChange={shufflable => update({ shufflable })} disabled={!component.stackable} />
-            {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={e => update({ stackTag: e.target.value })} /></Field>}
+            {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>
           <div className="inspector-section"><h3>Portable by design</h3><p className="help-text">Export the full component, including both faces, behavior and CSV data.</p>
             <button className="button full" onClick={() => download(`${component.name}.component.json`, JSON.stringify(component, null, 2))}><Download size={15} /> Export component</button>
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>
         </> : node ? <>
-          <div className="inspector-section"><div className="section-title"><h3>{node.type} layer</h3><button className="icon-button danger" title="Delete layer" aria-label="Delete layer" onClick={removeNode}><Trash2 size={14} /></button></div>
-            <Field label="Layer name"><input value={node.name} onChange={e => updateNode({ name: e.target.value })} /></Field>
-            <Field label="Parent"><select value={node.parent ?? ''} onChange={e => updateNode({ parent: e.target.value || null })}><option value="">Component root</option>
-              {nodes.filter(n => n.type === 'frame' && !descendants.has(n.id)).map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
-            </select></Field>
-            <div className="field-grid"><NumberField label="X" value={node.x} onChange={x => updateNode({ x })} /><NumberField label="Y" value={node.y} onChange={y => updateNode({ y })} />
-              <NumberField label="Width" value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} /><NumberField label="Height" value={node.height} min={1} max={4000} onChange={height => updateNode({ height })} />
-              <NumberField label="Rotation" value={node.rotation} onChange={rotation => updateNode({ rotation })} /><NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} /></div>
-            <div className="button-row"><button className="button" onClick={() => {
-              const index = nodes.findIndex(n => n.id === node.id);
-              if (index > 0) { const next = [...nodes]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; update({ [face]: next }); }
-            }}><ArrowDown size={14} /> Backward</button><button className="button" onClick={() => {
-              const index = nodes.findIndex(n => n.id === node.id);
-              if (index < nodes.length - 1) { const next = [...nodes]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; update({ [face]: next }); }
-            }}><ArrowUp size={14} /> Forward</button></div>
+          <div className="inspector-section"><div className="section-title"><h3>{selected.length > 1 ? `${selected.length} selected layers` : `${node.type} layer`}</h3><button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button></div>
+            <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
+            <div className="field-grid"><NumberField label="X" value={node.x} onChange={x => updateNode({ x })} />
+              <NumberField label="Y" value={node.y} onChange={y => updateNode({ y })} />
+              <NumberField label="Width" value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} />
+              <NumberField label="Height" value={node.height} min={1} max={4000} onChange={height => updateNode({ height })} />
+              <NumberField label="Rotation" value={node.rotation} onChange={rotation => updateNode({ rotation })} />
+              {selected.length === 1 && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
+            {selected.length === 1 && <Field label="Parent"><select value={node.parent ?? ''} onChange={event => {
+              const parentId = event.target.value || null;
+              try { update({ [face]: movePreservingPosition(node.id, parentId) }); }
+              catch (error) { notify(error instanceof Error ? error.message : 'Unable to move layer.', true); }
+            }}><option value="">Component root</option>
+              {nodes.filter(item => item.type === 'frame' && !descendantsOf(nodes, selected).has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select></Field>}
+            <Field label="Width sizing"><select value={selectedNodes.every(item => (item.widthMode ?? 'fixed') === (node.widthMode ?? 'fixed')) ? node.widthMode ?? 'fixed' : 'mixed'}
+              onChange={event => { if (event.target.value !== 'mixed') updateNode({ widthMode: event.target.value as DesignNode['widthMode'] }); }}>
+              {selectedNodes.some(item => (item.widthMode ?? 'fixed') !== (node.widthMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
+              <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
+            <Field label="Height sizing"><select value={selectedNodes.every(item => (item.heightMode ?? 'fixed') === (node.heightMode ?? 'fixed')) ? node.heightMode ?? 'fixed' : 'mixed'}
+              onChange={event => { if (event.target.value !== 'mixed') updateNode({ heightMode: event.target.value as DesignNode['heightMode'] }); }}>
+              {selectedNodes.some(item => (item.heightMode ?? 'fixed') !== (node.heightMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
+              <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
           </div>
           <div className="inspector-section"><h3>Appearance</h3>
-            <Field label="Fill"><div className="color-input"><input aria-label="Fill color" type="color" value={/^#[0-9a-f]{6}$/i.test(node.fill) ? node.fill : '#ffffff'} onChange={e => updateNode({ fill: e.target.value })} /><input value={node.fill} onChange={e => updateNode({ fill: e.target.value })} /></div></Field>
+            <Field label="Fill"><div className="color-input"><input aria-label="Fill color" type="color" value={/^#[0-9a-f]{6}$/i.test(node.fill) ? node.fill : '#ffffff'} onChange={event => updateNode({ fill: event.target.value })} /><input value={node.fill} onChange={event => updateNode({ fill: event.target.value })} /></div></Field>
             <NumberField label="Opacity" value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
-            {node.type === 'text' && <>
-              <Field label="Text / binding"><textarea value={node.text} onChange={e => updateNode({ text: e.target.value })} rows={3} /></Field>
+            {node.type === 'text' && selected.length === 1 && <>
+              <Field label="Text / binding"><textarea value={node.text} onChange={event => updateNode({ text: event.target.value })} rows={3} /></Field>
               <p className="help-text">Mix static text with <code>{'{{column_name}}'}</code>.</p>
-              <Field label="Google font"><input list="google-fonts" value={node.font} onChange={e => updateNode({ font: e.target.value })} /></Field>
-              <datalist id="google-fonts">{['DM Sans', 'Lora', 'Inter', 'Playfair Display', 'Space Grotesk', 'Roboto', 'Cinzel', 'Bebas Neue'].map(f => <option key={f}>{f}</option>)}</datalist>
+              <Field label="Google font"><input list="google-fonts" value={node.font} onChange={event => updateNode({ font: event.target.value })} /></Field>
+              <datalist id="google-fonts">{['DM Sans', 'Lora', 'Inter', 'Playfair Display', 'Space Grotesk', 'Roboto', 'Cinzel', 'Bebas Neue'].map(font => <option key={font}>{font}</option>)}</datalist>
               <div className="field-grid"><NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
-                <Field label="Text color"><input type="color" value={node.color} onChange={e => updateNode({ color: e.target.value })} /></Field></div>
-              <Field label="Alignment"><select value={node.align} onChange={e => updateNode({ align: e.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
+                <Field label="Text color"><input type="color" value={node.color} onChange={event => updateNode({ color: event.target.value })} /></Field></div>
+              <Field label="Alignment"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
             </>}
-            {node.type === 'image' && <><Field label="Image URL / binding"><textarea rows={3} value={node.text} onChange={e => updateNode({ text: e.target.value })} placeholder="https://... or {{image}}" /></Field><p className="help-text">HTTPS texture URLs and CSV bindings are supported.</p></>}
-            {node.type === 'shape' && <Field label="Botanical motif (optional)"><select value={node.text} onChange={e => updateNode({ text: e.target.value })}><option value="">None</option><option value="fern">Fern</option><option value="moon">Moon</option><option value="sun">Sun</option></select></Field>}
-            {node.type === 'frame' && <>
-              <Field label="Child layout"><select value={node.layout} onChange={e => updateNode({ layout: e.target.value as DesignNode['layout'] })}><option value="absolute">Absolute</option><option value="row">Flex row</option><option value="column">Flex column</option></select></Field>
-              <div className="field-grid"><NumberField label="Gap" value={node.gap} min={0} max={200} onChange={gap => updateNode({ gap })} /><NumberField label="Padding" value={node.padding} min={0} max={200} onChange={padding => updateNode({ padding })} /></div>
-              <Field label="Align children"><select value={node.align} onChange={e => updateNode({ align: e.target.value as DesignNode['align'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></Field>
+            {node.type === 'image' && selected.length === 1 && <><Field label="Image URL / binding"><textarea rows={3} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://... or {{image}}" /></Field><p className="help-text">HTTPS texture URLs and CSV bindings are supported.</p></>}
+            {node.type === 'shape' && selected.length === 1 && <Field label="Botanical motif (optional)"><select value={node.text} onChange={event => updateNode({ text: event.target.value })}><option value="">None</option><option value="fern">Fern</option><option value="moon">Moon</option><option value="sun">Sun</option></select></Field>}
+            {selected.length === 1 && node.type === 'frame' && <>
+              <Field label="Child layout"><select value={node.layout} onChange={event => updateNode({ layout: event.target.value as DesignNode['layout'] })}><option value="absolute">Absolute</option><option value="row">Horizontal stack</option><option value="column">Vertical stack</option></select></Field>
+              <div className="field-grid"><NumberField label="Gap" value={node.gap} min={0} max={200} onChange={gap => updateNode({ gap })} />
+                <Field label="Align children"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></Field></div>
+              {node.layout !== 'absolute' && <Toggle label="Wrap children" checked={node.wrap ?? false} onChange={wrap => updateNode({ wrap })} />}
+              <div className="padding-editor"><span>Padding per edge</span><div className="field-grid">
+                <NumberField label="Top" value={node.paddingTop ?? node.padding} min={0} max={200} onChange={paddingTop => updateNode({ paddingTop })} />
+                <NumberField label="Right" value={node.paddingRight ?? node.padding} min={0} max={200} onChange={paddingRight => updateNode({ paddingRight })} />
+                <NumberField label="Bottom" value={node.paddingBottom ?? node.padding} min={0} max={200} onChange={paddingBottom => updateNode({ paddingBottom })} />
+                <NumberField label="Left" value={node.paddingLeft ?? node.padding} min={0} max={200} onChange={paddingLeft => updateNode({ paddingLeft })} />
+              </div></div>
             </>}
           </div>
         </> : <>
           <div className="inspector-section"><h3>Component</h3>
-            <Field label="Name"><input value={component.name} onChange={e => { if (e.target.value) update({ name: e.target.value }); }} /></Field>
+            <Field label="Name"><input value={component.name} onChange={event => { if (event.target.value) update({ name: event.target.value }); }} /></Field>
             <div className="field-grid"><NumberField label="Width" value={component.width} min={20} max={2000} onChange={width => update({ width })} /><NumberField label="Height" value={component.height} min={20} max={2000} onChange={height => update({ height })} /></div>
-            <Field label="Background"><div className="color-input"><input type="color" aria-label="Component background" value={component.color} onChange={e => update({ color: e.target.value })} /><input value={component.color} onChange={e => update({ color: e.target.value })} /></div></Field>
+            <Field label="Background"><div className="color-input"><input type="color" aria-label="Component background" value={component.color} onChange={event => update({ color: event.target.value })} /><input value={component.color} onChange={event => update({ color: event.target.value })} /></div></Field>
           </div>
-          <div className="inspector-section"><h3>Make it yours</h3><p className="help-text">Select a layer to style it, or add text, images, shapes and nested frames with the toolbar.</p>
+          <div className="inspector-section"><h3>Make it yours</h3><p className="help-text">Select one or more layers to move, edit, group or delete them. Add transparent groups and responsive frames with the toolbar.</p>
             <div className="tip-card"><Code2 size={20} /><strong>One design. Endless cards.</strong><p>Use {'{{name}}'} in any text or image layer to connect it to your CSV.</p><button className="text-button" onClick={() => { setCsv(component.csv); setDataOpen(true); }}>Connect your data <ChevronRight size={13} /></button></div></div>
         </>}
       </div>
     </aside>
     {dataOpen && <Modal title="A little data. A whole deck." subtitle="Each CSV row becomes a different instance of this component." wide onClose={() => setDataOpen(false)}>
-      <div className="data-dialog"><div className="data-toolbar"><span><FileSpreadsheet size={16} /> CSV data source</span><label className="button"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" hidden onChange={async e => {
-        try { const file = e.target.files?.[0]; if (file) setCsv(await file.text()); } catch (error) { notify(String(error), true); }
+      <div className="data-dialog"><div className="data-toolbar"><span><FileSpreadsheet size={16} /> CSV data source</span><label className="button"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" hidden onChange={async event => {
+        try { const file = event.target.files?.[0]; if (file) setCsv(await file.text()); } catch (error) { notify(String(error), true); }
       }} /></label></div>
-        <textarea className="csv-editor" aria-label="CSV data" value={csv} onChange={e => setCsv(e.target.value)} spellCheck={false} />
+        <textarea className="csv-editor" aria-label="CSV data" value={csv} onChange={event => setCsv(event.target.value)} spellCheck={false} />
         <p className="help-text">Include a header row. Quoted cells, commas and multiline text are supported. Updating data refreshes existing pieces by row index.</p>
         <div className="modal-actions"><button className="button" onClick={() => setDataOpen(false)}>Cancel</button><button className="button primary" onClick={saveCsv}><Database size={15} /> Apply data & refresh instances</button></div>
       </div></Modal>}

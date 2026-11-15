@@ -11,6 +11,11 @@ export const nodeSchema = z.object({
   font: z.string().max(100), radius: num.min(0).max(2000), rotation: num,
   layout: z.enum(['absolute', 'row', 'column']), gap: num.min(0).max(200),
   padding: num.min(0).max(200), align: z.enum(['start', 'center', 'end']),
+  widthMode: z.enum(['fixed', 'hug', 'fill']).default('fixed'),
+  heightMode: z.enum(['fixed', 'hug', 'fill']).default('fixed'),
+  wrap: z.boolean().default(false),
+  paddingTop: num.min(0).max(200).optional(), paddingRight: num.min(0).max(200).optional(),
+  paddingBottom: num.min(0).max(200).optional(), paddingLeft: num.min(0).max(200).optional(),
   opacity: num.min(0).max(1),
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
@@ -510,5 +515,31 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
     fill: type === 'text' ? 'transparent' : '#e8b86d', color: '#253d37',
     fontSize: 20, font: 'DM Sans', radius: 0, rotation: 0,
     layout: 'absolute', gap: 8, padding: 0, align: 'start', opacity: 1, ...values,
+    widthMode: values.widthMode ?? 'fixed', heightMode: values.heightMode ?? 'fixed', wrap: values.wrap ?? false,
+    paddingTop: values.paddingTop ?? values.padding ?? 0, paddingRight: values.paddingRight ?? values.padding ?? 0,
+    paddingBottom: values.paddingBottom ?? values.padding ?? 0, paddingLeft: values.paddingLeft ?? values.padding ?? 0,
   };
+}
+
+/** Reparent a layer and place it before a sibling, or last among its new siblings. */
+export function moveLayer(nodes: DesignNode[], id: string, parent: string | null, beforeId?: string): DesignNode[] {
+  const source = nodes.find(node => node.id === id);
+  if (!source) throw new Error('Layer to move does not exist.');
+  if (parent && nodes.find(node => node.id === parent)?.type !== 'frame') throw new Error('Layer parent must be an existing frame.');
+  const descendants = new Set([id]);
+  let previousSize = -1;
+  while (previousSize !== descendants.size) {
+    previousSize = descendants.size;
+    nodes.forEach(node => { if (node.parent && descendants.has(node.parent)) descendants.add(node.id); });
+  }
+  if (parent && descendants.has(parent)) throw new Error('A layer cannot be moved into itself or its descendants.');
+  if (beforeId === id) return nodes;
+  const withoutSource = nodes.filter(node => node.id !== id);
+  const target = beforeId ? withoutSource.find(node => node.id === beforeId) : undefined;
+  if (beforeId && (!target || target.parent !== parent)) throw new Error('Layer order target must be a sibling.');
+  const siblings = withoutSource.filter(node => node.parent === parent);
+  const insertAt = target ? withoutSource.indexOf(target) : siblings.length ? withoutSource.indexOf(siblings[siblings.length - 1]) + 1 : withoutSource.length;
+  const result = [...withoutSource];
+  result.splice(insertAt, 0, { ...source, parent });
+  return result;
 }

@@ -77,9 +77,9 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 ## Designing components
 
 - Start with a card, token, board or die template, or a blank component.
-- Add text, shapes, images and nested frames. Select layers in the hierarchy or canvas.
-- Drag absolute-positioned layers on the canvas; use the inspector for precise positions, size, rotation, colors, opacity, radius and typography.
-- Frames support absolute positioning, flex rows/columns, padding, gaps and alignment. Assign a layer's **Parent** to nest it. Flow-layout children are positioned by their parent instead of being freely draggable.
+- Add text, shapes, images, empty elements and nested frames. The collapsible hierarchy supports drag-and-drop reordering, reparenting, and moving layers back to the component root.
+- Select multiple layers in the hierarchy with Ctrl/Cmd-click (or Shift-click). Drag the selection on the canvas, edit shared properties, group it under a transparent parent, or delete it together. Designer edits support undo and redo.
+- Frames support absolute positioning or horizontal/vertical stacks with wrapping, gaps, alignment and separate padding on each edge. Fixed, hug-contents and fill-parent sizing make layouts adapt to their contents and parent. Assign a layer's **Parent** to nest it; flow-layout children are positioned by their parent instead of being freely draggable.
 - Use a Google Font family name in the font field. Textures support HTTP(S) URLs and raster base64 data URLs. Fonts and remote textures require internet access; external image hosts must permit embedding.
 - Open **Data bindings** to paste or import CSV. A header such as `name,cost,image` exposes `{{name}}`, `{{cost}}` and `{{image}}` in text/image layers. Mix static text and multiple bindings, e.g. `Power: {{power}}`.
 - Each CSV row defines a variant. Select a row to preview it; **Spawn all variants** creates one instance of each. CSV updates immediately refresh every existing instance, including held and stacked pieces, on all connected clients.
