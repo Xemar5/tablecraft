@@ -1,5 +1,31 @@
 import { expect, test } from '@playwright/test';
 
+test('previews switch sides when hovering near the right edge of the playground', async ({ page }) => {
+  await page.goto('/');
+  const tokenId = await page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first().getAttribute('data-piece-id');
+  const token = page.locator(`[data-piece-id="${tokenId}"]`);
+  const preview = page.locator('.hover-preview');
+  const viewport = (await page.locator('.table-viewport').boundingBox())!;
+  for (const fraction of [.85, .3, .85]) {
+    await token.hover();
+    await page.mouse.down();
+    await page.mouse.move(viewport.x + viewport.width * fraction, viewport.y + viewport.height * .65, { steps: 10 });
+    await page.mouse.up();
+    await token.hover();
+    await expect(preview).toBeVisible();
+    await expect.poll(async () => {
+      const bounds = (await preview.boundingBox())!;
+      return fraction > 2 / 3
+        ? Math.abs(bounds.x - viewport.x - 16)
+        : Math.abs(bounds.x + bounds.width - viewport.x - viewport.width + 16);
+    }).toBeLessThan(2);
+    await page.keyboard.down('Alt');
+    await expect(preview).toHaveCount(0);
+    await page.keyboard.up('Alt');
+    await expect(preview).toBeVisible();
+  }
+});
+
 test('scaled previews have no empty horizontal overflow and locked pieces have no preview', async ({ page }) => {
   await page.goto('/');
   const tokenId = await page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first().getAttribute('data-piece-id');

@@ -29,6 +29,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [hovered, setHovered] = useState<string>();
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
+  const [previewOnLeft, setPreviewOnLeft] = useState(false);
   const [seatsUnlocked, setSeatsUnlocked] = useState(false);
   const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number }>();
   const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number }>(null);
@@ -89,6 +90,15 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const leavePiece = (event: React.PointerEvent) => {
     setHovered(undefined);
     if (!(event.relatedTarget instanceof Element) || !event.relatedTarget.closest('.hover-preview')) setPreviewItem(undefined);
+  };
+  const positionPreview = (clientX: number) => {
+    const rect = viewport.current?.getBoundingClientRect();
+    if (rect) setPreviewOnLeft(clientX >= rect.left + rect.width * 2 / 3);
+  };
+  const enterPiece = (event: React.PointerEvent, id: string) => {
+    pointer.current = { x: event.clientX, y: event.clientY };
+    positionPreview(event.clientX);
+    setHovered(id); setPreviewItem(id);
   };
 
   const fit = useCallback(() => {
@@ -312,7 +322,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     gesture.current = null; setPreview({}); setDropHint(undefined);
   };
   return <div className="playground-layout">
-    <section className="table-section">
+    <section className="table-section" onPointerMoveCapture={e => {
+      if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id]')) positionPreview(e.clientX);
+    }}>
       <div ref={viewport} className={`table-viewport ${tool === 'pan' ? 'pan-mode' : ''}`}
         onPointerLeave={() => { if (!gesture.current) { pointer.current = null; setHovered(undefined); setPreviewItem(undefined); } }}
         onContextMenu={e => e.preventDefault()}
@@ -444,7 +456,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               style={{ left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : p.instances.indexOf(item) + 2,
                 transform: `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})` }}
               onPointerDown={e => startPiece(e, item)}
-              onPointerEnter={e => { pointer.current = { x: e.clientX, y: e.clientY }; setHovered(item.id); setPreviewItem(item.id); }} onPointerLeave={leavePiece}
+              onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece}
               onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} tabIndex={0} role="button" aria-label={`${comp.name}${members.length > 1 ? `, stack of ${members.length}` : ''}`}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const ids = members.map(i => i.id); setSelected(e.shiftKey ? [...new Set([...selected, ...ids])] : ids); } }}
               onDoubleClick={e => { e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
@@ -467,7 +479,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         {previewItem && !gesture.current && !altDown && (() => {
           const item = p.instances.find(i => i.id === previewItem && !i.locked && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
-          return item && comp ? <div className="hover-preview" aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
+          return item && comp ? <div className="hover-preview" style={previewOnLeft ? { left: 16, right: 'auto' } : undefined} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
           }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong>
@@ -485,7 +497,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           const remaining = held.filter(i => !draggingIds.includes(i.id));
           return <div key={item.id} className={`hand-entry ${draggingIds.includes(item.id) ? 'hand-drag-source' : ''} ${insertion !== undefined && remaining[insertion]?.id === item.id ? 'hand-insert-before' : ''}`}><button data-hand-id={item.id} className={`hand-card ${selected.includes(item.id) ? 'hand-selected' : ''}`} title="Drag onto the table to play or onto another card to reorder" aria-label={`Drag ${comp.name} to the table or reorder it in hand`} onClick={e => {
             if (e.shiftKey || e.ctrlKey || e.metaKey) setSelected(selected.includes(item.id) ? selected.filter(id => id !== item.id) : [...selected, item.id]);
-          }} onPointerEnter={e => { pointer.current = { x: e.clientX, y: e.clientY }; setHovered(item.id); setPreviewItem(item.id); }} onPointerLeave={leavePiece} onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} onPointerDown={e => {
+          }} onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece} onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} onPointerDown={e => {
             if (e.button !== 0) return;
             handGesture.current = { pointer: e.pointerId, id: item.id, x: e.clientX, y: e.clientY };
             e.currentTarget.setPointerCapture(e.pointerId);
