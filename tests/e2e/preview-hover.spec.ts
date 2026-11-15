@@ -1,0 +1,30 @@
+import { expect, test } from '@playwright/test';
+
+test('previews follow hover and Alt only temporarily suppresses the hovered piece', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  const preview = page.locator('.hover-preview');
+  await stack.hover();
+  await expect(preview).toBeVisible();
+  await page.keyboard.down('Alt');
+  await expect(preview).toHaveCount(0);
+  await page.keyboard.up('Alt');
+  await expect(preview).toBeVisible();
+  const viewport = (await page.locator('.table-viewport').boundingBox())!;
+  await page.mouse.move(viewport.x + 12, viewport.y + viewport.height - 70);
+  await expect(preview).toHaveCount(0);
+  await page.keyboard.press('Alt');
+  await expect(preview).toHaveCount(0);
+  await stack.hover();
+  await page.keyboard.press('1');
+  const card = page.locator('.hand-card').first();
+  await card.hover();
+  await expect(preview).toBeVisible();
+  await page.getByRole('button', { name: 'Shuffle hand', exact: true }).hover();
+  await expect(preview).toHaveCount(0);
+  await stack.hover();
+  await preview.hover();
+  await expect(preview).toBeVisible();
+  await page.mouse.move(viewport.x + 12, viewport.y + viewport.height - 70);
+  await expect(preview).toHaveCount(0);
+});
