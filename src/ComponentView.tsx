@@ -1,45 +1,19 @@
 import { useState, type CSSProperties, type PointerEvent } from 'react';
 import { bind, safeImage, type Component, type DesignNode } from './domain';
-import { pathForCompound, pathForShape } from './vectorGeometry';
-
-function Botanical({ variant, color }: { variant: string; color: string }) {
-  return <svg viewBox="0 0 200 180" className={`botanical botanical-${variant}`} aria-hidden="true">
-    <defs><radialGradient id={`glow-${variant}`}><stop stopColor={color} stopOpacity=".22" /><stop offset="1" stopColor={color} stopOpacity="0" /></radialGradient></defs>
-    <circle cx="100" cy="85" r="80" fill={`url(#glow-${variant})`} />
-    {variant === 'moon' ? <>
-      <circle cx="100" cy="70" r="36" fill="#d9d9b2" /><circle cx="115" cy="58" r="33" fill="#294c40" />
-      {[30, 60, 135, 162].map((x, i) => <path key={x} d={`M${x} ${95 + i * 4}l5 -25 5 25z`} fill={color} opacity=".45" />)}
-      <path d="M75 175 Q130 125 90 107 Q75 92 110 86" fill="none" stroke="#dacba0" strokeWidth="8" opacity=".5" />
-    </> : variant === 'sun' ? <>
-      <circle cx="100" cy="82" r="32" fill="#ead39a" />
-      {Array.from({ length: 12 }, (_, i) => <path key={i} d="M100 30v-15" stroke="#ead39a" strokeWidth="2" transform={`rotate(${i * 30} 100 82)`} />)}
-      <path d="M20 160Q60 115 100 150Q150 110 185 157" stroke={color} fill="none" strokeWidth="2" />
-    </> : <>
-      <path d="M100 174Q84 98 105 27" stroke={color} strokeWidth="2.5" fill="none" />
-      {Array.from({ length: 7 }, (_, i) => {
-        const y = 45 + i * 17;
-        const w = 17 + Math.sin(i / 7 * Math.PI) * 30;
-        return <g key={i}>
-          <path d={`M98 ${y + 17}Q${98 - w} ${y + 9} ${96 - w} ${y - 10}Q94 ${y - 8} 98 ${y + 17}`} fill={color} opacity={.65 + i * .04} />
-          <path d={`M98 ${y + 10}Q${100 + w} ${y + 3} ${103 + w} ${y - 15}Q103 ${y - 8} 98 ${y + 10}`} fill={color} opacity={.7 + i * .03} />
-        </g>;
-      })}
-      <circle cx="45" cy="37" r="2" fill="#e1cf9e" /><circle cx="151" cy="71" r="1.5" fill="#e1cf9e" />
-      <circle cx="143" cy="146" r="2" fill="#e1cf9e" />
-    </>}
-  </svg>;
-}
+import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
 
 export type PointEditEvent = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; event: PointerEvent<SVGCircleElement> };
 type ViewProps = {
   component: Component; components?: Component[]; row?: number; back?: boolean; hidden?: boolean;
   onNode?: (id: string, event: PointerEvent<HTMLDivElement>) => void; selectedNode?: string; selectedNodes?: string[];
-  editableVector?: boolean; onPointDown?: (edit: PointEditEvent) => void; inheritedData?: Record<string, string>;
+  editableVector?: boolean; onPointDown?: (edit: PointEditEvent) => void; selectedPoint?: number | null;
+  onSegmentDown?: (nodeId: string, index: number, event: PointerEvent<SVGPathElement>) => void;
+  inheritedData?: Record<string, string>;
   nestedPath?: string[];
 };
 
 export function ComponentView({ component: c, components = [c], row = 0, back = false, hidden = false, onNode, selectedNode, selectedNodes,
-  editableVector = false, onPointDown, inheritedData, nestedPath = [] }: ViewProps) {
+  editableVector = false, onPointDown, onSegmentDown, selectedPoint, inheritedData, nestedPath = [] }: ViewProps) {
   const selectedIds = selectedNodes ?? (selectedNode ? [selectedNode] : []);
   const face = hidden || (back && c.flippable) ? 'back' : 'front';
   const [reveal, setReveal] = useState({ face, changed: false });
@@ -59,19 +33,19 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
     if (current?.type === 'compound') compoundEditing.add(current.id);
   });
   const render = (node: DesignNode, parent?: DesignNode, contextData = data, sourceOutline = false): React.ReactNode => {
+    if (node.visibilityField && (node.visibilityField.includes('{{') ? bind(node.visibilityField, contextData) : contextData[node.visibilityField]) !== node.visibilityValue) return null;
     const flow = !!parent && parent.layout !== 'absolute';
     const text = bind(node.text, contextData);
     const widthMode = node.widthMode ?? 'fixed', heightMode = node.heightMode ?? 'fixed';
     const rowFlow = parent?.layout === 'row', columnFlow = parent?.layout === 'column';
     const fillsMainAxis = flow && ((rowFlow && widthMode === 'fill') || (columnFlow && heightMode === 'fill'));
-    const legacyShape = !sourceOutline && node.type === 'shape' && node.shapeKind === 'rectangle' && ['fern', 'moon', 'sun'].includes(text);
     const style: CSSProperties = {
       position: flow ? 'relative' : 'absolute', left: flow ? undefined : node.x, top: flow ? undefined : node.y,
       width: widthMode === 'hug' ? 'max-content' : widthMode === 'fill' ? flow && rowFlow ? undefined : '100%' : node.width,
       height: heightMode === 'hug' ? 'max-content' : heightMode === 'fill' ? flow && columnFlow ? undefined : '100%' : node.height,
       flex: fillsMainAxis ? '1 1 0' : undefined, flexShrink: widthMode === 'fill' || heightMode === 'fill' ? undefined : 0, boxSizing: 'border-box',
-      background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? legacyShape ? node.fill : 'transparent' : node.fill,
-      color: node.color, borderRadius: node.type === 'shape' ? legacyShape ? node.radius : 0 : node.radius,
+      background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? 'transparent' : node.fill,
+      color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,
       fontSize: node.fontSize, fontFamily: `"${node.font}", sans-serif`,
       transform: `rotate(${node.rotation}deg)`, opacity: node.opacity,
       paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
@@ -83,7 +57,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
       justifyContent: node.type === 'text' ? 'center' : undefined,
       textAlign: node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : 'center',
       outline: selectedIds.includes(node.id) ? '2px solid #c5e497' : undefined,
-      overflow: node.type === 'component' ? 'hidden' : undefined,
+      overflow: node.type === 'component' ? 'hidden' : node.type === 'shape' && node.shapeKind === 'path' ? 'visible' : undefined,
     };
     let nested: React.ReactNode;
     if (node.type === 'component') {
@@ -113,28 +87,38 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
           </div>;
       }
     }
-    const svgShape = legacyShape;
     let shape: React.ReactNode;
-    if (node.type === 'shape' && svgShape) shape = <Botanical variant={text} color={text === 'sun' ? '#876a32' : '#b5c391'} />;
-    else if (node.type === 'shape' || node.type === 'compound') {
+    const bounds = node.type === 'shape' && node.shapeKind === 'path' && node.points.length ? pathBounds(node) : undefined;
+    const left = bounds ? Math.min(0, bounds.minX) : 0, top = bounds ? Math.min(0, bounds.minY) : 0;
+    const vectorWidth = bounds ? Math.max(node.width, bounds.maxX) - left : node.width;
+    const vectorHeight = bounds ? Math.max(node.height, bounds.maxY) - top : node.height;
+    const vectorStyle: CSSProperties = { left: `${left / node.width * 100}%`, top: `${top / node.height * 100}%`,
+      width: `${vectorWidth / node.width * 100}%`, height: `${vectorHeight / node.height * 100}%`, right: 'auto', bottom: 'auto' };
+    const vectorBox = `${left} ${top} ${vectorWidth} ${vectorHeight}`;
+    if (node.type === 'shape' || node.type === 'compound') {
       const path = node.type === 'shape' ? pathForShape(node) : pathForCompound(nodes, node);
       const openPath = node.type === 'shape' && node.shapeKind === 'path' && !node.pathClosed;
-      shape = <svg className="vector-shape" width="100%" height="100%" viewBox={`0 0 ${node.width} ${node.height}`} preserveAspectRatio="none" aria-hidden="true">
+      shape = <svg className="vector-shape" style={vectorStyle} viewBox={vectorBox} preserveAspectRatio="none" aria-hidden="true">
         <path d={path} fill={sourceOutline || openPath ? 'none' : node.fill}
           fillRule={node.type === 'compound' ? 'evenodd' : undefined}
           stroke={sourceOutline ? '#365d46' : node.stroke === 'transparent' ? openPath ? node.fill : undefined : node.stroke}
-          strokeWidth={sourceOutline ? Math.max(1.2, node.strokeWidth) : openPath ? Math.max(1, node.strokeWidth) : node.strokeWidth}
+          strokeWidth={sourceOutline ? Math.max(1.2, node.strokeWidth) : openPath ? Math.max(1, node.strokeWidth) : node.strokeWidth} strokeLinejoin="round" strokeLinecap="round"
           strokeDasharray={sourceOutline ? '4 3' : undefined} />
       </svg>;
     }
     const vectorEditor = editableVector && selectedIds.includes(node.id) && node.type === 'shape' && node.shapeKind === 'path' ?
-      <svg className="vector-point-editor" viewBox={`0 0 ${node.width} ${node.height}`} aria-label={`${node.name} vector points`}>
+      <svg className="vector-point-editor" style={vectorStyle} viewBox={vectorBox} preserveAspectRatio="none" aria-label={`${node.name} vector points`}>
+        {node.points.slice(0, node.points.length - (node.pathClosed ? 0 : 1)).map((point, index) => {
+          const next = node.points[(index + 1) % node.points.length];
+          return <path key={`segment-${index}`} className="vector-segment" d={`M ${point.x} ${point.y} C ${point.x + point.outX} ${point.y + point.outY} ${next.x + next.inX} ${next.y + next.inY} ${next.x} ${next.y}`}
+            onPointerDown={event => { event.stopPropagation(); onSegmentDown?.(node.id, index, event); }} />;
+        })}
         {node.points.map((point, index) => <g key={index}>
           {(point.inX || point.inY) && <><line x1={point.x} y1={point.y} x2={point.x + point.inX} y2={point.y + point.inY} />
             <circle className="vector-handle" cx={point.x + point.inX} cy={point.y + point.inY} r={3.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'in', event }); }} /></>}
           {(point.outX || point.outY) && <><line x1={point.x} y1={point.y} x2={point.x + point.outX} y2={point.y + point.outY} />
             <circle className="vector-handle" cx={point.x + point.outX} cy={point.y + point.outY} r={3.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'out', event }); }} /></>}
-          <circle className="vector-anchor" cx={point.x} cy={point.y} r={4.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'point', event }); }} />
+          <circle className={`vector-anchor${selectedPoint === index ? ' selected' : ''}`} cx={point.x} cy={point.y} r={4.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'point', event }); }} />
         </g>)}
       </svg> : null;
     return <div key={node.id} style={style} className={`design-node node-${node.type}`}
@@ -150,7 +134,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
   return <div key={face} className={`component-face component-${c.kind}${reveal.changed ? ' face-flipped' : ''}`} style={{
     width: c.width, height: c.height, background: hidden && !nodes.length ? '#365d46' : c.color,
     borderRadius: c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
-  }}>{hidden && !nodes.length ? <div className="hidden-face"><Botanical variant="fern" color="#bbcda2" /></div> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
+  }}>{hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 }
 
 export function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width = 100 }: {

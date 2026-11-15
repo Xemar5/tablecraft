@@ -1,16 +1,17 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload, Combine } from 'lucide-react';
+import { ChevronDown, ChevronRight, Circle, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload, Combine } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { download, exportComponentBundle } from './storage';
 import { Field, Modal, NumberField, Toggle } from './ui';
+import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 
 type Face = 'front' | 'back';
 type DragPosition = { x: number; y: number };
 type LayerDrag = { ids: string[]; pointer: number; clientX: number; clientY: number; positions: Record<string, DragPosition>; angles: Record<string, number> };
-type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; angle: number; point: DesignNode['points'][number] };
+type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; inverse: DOMMatrix; localX: number; localY: number; point: DesignNode['points'][number] };
 
 function descendantsOf(nodes: DesignNode[], ids: string[]) {
   const descendants = new Set(ids);
@@ -79,7 +80,16 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   useEffect(() => { if (!pending.current) setComponent(incoming); }, [incoming]);
   const [face, setFace] = useState<Face>('front');
   const [selected, setSelected] = useState<string[]>([]);
-  const [selectedPoint, setSelectedPoint] = useState(0);
+  const [selectedPoint, setSelectedPoint] = useState(-1);
+  const [toolMenu, setToolMenu] = useState<'shape' | 'link' | 'boolean' | null>(null);
+  useEffect(() => {
+    if (!toolMenu) return;
+    const dismiss = (event: globalThis.PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest('.designer-tool-menu')) setToolMenu(null);
+    };
+    document.addEventListener('pointerdown', dismiss);
+    return () => document.removeEventListener('pointerdown', dismiss);
+  }, [toolMenu]);
   const [shapeKind, setShapeKind] = useState<DesignNode['shapeKind']>('rectangle');
   const [compoundOperation, setCompoundOperation] = useState<DesignNode['compoundOperation']>('union');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
@@ -107,12 +117,15 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const artboard = useRef<HTMLDivElement>(null);
   const dragging = useRef<LayerDrag>(null);
   const pointDragging = useRef<PointDrag>(null);
+  const pointSelectionNode = useRef<string | undefined>(undefined);
+  const lastAnchorDown = useRef<{ nodeId: string; index: number; time: number } | null>(null);
   const nodes = component[face];
   const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
   const node = selectedNodes[0];
   useEffect(() => {
+    if (pointSelectionNode.current !== node?.id) { pointSelectionNode.current = node?.id; setSelectedPoint(-1); return; }
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
-    else setSelectedPoint(0);
+    else setSelectedPoint(-1);
   }, [node?.id, node?.type === 'shape' ? node.points.length : 0]);
   const commit = async (next: Component, removedDataRow?: number) => {
     pending.current++;
@@ -127,9 +140,17 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     setFuture([]);
     return commit({ ...component, ...patch }, removedDataRow);
   };
-  const updateNode = (patch: Partial<DesignNode>) => update({
-    [face]: nodes.map(item => selected.includes(item.id) ? { ...item, ...patch } : item),
-  });
+  const updateNode = (patch: Partial<DesignNode>) => {
+    try {
+      return update({ [face]: nodes.map(item => {
+        if (!selected.includes(item.id)) return item;
+        const next = { ...item, ...patch };
+        const parent = nodes.find(candidate => candidate.id === next.parent);
+        return (patch.points || patch.strokeWidth !== undefined || patch.stroke !== undefined || patch.pathClosed !== undefined)
+          && (!parent || parent.layout === 'absolute') ? expandPathBounds(next) : next;
+      }) });
+    } catch (error) { notify(error instanceof Error ? error.message : 'Unable to edit path.', true); return Promise.resolve(false); }
+  };
   const addNode = (type: DesignNode['type'], empty = false) => {
     const parentCandidate = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
     const parent = parentCandidate && (parentCandidate.type === 'frame' || (type === 'shape' && parentCandidate.type === 'compound')) ? parentCandidate.id : null;
@@ -183,43 +204,62 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     const selectedNode = nodes.find(item => item.id === nodeId);
     if (!selectedNode) return;
     setSelected([nodeId]); setSelectedPoint(pointIndex);
+    if (handle === 'point' && event.altKey) { lastAnchorDown.current = null; deletePoint(pointIndex); return; }
+    if (handle === 'point') {
+      const previous = lastAnchorDown.current, time = performance.now();
+      if (previous?.nodeId === nodeId && previous.index === pointIndex && time - previous.time < 450) {
+        lastAnchorDown.current = null; toggleHandles(nodeId, pointIndex); return;
+      }
+      lastAnchorDown.current = { nodeId, index: pointIndex, time };
+    }
+    const matrix = event.currentTarget.ownerSVGElement?.getScreenCTM();
+    if (!matrix) return;
+    const inverse = matrix.inverse(), start = new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse);
     pointDragging.current = { nodeId, pointIndex, handle, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY,
-      angle: nodeAngle(selectedNode, nodes) + selectedNode.rotation * Math.PI / 180, point: { ...selectedNode.points[pointIndex] } };
+      inverse, localX: start.x, localY: start.y, point: { ...selectedNode.points[pointIndex] } };
     artboard.current?.setPointerCapture(event.pointerId);
   };
   const appendPoint = () => {
     if (selected.length !== 1 || node?.type !== 'shape' || node.shapeKind !== 'path') return;
     if (node.points.length >= 128) { notify('Paths are limited to 128 points.', true); return; }
-    const index = Math.min(selectedPoint, node.points.length - 1), from = node.points[index];
+    const index = Math.max(0, Math.min(selectedPoint, node.points.length - 1)), from = node.points[index];
     const points = [...node.points];
     const hasNext = index + 1 < points.length || node.pathClosed;
     if (!hasNext) {
       points.push({ x: from.x + Math.min(node.width, node.height) / 6, y: from.y, inX: 0, inY: 0, outX: 0, outY: 0 });
       setSelectedPoint(points.length - 1);
     } else {
-      const nextIndex = (index + 1) % points.length, to = points[nextIndex];
-      const average = (a: number, b: number) => (a + b) / 2;
-      const p0 = { x: from.x, y: from.y }, p1 = { x: from.x + from.outX, y: from.y + from.outY };
-      const p2 = { x: to.x + to.inX, y: to.y + to.inY }, p3 = { x: to.x, y: to.y };
-      const q0 = { x: average(p0.x, p1.x), y: average(p0.y, p1.y) };
-      const q1 = { x: average(p1.x, p2.x), y: average(p1.y, p2.y) };
-      const q2 = { x: average(p2.x, p3.x), y: average(p2.y, p3.y) };
-      const r0 = { x: average(q0.x, q1.x), y: average(q0.y, q1.y) };
-      const r1 = { x: average(q1.x, q2.x), y: average(q1.y, q2.y) };
-      const midpoint = { x: average(r0.x, r1.x), y: average(r0.y, r1.y) };
-      points[index] = { ...from, outX: q0.x - p0.x, outY: q0.y - p0.y };
-      points[nextIndex] = { ...to, inX: q2.x - p3.x, inY: q2.y - p3.y };
-      points.splice(index + 1, 0, { ...midpoint, inX: r0.x - midpoint.x, inY: r0.y - midpoint.y,
-        outX: r1.x - midpoint.x, outY: r1.y - midpoint.y });
+      points.splice(0, points.length, ...splitPathSegment(points, index, .5));
       setSelectedPoint(index + 1);
     }
     updateNode({ points }); setSelectedPoint(index + 1);
   };
-  const deletePoint = () => {
+  const deletePoint = (index = selectedPoint) => {
     if (selected.length !== 1 || node?.type !== 'shape' || node.shapeKind !== 'path') return;
+    if (index < 0 || index >= node.points.length) return;
     if (node.points.length <= (node.pathClosed ? 3 : 2)) { notify(`A ${node.pathClosed ? 'closed' : 'open'} path needs at least ${node.pathClosed ? 3 : 2} points.`, true); return; }
-    const points = node.points.filter((_, index) => index !== selectedPoint);
-    updateNode({ points }); setSelectedPoint(Math.max(0, Math.min(selectedPoint, points.length - 1)));
+    const points = node.points.filter((_, pointIndex) => pointIndex !== index);
+    updateNode({ points }); setSelectedPoint(Math.max(0, Math.min(index, points.length - 1)));
+  };
+  const segmentDown = (nodeId: string, index: number, event: PointerEvent<SVGPathElement>) => {
+    event.preventDefault();
+    const shape = nodes.find(item => item.id === nodeId);
+    if (!shape || shape.points.length >= 128) { notify('Paths are limited to 128 points.', true); return; }
+    const matrix = event.currentTarget.getScreenCTM();
+    if (!matrix) return;
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    const t = closestSegmentParameter(segmentControls(shape.points[index], shape.points[(index + 1) % shape.points.length]), [point.x, point.y]);
+    if (t <= .001 || t >= .999) return;
+    updateNode({ points: splitPathSegment(shape.points, index, t) }); setSelectedPoint(index + 1);
+  };
+  const toggleHandles = (nodeId: string, index: number) => {
+    if (node?.id !== nodeId) return;
+    const point = node.points[index], size = Math.min(node.width, node.height) / 6;
+    const expanded = !!(point.inX || point.inY || point.outX || point.outY);
+    updateNode({ points: node.points.map((value, i) => i !== index ? value : {
+      ...value, inX: expanded ? 0 : -size, inY: 0, outX: expanded ? 0 : size, outY: 0,
+    }) });
+    setSelectedPoint(index);
   };
   const undo = () => {
     const previous = history.at(-1); if (!previous) return;
@@ -247,6 +287,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       }
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
+      if (key === 'escape' && toolMenu) { event.preventDefault(); setToolMenu(null); return; }
       if (event.altKey) return;
       try {
         if (command && key === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); }
@@ -270,7 +311,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           }
           else if (selected.length) createGroup();
         } else if (!command && (key === 'delete' || key === 'backspace') && selected.length) {
-          event.preventDefault(); removeNode();
+          event.preventDefault(); if (node?.shapeKind === 'path' && node.type === 'shape' && selected.length === 1 && selectedPoint >= 0) deletePoint(); else removeNode();
         } else if (!command && key === 'escape') { event.preventDefault(); setSelected([]); }
         else if (!command && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key) && selected.length) {
           event.preventDefault();
@@ -454,29 +495,22 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>
           <button title="Add shape" aria-label="Add shape" onClick={() => addNode('shape')}><Square size={18} /></button>
-          <select aria-label="Shape type to add" value={shapeKind} onChange={event => setShapeKind(event.target.value as DesignNode['shapeKind'])}>
-            <option value="rectangle">Rectangle</option><option value="ellipse">Ellipse</option><option value="polygon">Polygon</option>
-            <option value="star">Star</option><option value="path">Pen path</option>
-          </select>
+          <div className="designer-tool-menu"><button aria-label="Shape type to add" title="Shape type to add" aria-expanded={toolMenu === 'shape'} onClick={() => setToolMenu(toolMenu === 'shape' ? null : 'shape')}><Circle size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
+            {toolMenu === 'shape' && <div className="designer-popover" role="menu">{(['rectangle', 'ellipse', 'polygon', 'star', 'path'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { setShapeKind(kind); setToolMenu(null); }}>{kind === 'path' ? 'Pen path' : kind[0].toUpperCase() + kind.slice(1)}{shapeKind === kind ? ' ✓' : ''}</button>)}</div>}</div>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title="Add frame" aria-label="Add frame" onClick={() => addNode('frame')}><Frame size={18} /></button>
           <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><SquareDashed size={17} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
-          <select aria-label="Link nested component" value="" onChange={event => { if (event.target.value) addNestedComponent(event.target.value); }}>
-            <option value="">Link component…</option>{components.filter(item => item.id !== component.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
+          <div className="designer-tool-menu"><button aria-label="Link nested component" title="Link nested component" aria-expanded={toolMenu === 'link'} onClick={() => setToolMenu(toolMenu === 'link' ? null : 'link')}><Link2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
+            {toolMenu === 'link' && <div className="designer-popover" role="menu">{components.filter(item => item.id !== component.id).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>}</div>
         </div><span className="toolbar-divider" />
-        <select aria-label="Boolean operation" value={compoundOperation} onChange={event => setCompoundOperation(event.target.value as DesignNode['compoundOperation'])}>
-          <option value="union">Union</option><option value="subtract">Subtract</option><option value="intersect">Intersect</option><option value="exclude">Exclude</option>
-        </select>
+        <div className="designer-tool-menu"><button aria-label="Boolean operation" title="Boolean operation" aria-expanded={toolMenu === 'boolean'} onClick={() => setToolMenu(toolMenu === 'boolean' ? null : 'boolean')}><Combine size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
+          {toolMenu === 'boolean' && <div className="designer-popover" role="menu">{(['union', 'subtract', 'intersect', 'exclude'] as const).map(operation => <button role="menuitem" key={operation} onClick={() => { setCompoundOperation(operation); setToolMenu(null); }}>{operation[0].toUpperCase() + operation.slice(1)}{compoundOperation === operation ? ' ✓' : ''}</button>)}</div>}</div>
         <button title="Create editable live compound" aria-label="Create live compound" disabled={selected.length < 2} onClick={makeCompound}><Combine size={16} /></button>
         <button title="Uncombine live compound" aria-label="Uncombine live compound" disabled={!selectedNodes.length || selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={16} /></button>
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
-        <div className="toolbar-end"><select aria-label="Preview data row" value={row} onChange={event => setRow(Number(event.target.value))}>
-          {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{dataRow.name ?? `Row ${index + 1}`}</option>) : <option value="0">No data source</option>}
-        </select></div>
       </div>
       <div ref={stage} className="designer-stage" tabIndex={-1}
         onPointerDownCapture={event => {
@@ -504,13 +538,15 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           onPointerMove={event => {
             const pointDrag = pointDragging.current;
             if (pointDrag && pointDrag.pointer === event.pointerId) {
-              const dx = (event.clientX - pointDrag.clientX) / zoom, dy = (event.clientY - pointDrag.clientY) / zoom;
-              const angle = -pointDrag.angle, cos = Math.cos(angle), sin = Math.sin(angle);
-              const localX = dx * cos - dy * sin, localY = dx * sin + dy * cos;
+              if (Math.hypot(event.clientX - pointDrag.clientX, event.clientY - pointDrag.clientY) > 2) lastAnchorDown.current = null;
+              const local = new DOMPoint(event.clientX, event.clientY).matrixTransform(pointDrag.inverse);
+              const localX = local.x - pointDrag.localX, localY = local.y - pointDrag.localY;
               const point = { ...pointDrag.point };
               if (pointDrag.handle === 'point') { point.x += localX; point.y += localY; }
               else if (pointDrag.handle === 'in') { point.inX += localX; point.inY += localY; }
               else { point.outX += localX; point.outY += localY; }
+              if (event.shiftKey && pointDrag.handle === 'in') { point.outX = -point.inX; point.outY = -point.inY; }
+              if (event.shiftKey && pointDrag.handle === 'out') { point.inX = -point.outX; point.inY = -point.outY; }
               const round = (value: number) => Math.round(value * 100) / 100;
               setPointPreview({ nodeId: pointDrag.nodeId, pointIndex: pointDrag.pointIndex,
                 point: { x: round(point.x), y: round(point.y), inX: round(point.inX), inY: round(point.inY), outX: round(point.outX), outY: round(point.outY) } });
@@ -530,9 +566,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             const pointDrag = pointDragging.current;
             if (pointDrag && pointDrag.pointer === event.pointerId) {
               const preview = pointPreview;
-              if (preview) update({ [face]: nodes.map(item => item.id !== preview.nodeId ? item : {
-                ...item, points: item.points.map((point, index) => index === preview.pointIndex ? preview.point : point),
-              }) });
+              if (preview) updateNode({ points: nodes.find(item => item.id === preview.nodeId)!.points.map((point, index) => index === preview.pointIndex ? preview.point : point) });
               pointDragging.current = null; setPointPreview(undefined); return;
             }
             const drag = dragging.current;
@@ -548,7 +582,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               ...item, ...(dragPreview?.[item.id] ?? {}),
               ...(pointPreview?.nodeId === item.id ? { points: item.points.map((point, index) => index === pointPreview.pointIndex ? pointPreview.point : point) } : {}),
             })) }} components={components}
-              row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} editableVector onPointDown={pointDown} />
+              row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} editableVector onPointDown={pointDown}
+              selectedPoint={selectedPoint} onSegmentDown={segmentDown} />
           </div>
         </div>
         <div className="canvas-caption"><span className="live-dot" /> Live component <span>Changes appear on every instance</span></div>
@@ -599,6 +634,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         </> : node ? <>
           <div className="inspector-section" key={node.id}><div className="section-title"><h3>{selected.length > 1 ? `${selected.length} selected layers` : `${node.type} layer`}</h3><button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button></div>
             <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
+            {selected.length === 1 && <><Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
+              {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}</>}
             <div className="field-grid"><NumberField label="X" value={node.x} onChange={x => updateNode({ x })} />
               <NumberField label="Y" value={node.y} onChange={y => updateNode({ y })} />
               <NumberField label="Width" value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} />
@@ -660,7 +697,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               </div>
               {node.shapeKind === 'path' && <>
                 <div className="vector-editor-heading"><strong>Path points</strong><span>{node.points.length} points</span></div>
-                <Field label="Selected point"><select value={Math.min(selectedPoint, Math.max(0, node.points.length - 1))} onChange={event => setSelectedPoint(Number(event.target.value))}>
+                <Field label="Selected point"><select value={selectedPoint} onChange={event => setSelectedPoint(Number(event.target.value))}>
+                  <option value={-1}>None</option>
                   {node.points.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
                 </select></Field>
                 {node.points[selectedPoint] && <>
@@ -678,7 +716,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                   </div>
                 </>}
                 <div className="button-row"><button className="button" onClick={appendPoint}>Add point</button>
-                  <button className="button danger" onClick={deletePoint}>Delete point</button></div>
+                  <button className="button danger" onClick={() => deletePoint()}>Delete point</button></div>
                 <Toggle label="Closed path" checked={node.pathClosed} onChange={pathClosed => updateNode({ pathClosed })} />
                 <p className="help-text">Drag anchors and Bézier handles on the canvas, or edit their coordinates here.</p>
               </>}
@@ -737,6 +775,9 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <div className="data-dialog"><div className="data-toolbar"><span><FileSpreadsheet size={16} /> CSV data source</span><label className="button"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" hidden onChange={async event => {
         try { const file = event.target.files?.[0]; if (file) setCsv(await file.text()); } catch (error) { notify(String(error), true); }
       }} /></label></div>
+        {!!component.rows.length && <Field label="Preview row"><select value={row} onChange={event => setRow(Number(event.target.value))}>
+          {component.rows.map((dataRow, index) => <option key={index} value={index}>{dataRow.name ?? `Row ${index + 1}`}</option>)}
+        </select></Field>}
         <textarea className="csv-editor" aria-label="CSV data" value={csv} onChange={event => setCsv(event.target.value)} spellCheck={false} />
         <p className="help-text">Include a header row. Quoted cells, commas and multiline text are supported. Updating data refreshes existing pieces by row index.</p>
         <div className="modal-actions"><button className="button" onClick={() => setDataOpen(false)}>Cancel</button><button className="button primary" onClick={saveCsv}><Database size={15} /> Apply data & refresh instances</button></div>

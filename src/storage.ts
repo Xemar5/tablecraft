@@ -1,5 +1,5 @@
 import { archiveSchema, componentSchema, uid, validateProject, type Archive, type Component, type Project } from './domain';
-import { starterProject } from './templates';
+import { starterProject, upgradeLegacyArtwork } from './templates';
 
 const KEY = 'tablecraft.workspace.v1';
 export function loadWorkspace(): Archive {
@@ -8,7 +8,8 @@ export function loadWorkspace(): Archive {
   return parseArchive(raw);
 }
 export function parseArchive(raw: string): Archive {
-  const archive = archiveSchema.parse(JSON.parse(raw));
+  const parsed = archiveSchema.parse(JSON.parse(raw));
+  const archive = { ...parsed, projects: parsed.projects.map(project => ({ ...project, components: upgradeLegacyArtwork(project.components) })) };
   archive.projects.forEach(validateProject);
   return archive;
 }
@@ -65,7 +66,7 @@ export function parseComponentBundle(raw: string): ComponentBundle {
   if (typeof value === 'object' && value !== null && 'format' in value && value.format === 'tablecraft-component') {
     const bundle = value as { version?: unknown; rootId?: unknown; components?: unknown };
     if (bundle.version !== 1 || typeof bundle.rootId !== 'string') throw new Error('Unsupported component bundle format.');
-    const components = componentSchema.array().max(500).parse(bundle.components);
+    const components = upgradeLegacyArtwork(componentSchema.array().max(500).parse(bundle.components));
     validateProject({
       id: 'check', name: 'check', description: '', components, instances: [], players: [],
       settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },
@@ -84,11 +85,12 @@ export function parseComponentBundle(raw: string): ComponentBundle {
     return { rootId: bundle.rootId, components: ordered };
   }
   const component = componentSchema.parse(value);
+  const components = upgradeLegacyArtwork([component]);
   validateProject({
-    id: 'check', name: 'check', description: '', components: [component], instances: [], players: [],
+    id: 'check', name: 'check', description: '', components, instances: [], players: [],
     settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },
   });
-  return { rootId: component.id, components: [component] };
+  return { rootId: component.id, components };
 }
 export function parseComponent(raw: string): Component {
   const component = componentSchema.parse(JSON.parse(raw));

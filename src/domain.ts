@@ -34,6 +34,8 @@ export const nodeSchema = z.object({
   dataSource: z.enum(['inherit', 'row', 'field']).default('inherit'),
   dataRow: z.number().int().min(0).max(9999).default(0),
   dataField: z.string().max(100).default(''),
+  visibilityField: z.string().max(10000).default(''),
+  visibilityValue: z.string().max(10000).default(''),
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
@@ -597,7 +599,7 @@ export function makeInstance(componentId: string, row = 0, x = 700, y = 450): In
 
 export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> = {}): DesignNode {
   return {
-    id: uid('layer'), parent: null, name: type[0].toUpperCase() + type.slice(1), type,
+    id: values.id ?? uid('layer'), parent: null, name: type[0].toUpperCase() + type.slice(1), type,
     x: 16, y: 16, width: 150, height: 40, text: type === 'text' ? 'Your text' : '',
     fill: type === 'text' ? 'transparent' : '#e8b86d', color: '#253d37',
     fontSize: 20, font: 'DM Sans', radius: 0, rotation: 0,
@@ -606,6 +608,7 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
     sides: values.sides ?? 5, innerRadius: values.innerRadius ?? 0.5, stroke: values.stroke ?? 'transparent',
     strokeWidth: values.strokeWidth ?? 0, compoundOperation: values.compoundOperation ?? 'union',
     dataSource: values.dataSource ?? 'inherit', dataRow: values.dataRow ?? 0, dataField: values.dataField ?? '',
+    visibilityField: values.visibilityField ?? '', visibilityValue: values.visibilityValue ?? '',
     widthMode: values.widthMode ?? 'fixed', heightMode: values.heightMode ?? 'fixed', wrap: values.wrap ?? false,
     paddingTop: values.paddingTop ?? values.padding ?? 0, paddingRight: values.paddingRight ?? values.padding ?? 0,
     paddingBottom: values.paddingBottom ?? values.padding ?? 0, paddingLeft: values.paddingLeft ?? values.padding ?? 0,

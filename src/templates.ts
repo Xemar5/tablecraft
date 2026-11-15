@@ -1,4 +1,4 @@
-import { makeInstance, makeNode, uid, type Component, type Project } from './domain';
+import { bind, makeInstance, makeNode, uid, type Component, type DesignNode, type Project } from './domain';
 
 const cardRows = [
   { id: 'fern', name: 'Forest guardian', type: 'WOODLAND SPIRIT', cost: '3', power: '4', description: 'When played, draw a card.\nThe forest remembers its own.', art: 'fern' },
@@ -55,17 +55,107 @@ export function template(kind: Component['kind'] | 'blank'): Component {
   return base;
 }
 
+// Convert the old shape-text illustration convention into ordinary, editable
+// vector components. The original shape and text are retained inside a frame.
+function botanicalComponent(variant: string, expression: string, sourceRows: Component['rows'], createId: (prefix: string) => string): Component {
+  const artwork: Component = { id: createId('component'), name: `Botanical artwork (${variant})`, kind: 'card',
+    width: 200, height: 180, color: 'transparent', front: [], back: [], csv: '', rows: [],
+    flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false, stackTag: '' };
+  if (expression) {
+    const fields = [...new Set(Array.from(expression.matchAll(/\{\{\s*([^{}]+?)\s*\}\}/g), match => match[1]))];
+    artwork.rows = ['fern', 'moon', 'sun'].flatMap(value => {
+      const sample = sourceRows.find(row => bind(expression, row) === value);
+      return sample ? [Object.fromEntries(fields.map(field => [field, sample[field] ?? '']))] : [];
+    });
+    const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    artwork.csv = [fields.map(csvCell).join(','), ...artwork.rows.map(row => fields.map(field => csvCell(row[field])).join(','))].join('\n');
+  }
+  const add = (name: string, values: Partial<DesignNode>, visible: string) => artwork.front.push(makeNode('shape', {
+    id: createId('layer'), name, fill: '#b5c391', ...values, ...(expression ? { visibilityField: expression, visibilityValue: visible } : {}),
+  }));
+  const variants = expression ? ['fern', 'moon', 'sun'] : [variant];
+  if (variants.includes('fern')) {
+    add('Stem', { x: 98, y: 27, width: 3, height: 148, rotation: 3 }, 'fern');
+    for (let i = 0; i < 7; i++) {
+      const y = 35 + i * 17, w = 22 + Math.sin(i / 7 * Math.PI) * 27;
+      add(`Left leaf ${i + 1}`, { shapeKind: 'ellipse', x: 98 - w, y, width: w, height: 13, rotation: 32, opacity: .7 + i * .04 }, 'fern');
+      add(`Right leaf ${i + 1}`, { shapeKind: 'ellipse', x: 100, y: y - 4, width: w, height: 13, rotation: -32, opacity: .7 + i * .04 }, 'fern');
+    }
+    [[45, 37], [151, 71], [143, 146]].forEach(([x, y], i) => add(`Star ${i + 1}`, { shapeKind: 'ellipse', x, y, width: 4, height: 4, fill: '#e1cf9e' }, 'fern'));
+  }
+  if (variants.includes('moon')) {
+    add('Moon', { shapeKind: 'ellipse', x: 64, y: 34, width: 72, height: 72, fill: '#d9d9b2' }, 'moon');
+    add('Moon shadow', { shapeKind: 'ellipse', x: 82, y: 25, width: 66, height: 66, fill: '#294c40' }, 'moon');
+    [30, 60, 135, 162].forEach((x, i) => add(`Tree ${i + 1}`, { shapeKind: 'polygon', sides: 3, x, y: 70 + i * 4, width: 12, height: 28, opacity: .45 }, 'moon'));
+  }
+  if (variants.includes('sun')) {
+    add('Sun', { shapeKind: 'ellipse', x: 68, y: 50, width: 64, height: 64, fill: '#ead39a' }, 'sun');
+    for (let i = 0; i < 12; i++) {
+      const angle = i * Math.PI / 6;
+      add(`Sun ray ${i + 1}`, { x: 99 + Math.sin(angle) * 60, y: 74 - Math.cos(angle) * 60,
+        width: 2, height: 15, rotation: i * 30, fill: '#ead39a' }, 'sun');
+    }
+  }
+  return artwork;
+}
+
+export function upgradeLegacyArtwork(components: Component[]): Component[] {
+  const dependencies: Component[] = [];
+  const used = new Set(components.flatMap(component => [component.id, ...component.front.map(node => node.id), ...component.back.map(node => node.id)]));
+  let changed = false;
+  const upgraded = components.map(component => {
+    const upgradeFace = (nodes: DesignNode[]) => nodes.flatMap(node => {
+      if (node.type !== 'shape' || node.shapeKind !== 'rectangle' || !node.text) return [node];
+      if (nodes.some(parent => parent.id === node.parent && parent.type === 'frame' && parent.text === 'tablecraft:legacy-artwork-upgraded')) return [node];
+      if (nodes.some(parent => parent.id === node.parent && parent.type === 'compound')) return [node];
+      const expression = node.text.includes('{{') ? node.text : '';
+      const variants = expression ? component.rows.map(row => bind(node.text, row)) : [node.text];
+      if (!variants.some(value => ['fern', 'moon', 'sun'].includes(value))) return [node];
+      changed = true;
+      // Deterministic and collision-safe in reducers: no randomness, wall clock or browser APIs.
+      let hash = 2166136261;
+      for (const char of `${component.id}\0${node.id}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+      let sequence = 0;
+      const createId = (prefix: string) => {
+        let id: string;
+        do { id = `${prefix}-legacy-${hash.toString(16)}-${sequence++}`; } while (used.has(id));
+        used.add(id); return id;
+      };
+      const artwork = botanicalComponent(variants.find(value => ['fern', 'moon', 'sun'].includes(value))!, expression, component.rows, createId);
+      dependencies.push(artwork);
+      const frame = makeNode('frame', { id: createId('layer'), name: `${node.name} artwork`.slice(0, 100), x: node.x, y: node.y, width: node.width, height: node.height,
+        parent: node.parent, rotation: node.rotation, opacity: node.opacity, fill: 'transparent', layout: 'absolute',
+        widthMode: node.widthMode, heightMode: node.heightMode, padding: 0, text: 'tablecraft:legacy-artwork-upgraded' });
+      const original = { ...node, parent: frame.id, x: 0, y: 0, rotation: 0, opacity: 1, widthMode: 'fixed' as const, heightMode: 'fixed' as const };
+      const linked = makeNode('component', { id: createId('layer'), name: artwork.name, parent: frame.id, x: 0, y: 0, width: node.width, height: node.height,
+        componentId: artwork.id, fill: 'transparent', dataSource: 'inherit' });
+      return [frame, original, linked];
+    });
+    return { ...component, front: upgradeFace(component.front), back: upgradeFace(component.back) };
+  });
+  return changed ? [...dependencies, ...upgraded] : components;
+}
+
+export function upgradeLegacyArtworkProject(project: Project): Project {
+  const components = upgradeLegacyArtwork(project.components);
+  return components === project.components ? project : { ...project, components };
+}
+
+export function templateBundle(kind: Component['kind'] | 'blank'): { root: Component; components: Component[] } {
+  const initial = template(kind);
+  const components = upgradeLegacyArtwork([initial]);
+  return { root: components.find(item => item.id === initial.id)!, components };
+}
+
 export function starterProject(): Project {
-  const card = template('card');
-  const token = template('token');
-  const board = template('board');
-  const die = template('dice');
+  const bundles = (['card', 'token', 'board', 'dice'] as const).map(templateBundle);
+  const [card, token, board, die] = bundles.map(bundle => bundle.root);
   const deck = Array.from({ length: 12 }, (_, n) => ({
     ...makeInstance(card.id, n % 6, 600, 400), stack: 'starter-deck', order: n, flipped: true, scale: 0.72,
   }));
   return {
     id: uid('project'), name: 'Wildwood', description: 'A little magic. A lot of possibility.',
-    components: [card, token, board, die],
+    components: [...bundles.map(bundle => bundle.root), ...bundles.flatMap(bundle => bundle.components.filter(item => item.id !== bundle.root.id))],
     instances: [
       { ...makeInstance(board.id, 0, 1050, 430), scale: 0.85, locked: true },
       ...deck,

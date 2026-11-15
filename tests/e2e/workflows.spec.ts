@@ -438,12 +438,12 @@ test('hidden fronts work for nonflippable pieces and can be made public', async 
   await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button').first().click();
   await page.getByRole('button', { name: "I'm Player 2. Let's play." }).click();
   await expect(page.getByLabel("You's hand", { exact: true }).locator('.hidden-face')).toHaveCount(1);
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.botanical-sun')).toHaveCount(0);
+  await expect(page.getByLabel("You's hand", { exact: true }).locator('.node-component')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit Amber token', exact: true }).click();
   await page.getByRole('button', { name: 'Behavior', exact: true }).click();
   await page.getByLabel('Hide front in hand', { exact: false }).uncheck();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.botanical-sun')).toHaveCount(1);
+  await expect(page.getByLabel("You's hand", { exact: true }).locator('.node-component')).toHaveCount(1);
 });
 
 test('hover shortcuts, hand visibility, reordering and drag between hand and stack', async ({ page }) => {

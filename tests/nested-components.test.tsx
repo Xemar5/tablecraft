@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ComponentView } from '../src/ComponentView';
 import { applyCommand, makeNode, nodeSchema, validateProject, type Component, type Project } from '../src/domain';
-import { exportComponentBundle, parseComponentBundle, remapComponentBundle } from '../src/storage';
-import { template } from '../src/templates';
+import { exportComponentBundle, parseArchive, parseComponentBundle, remapComponentBundle } from '../src/storage';
+import { template, templateBundle, upgradeLegacyArtworkProject } from '../src/templates';
 
 function component(id: string, name: string, rows: Record<string, string>[] = [], front = [] as Component['front']): Component {
   return { ...template('blank'), id, name, width: 120, height: 80, rows, front };
@@ -80,11 +80,33 @@ describe('nested linked components', () => {
     const leaf = component('leaf', 'Leaf');
     const parent = component('parent', 'Parent', [], [makeNode('component', { componentId: leaf.id })]);
     const legacy = component('legacy', 'Legacy', [], [legacyShape]);
-    const markup = renderToStaticMarkup(<ComponentView component={legacy} />);
-    expect(markup).toContain('botanical botanical-fern');
+    const archive = parseArchive(JSON.stringify({ format: 'tablecraft', version: 1, projects: [project([legacy])] }));
+    const upgraded = archive.projects[0], root = upgraded.components.find(item => item.id === legacy.id)!;
+    const markup = renderToStaticMarkup(<ComponentView component={root} components={upgraded.components} />);
+    expect(markup).not.toContain('botanical botanical-fern');
+    expect(markup).toContain('node-component');
+    expect(markup).toContain('node-shape');
     expect(markup).toContain('#294c40');
+    expect(root.front.find(item => item.id === legacyShape.id)?.text).toBe('fern');
+    expect(parseArchive(JSON.stringify(archive)).projects[0].components).toHaveLength(upgraded.components.length);
+    expect(upgradeLegacyArtworkProject(upgraded)).toBe(upgraded);
+    expect(upgradeLegacyArtworkProject(project([legacy]))).toEqual(upgradeLegacyArtworkProject(project([legacy])));
     const linkedProject = project([parent, leaf]);
     expect(() => applyCommand(linkedProject, { type: 'removeComponent', id: leaf.id })).toThrow('links this component');
     expect(applyCommand(linkedProject, { type: 'removeComponent', id: parent.id }).components).toHaveLength(1);
+  });
+
+  it('creates linked editable template art and switches it by inherited data', () => {
+    const bundle = templateBundle('card');
+    validateProject(project(bundle.components));
+    const art = bundle.components.find(item => item.name.includes('Botanical artwork') && item.front.some(node => node.visibilityField))!;
+    expect(art.front.every(node => node.type === 'shape')).toBe(true);
+    expect(art.rows.map(row => row.art)).toEqual(['fern', 'moon', 'sun']);
+    expect(renderToStaticMarkup(<ComponentView component={art} />)).toContain('#b5c391');
+    const fern = renderToStaticMarkup(<ComponentView component={bundle.root} components={bundle.components} row={0} />);
+    const moon = renderToStaticMarkup(<ComponentView component={bundle.root} components={bundle.components} row={1} />);
+    expect(fern).toContain('#b5c391');
+    expect(moon).toContain('#d9d9b2');
+    expect(moon).not.toContain('botanical-moon');
   });
 });

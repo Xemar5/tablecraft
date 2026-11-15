@@ -7,7 +7,8 @@ test('creates editable paths, live boolean compounds and linked component data',
   const initial = await layers.count();
   await expect(page.getByLabel('Botanical motif (optional)')).toHaveCount(0);
 
-  await page.getByLabel('Shape type to add').selectOption('ellipse');
+  await page.getByRole('button', { name: 'Shape type to add' }).click();
+  await page.getByRole('menuitem', { name: 'Ellipse' }).click();
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
   await expect(layers).toHaveCount(initial + 1);
   await expect(page.getByLabel('Vector shape')).toHaveValue('ellipse');
@@ -16,7 +17,8 @@ test('creates editable paths, live boolean compounds and linked component data',
   await page.getByLabel('Vector shape').selectOption('path');
   await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
 
-  await page.getByLabel('Shape type to add').selectOption('path');
+  await page.getByRole('button', { name: 'Shape type to add' }).click();
+  await page.getByRole('menuitem', { name: 'Pen path' }).click();
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
   await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
   await page.getByRole('button', { name: 'Add point', exact: true }).click();
@@ -37,7 +39,8 @@ test('creates editable paths, live boolean compounds and linked component data',
 
   await layers.nth(initial).click();
   await layers.nth(initial + 1).click({ modifiers: ['Control'] });
-  await page.getByLabel('Boolean operation').selectOption('intersect');
+  await page.getByRole('button', { name: 'Boolean operation' }).click();
+  await page.getByRole('menuitem', { name: 'Intersect' }).click();
   await page.getByRole('button', { name: 'Create live compound', exact: true }).click();
   await expect(layers).toHaveCount(initial + 3);
   await expect(page.getByLabel('Live boolean operation')).toHaveValue('intersect');
@@ -47,7 +50,8 @@ test('creates editable paths, live boolean compounds and linked component data',
   await page.getByRole('button', { name: 'Uncombine source shapes', exact: true }).click();
   await expect(layers).toHaveCount(initial + 2);
 
-  await page.getByLabel('Link nested component').selectOption({ label: 'Spirit die' });
+  await page.getByRole('button', { name: 'Link nested component' }).click();
+  await page.getByRole('menuitem', { name: 'Spirit die' }).click();
   await expect(page.getByLabel('Linked component')).toHaveValue(/.+/);
   await page.getByLabel('Nested data').selectOption('row');
   await page.getByLabel(/Own row/).fill('1');
@@ -56,5 +60,5 @@ test('creates editable paths, live boolean compounds and linked component data',
   await page.getByLabel('Nested data').selectOption('field');
   await page.getByLabel('Parent CSV field (zero-based row index)').fill('cost');
   await expect(page.locator('.nested-component-error')).toHaveCount(0);
-  await expect(page.locator('.artboard .nested-component-content')).toContainText('4');
+  await expect(page.locator('.artboard .nested-component-content').last()).toContainText('4');
 });
