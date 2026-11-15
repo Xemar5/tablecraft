@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Sparkles, Square, Table2, Trash2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
-import { applyCommand, archiveSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
-import { starterProject, template } from './templates';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Sparkles, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { archiveSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
+import { starterProject, templateBundle } from './templates';
 import { download, exportProject, loadWorkspace, parseArchive, parseComponentBundle, remapComponentBundle, saveWorkspace } from './storage';
 import { ComponentThumbnail } from './ComponentView';
 import { Designer } from './Designer';
@@ -27,7 +28,16 @@ function loadSnapshots(): { projects: Project[]; error: string | null } {
 
 export default function App() {
   const [initial] = useState(boot);
-  const [archive, setArchive] = useState(initial.archive);
+  const templatePreviews = useMemo(() => ({
+    card: templateBundle('card'), token: templateBundle('token'),
+    board: templateBundle('board'), dice: templateBundle('dice'),
+  }), []);
+  const [workspace, setWorkspace] = useState<{ archive: Archive; histories: Record<string, PlaygroundHistory> }>({ archive: initial.archive, histories: {} });
+  const { archive } = workspace;
+  // Whole-workspace imports/snapshots and live subscriptions start a fresh offline history.
+  const setArchive = useCallback((update: Archive | ((current: Archive) => Archive)) => {
+    setWorkspace(current => ({ archive: typeof update === 'function' ? update(current.archive) : update, histories: {} }));
+  }, []);
   const [storageError, setStorageError] = useState(initial.error);
   const [projectId, setProjectId] = useState(initial.archive.projects[0].id);
   const [mode, setMode] = useState<'playground' | 'designer'>('playground');
@@ -43,6 +53,7 @@ export default function App() {
   const [modal, setModal] = useState<'templates' | 'projects' | 'session' | 'help' | 'save'>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number }>();
   const [session, setSession] = useState<LiveSession>();
+  const [liveUndo, setLiveUndo] = useState({ count: 0, notice: '' });
   const sessionRef = useRef<LiveSession | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState('');
@@ -125,9 +136,15 @@ export default function App() {
       });
     }
     return new Promise(resolve => {
-      setArchive(current => {
+      setWorkspace(current => {
         try {
-          const next = { ...current, projects: current.projects.map(p => p.id === projectId ? applyCommand(p, command, actor) : p) };
+          const source = current.archive.projects.find(p => p.id === projectId);
+          if (!source) throw new Error('Project no longer exists.');
+          const result = applyPlaygroundCommand(source, current.histories[projectId] ?? emptyPlaygroundHistory(), command, actor);
+          const next = {
+            archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) },
+            histories: { ...current.histories, [projectId]: result.history },
+          };
           queueMicrotask(() => resolve(true));
           return next;
         } catch (error) {
@@ -137,6 +154,36 @@ export default function App() {
       });
     });
   }, [actor, projectId, notify]);
+  const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
+  const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
+  const undo = useCallback(() => {
+    if (sessionRef.current) {
+      void sessionRef.current.undo(actor).catch(error => notify(error instanceof Error ? error.message : String(error), true));
+      return;
+    }
+    setWorkspace(current => {
+      const source = current.archive.projects.find(p => p.id === projectId);
+      if (!source) return current;
+      const result = undoPlayground(source, current.histories[projectId] ?? emptyPlaygroundHistory());
+      return {
+        archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) },
+        histories: { ...current.histories, [projectId]: result.history },
+      };
+    });
+  }, [actor, projectId, notify]);
+  useEffect(() => {
+    const keydown = (event: KeyboardEvent) => {
+      if (mode !== 'playground' || modal || curtain || event.defaultPrevented || event.isComposing || event.repeat ||
+        !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+      const target = event.target;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]')) return;
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
+      event.preventDefault();
+      if (undoCount) undo();
+    };
+    window.addEventListener('keydown', keydown);
+    return () => window.removeEventListener('keydown', keydown);
+  }, [mode, modal, curtain, undoCount, undo]);
   const edit = (id: string) => { setComponentId(id); setMode('designer'); };
   const switchPlayer = (player: Player) => {
     if (session && player.owner !== session.identity) { notify('This seat belongs to another connected player.', true); return; }
@@ -152,11 +199,22 @@ export default function App() {
       if (success) { setSelected(instances.map(i => i.id)); notify(`Added ${instances.length === 1 ? component.name : `${instances.length} pieces`} to the table.`); }
     });
   };
-  const addTemplate = (kind: Component['kind'] | 'blank') => {
-    const c = template(kind);
-    void dispatch({ type: 'component', component: c }).then(success => {
-      if (success) { setComponentId(c.id); setMode('designer'); setModal(undefined); notify('A fresh canvas, ready for your ideas.'); }
-    });
+  const addTemplate = async (kind: Component['kind'] | 'blank') => {
+    try {
+      const { root, components } = templateBundle(kind);
+      validateProject({ ...project, components: [...project.components, ...components] });
+      let added = 0;
+      for (const component of components) {
+        if (!await dispatch({ type: 'component', component })) {
+          notify(added ? `Template creation stopped after adding ${added} linked component${added === 1 ? '' : 's'}.` : 'Template could not be created.', true);
+          return;
+        }
+        added++;
+      }
+      setComponentId(root.id); setMode('designer'); setModal(undefined); notify('A fresh canvas, ready for your ideas.');
+    } catch (error) {
+      notify(`Template creation failed: ${error instanceof Error ? error.message : String(error)}`, true);
+    }
   };
   const importFile = async (file?: File) => {
     if (!file) return;
@@ -190,7 +248,7 @@ export default function App() {
       const { connectRoom } = await import('./multiplayer');
       const live = await connectRoom({
         uri, database, code: roomCode, host, project, playerId: uid('player'), name: playerName.trim() || 'Player', color: '#b7cc91',
-      }, next => setProject(next), message => notify(message, true), () => {
+      }, (next, history) => { setProject(next); setLiveUndo(history); }, message => notify(message, true), () => {
         sessionRef.current = undefined; setSession(undefined); notify('Disconnected. Your latest table is saved locally.', true);
       });
       sessionRef.current = live; setSession(live);
@@ -214,8 +272,10 @@ export default function App() {
       <a className="brand" href="#" onClick={e => { e.preventDefault(); setMode('playground'); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
       <div className="project-heading compact-project"><h1>{project.name}</h1><button className="icon-button" aria-label="Project settings" onClick={() => { setProjectName(project.name); setModal('projects'); }}><ChevronDown size={16} /></button></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
+      {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain} onClick={undo}><Undo2 size={18} /></button>}
       <div className="header-actions">{mode === 'playground' && <><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><PanelLeft size={17} /></button><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
     </header>
+    {mode === 'playground' && undoNotice && <div className="error-banner" role="status">{undoNotice}</div>}
     {storageError && <div className="error-banner" role="alert">{storageError}<button onClick={() => {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
       setStorageError(null);
@@ -254,7 +314,7 @@ export default function App() {
       <div className="template-grid">{([
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
         ['board', 'Boards', 'Build a world to play in.'], ['dice', 'Dice', 'Leave a little to chance.'],
-      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art"><ComponentThumbnail component={template(kind)} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} /></div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
+      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art"><ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} /></div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
     </Modal>}
     {modal === 'projects' && <Modal title="Your workshop" subtitle="All your worlds, works in progress, and what-ifs." wide onClose={() => setModal(undefined)}>

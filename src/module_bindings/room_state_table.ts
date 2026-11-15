@@ -11,7 +11,9 @@ import {
 } from "spacetimedb";
 
 export default __t.row({
-  code: __t.string().primaryKey(),
+  code: __t.string(),
   state: __t.string(),
   revision: __t.u32(),
+  undoCount: __t.u32().name("undo_count"),
+  undoNotice: __t.string().name("undo_notice"),
 });

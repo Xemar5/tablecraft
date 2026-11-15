@@ -16,6 +16,21 @@ export const Membership = __t.object("Membership", {
 });
 export type Membership = __Infer<typeof Membership>;
 
+export const PlaygroundHistory = __t.object("PlaygroundHistory", {
+  code: __t.string(),
+  history: __t.string(),
+});
+export type PlaygroundHistory = __Infer<typeof PlaygroundHistory>;
+
+export const PlaygroundRoomSnapshot = __t.object("PlaygroundRoomSnapshot", {
+  code: __t.string(),
+  state: __t.string(),
+  revision: __t.u32(),
+  undoCount: __t.u32(),
+  undoNotice: __t.string(),
+});
+export type PlaygroundRoomSnapshot = __Infer<typeof PlaygroundRoomSnapshot>;
+
 export const Room = __t.object("Room", {
   code: __t.string(),
   state: __t.string(),

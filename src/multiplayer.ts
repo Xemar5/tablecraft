@@ -7,9 +7,10 @@ export interface ConnectionOptions {
 export interface LiveSession {
   connection: DbConnection; identity: string; code: string;
   send: (command: Command, actor: string) => Promise<void>;
+  undo: (actor: string) => Promise<void>;
   disconnect: () => void;
 }
-export function connectRoom(options: ConnectionOptions, onState: (p: Project) => void, onError: (message: string) => void, onDisconnect: () => void): Promise<LiveSession> {
+export function connectRoom(options: ConnectionOptions, onState: (p: Project, undo: { count: number; notice: string }) => void, onError: (message: string) => void, onDisconnect: () => void): Promise<LiveSession> {
   return new Promise((resolve, reject) => {
     const tokenKey = `tablecraft.token:${options.uri}:${options.database}`;
     let settled = false;
@@ -32,13 +33,14 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project) =>
             try {
               const row = [...conn.db.roomState.iter()].find(r => r.code === options.code);
               if (!row) return;
-              onState(validateProject(projectSchema.parse(JSON.parse(row.state))));
+              onState(validateProject(projectSchema.parse(JSON.parse(row.state))), { count: row.undoCount, notice: row.undoNotice });
               if (!settled) {
                 settled = true;
                 clearTimeout(timeout);
                 resolve({
                   connection: conn, identity: identity.toHexString(), code: options.code,
                   send: (command, actor) => conn.reducers.dispatch({ command: JSON.stringify(command), actor }),
+                  undo: actor => conn.reducers.undo({ actor }),
                   disconnect: () => { intentional = true; conn.disconnect(); },
                 });
               }
