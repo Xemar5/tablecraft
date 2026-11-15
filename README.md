@@ -23,6 +23,41 @@ The optional script requires a PowerShell execution policy that permits local sc
 & "$env:LOCALAPPDATA\prototyper-tools\node.exe" node_modules\vite\bin\vite.js --host 127.0.0.1 --port 5173
 ```
 
+## Agent CLI
+
+The CLI uses the same project schemas and command engine as the app. After `npm ci`, run `npm --silent run cli -- --help`. Successful commands print JSON on stdout (except help); errors print JSON to stderr and exit nonzero. Use npm's `--silent` option to avoid its banner on stdout. JSON files are UTF-8. These examples use PowerShell:
+
+```powershell
+# Create an offline archive and add a component, including its linked dependencies.
+npm --silent run cli -- new --out game.tablecraft.json --template blank --name "My game"
+npm --silent run cli -- generate --file game.tablecraft.json --template card --name "My cards"
+npm --silent run cli -- list --file game.tablecraft.json --what components
+npm --silent run cli -- schema --what command
+npm --silent run cli -- inspect --file game.tablecraft.json --component COMPONENT_ID
+npm --silent run cli -- spawn --file game.tablecraft.json --component COMPONENT_ID --count 3 --x 700 --y 450
+npm --silent run cli -- apply --file game.tablecraft.json --commands commands.json --actor PLAYER_ID
+npm --silent run cli -- validate --file game.tablecraft.json
+npm --silent run cli -- export --file game.tablecraft.json --out card.json --component COMPONENT_ID
+npm --silent run cli -- import --file game.tablecraft.json --bundle card.json
+npm --silent run cli -- export --file game.tablecraft.json --out portable.tablecraft.json
+```
+
+Replace IDs with those in `list`/`inspect` output. `new` also supports `--template wildwood`; `generate` supports `blank`, `card`, `token`, `board`, and `dice`. Supply `--data component-overrides.json` to merge a JSON object of component fields over the template (including `front`, `back`, `csv`, and `rows`); schema and cross-reference validation still apply. Component exports include dependencies and imports remap their IDs. `commands.json` is a command object or array, for example `[{"type":"settings","patch":{"snap":true}}]`; inspect the command schema for every supported action. Offline `apply` is atomic and supports `{"type":"undo"}` for prior playground commands **in the same batch only**; its history is not persisted across CLI invocations. Use `--project PROJECT_ID` to select a project in a multi-project archive. Mutations replace the input file atomically only after the whole batch validates. New/export destinations are never overwritten without `--force`.
+
+For live rooms, first start and publish the server as described below, then:
+
+```powershell
+npm --silent run cli -- live host --file game.tablecraft.json --code MY-TABLE --name "Agent"
+npm --silent run cli -- live state --code MY-TABLE
+npm --silent run cli -- live dispatch --code MY-TABLE --commands commands.json
+npm --silent run cli -- live undo --code MY-TABLE
+# Another identity can instead use: npm --silent run cli -- live join --code MY-TABLE
+```
+
+Each invocation joins (or rejoins) the room; `state` reads the current full state, and `dispatch` submits the same validated commands to authoritative reducers. The returned identity and players let you choose an owned hotseat with `--actor`; specifying somebody else's player ID does not grant ownership. Live batches commit **one command at a time**; on error the confirmed count is reported, and a timed-out submitted operation may have committed—read state before retrying. Undo uses the server's shared playground history. `--uri`, `--database`, and bounded `--timeout` (milliseconds, 100–120000) are available; defaults are `http://127.0.0.1:3000`, `tablecraft-studio`, and 12000. Non-loopback connections require HTTPS/WSS. `--name` and `--color` configure a newly joined seat. Hosting fails if the code exists; joining fails if it does not.
+
+The CLI keeps a separate durable identity per server/database under `~/.tablecraft/identities`, outside Git repositories. The directory/files are created with owner-only permissions where supported; on Windows keep the user profile private. These tokens are secrets: do not copy them into projects, logs, or source control. The CLI identity is separate from the browser identity. Like the browser, it has one active room at a time and receives complete room state; see the trust model below.
+
 ## Multiplayer
 
 Install the [SpaceTimeDB CLI](https://spacetimedb.com/install), then:
