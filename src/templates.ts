@@ -17,7 +17,10 @@ export function template(kind: Component['kind'] | 'blank'): Component {
     stackable: true, shufflable: true, stackTag: '',
   };
   if (kind === 'blank') return base;
-  if (kind === 'card') {
+  if (kind === 'artwork') {
+    Object.assign(base, { name: 'Untitled artwork', width: 200, height: 200, color: 'transparent',
+      flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
+  } else if (kind === 'card') {
     base.name = 'Spirit cards';
     base.rows = cardRows;
     base.csv = 'id,name,type,cost,power,description,art\n' + cardRows.map(r => [r.id, r.name, r.type, r.cost, r.power, `"${r.description}"`, r.art].join(',')).join('\n');
@@ -58,7 +61,7 @@ export function template(kind: Component['kind'] | 'blank'): Component {
 // Convert the old shape-text illustration convention into ordinary, editable
 // vector components. The original shape and text are retained inside a frame.
 function botanicalComponent(variant: string, expression: string, sourceRows: Component['rows'], createId: (prefix: string) => string): Component {
-  const artwork: Component = { id: createId('component'), name: `Botanical artwork (${variant})`, kind: 'card',
+  const artwork: Component = { id: createId('component'), name: `Botanical artwork (${variant})`, kind: 'artwork',
     width: 200, height: 180, color: 'transparent', front: [], back: [], csv: '', rows: [],
     flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false, stackTag: '' };
   if (expression) {

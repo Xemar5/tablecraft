@@ -58,6 +58,8 @@ Each invocation joins (or rejoins) the room; `state` reads the current full stat
 
 The CLI keeps a separate durable identity per server/database under `~/.tablecraft/identities`, outside Git repositories. The directory/files are created with owner-only permissions where supported; on Windows keep the user profile private. These tokens are secrets: do not copy them into projects, logs, or source control. The CLI identity is separate from the browser identity. Like the browser, it has one active room at a time and receives complete room state; see the trust model below.
 
+**Artwork** is a component type for reusable, linked illustrations, especially nested artwork in cards, tokens, and boards. Choose **Create component → Artwork** (or CLI `generate --template artwork`) for a blank, transparent 200 × 200 canvas ready for editable vector layers. Artwork starts without hand, flip, stack, or shuffle support; existing component templates keep their defaults. The library's **Artwork** filter includes the built-in botanical assets. Add an artwork component through a nested component layer to reuse its live design and CSV bindings; exports include linked dependencies. The component JSON/API kind is `"artwork"`, also exposed by the CLI component schema.
+
 ## Multiplayer
 
 Install the [SpaceTimeDB CLI](https://spacetimedb.com/install), then:

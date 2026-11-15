@@ -12,7 +12,7 @@ const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzer
 Usage: npm --silent run cli -- <command> [options]
 
   new --out FILE [--template blank|wildwood] [--name NAME] [--force]
-  generate --file FILE --template blank|card|token|board|dice [--name NAME] [--data JSON_FILE]
+  generate --file FILE --template blank|card|token|board|dice|artwork [--name NAME] [--data JSON_FILE]
   import --file FILE --bundle COMPONENT_JSON
   list --file FILE [--what components|instances|players]
   inspect --file FILE [--component ID]
@@ -136,7 +136,7 @@ async function main(args: string[]) {
     let changed = false;
     if (cmd === 'generate') {
       const kind = option(o, 'template') as Parameters<typeof templateBundle>[0];
-      if (!['blank', 'card', 'token', 'board', 'dice'].includes(kind)) throw new Error('Unknown component template.');
+      if (!['blank', 'card', 'token', 'board', 'dice', 'artwork'].includes(kind)) throw new Error('Unknown component template.');
       const data = o.data ? await jsonFile(option(o, 'data')) : {};
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Component data must be a JSON object.');
       const bundle = templateBundle(kind);

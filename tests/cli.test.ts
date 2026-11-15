@@ -19,6 +19,22 @@ beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'tablecraft-cli-test-')); })
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('agent CLI', () => {
+  it('generates artwork and exposes its kind in help and the component schema', () => {
+    const help = execFileSync(process.execPath, [runner, cli, '--help'], { encoding: 'utf8' });
+    expect(help).toContain('blank|card|token|board|dice|artwork');
+    expect(run('schema', '--what', 'component').properties.kind.enum).toContain('artwork');
+    const file = join(dir, 'game.json'), data = join(dir, 'artwork.json');
+    run('new', '--out', file);
+    const artwork = run('generate', '--file', file, '--template', 'artwork', '--name', 'Leaf').component;
+    expect(artwork).toMatchObject({ kind: 'artwork', name: 'Leaf', color: 'transparent',
+      front: [], back: [], hand: false, flippable: false, stackable: false, shufflable: false });
+    writeFileSync(data, JSON.stringify({ width: 320, height: 180 }));
+    const custom = run('generate', '--file', file, '--template', 'artwork', '--data', data).component;
+    expect(custom).toMatchObject({ kind: 'artwork', width: 320, height: 180 });
+    expect(run('validate', '--file', file).valid).toBe(true);
+    expect(run('list', '--file', file, '--what', 'components').every((item: { kind: string }) => item.kind === 'artwork')).toBe(true);
+  }, 30000);
+
   it('creates, generates linked templates, spawns, exports and imports bundles', () => {
     const file = join(dir, 'game.json'), other = join(dir, 'other.json'), bundle = join(dir, 'card.json');
     run('new', '--out', file, '--template', 'blank');

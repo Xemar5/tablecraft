@@ -30,7 +30,7 @@ export default function App() {
   const [initial] = useState(boot);
   const templatePreviews = useMemo(() => ({
     card: templateBundle('card'), token: templateBundle('token'),
-    board: templateBundle('board'), dice: templateBundle('dice'),
+    board: templateBundle('board'), dice: templateBundle('dice'), artwork: templateBundle('artwork'),
   }), []);
   const [workspace, setWorkspace] = useState<{ archive: Archive; histories: Record<string, PlaygroundHistory> }>({ archive: initial.archive, histories: {} });
   const { archive } = workspace;
@@ -284,14 +284,14 @@ export default function App() {
       <aside className="library-panel" hidden={mode === 'playground' && !libraryVisible}>
         <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></div>
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
-        <div className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
+        <div className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
         <div className="library-section-label">PROJECT LIBRARY <span>{visible.length}</span></div>
         <div className="component-library">{visible.map(comp => <div key={comp.id} className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}`}>
           <button className={`library-preview library-preview-${comp.kind}`} onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
             {comp.kind === 'card' && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div><div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div></>}
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
-            <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : <Square size={10} />}{comp.kind}</span>
+            <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : comp.kind === 'artwork' ? <Palette size={10} /> : <Square size={10} />}{comp.kind}</span>
             <span className="preview-add"><Plus size={17} /></span>
           </button>
           <div className="library-item-label"><button onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{comp.rows.length > 1 ? `${comp.rows.length} variants` : `${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <span className="data-dot" />}</small></button>
@@ -314,7 +314,8 @@ export default function App() {
       <div className="template-grid">{([
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
         ['board', 'Boards', 'Build a world to play in.'], ['dice', 'Dice', 'Leave a little to chance.'],
-      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art"><ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} /></div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
+        ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
+      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
     </Modal>}
     {modal === 'projects' && <Modal title="Your workshop" subtitle="All your worlds, works in progress, and what-ifs." wide onClose={() => setModal(undefined)}>
