@@ -23,9 +23,8 @@ test('designer menus, curve editing, point deletion and undo work with real poin
   await page.keyboard.down('Shift'); await page.mouse.down();
   await page.mouse.move(handleBox.x + handleBox.width / 2 + 25, handleBox.y + handleBox.height / 2 + 15, { steps: 4 });
   await page.mouse.up(); await page.keyboard.up('Shift');
-  const xIn = Number(await page.getByLabel('In handle X').inputValue());
-  const xOut = Number(await page.getByLabel('Out handle X').inputValue());
-  expect(xIn).toBeCloseTo(-xOut, 2);
+  await expect.poll(async () => Number(await page.getByLabel('In handle X').inputValue()) +
+    Number(await page.getByLabel('Out handle X').inputValue())).toBeCloseTo(0, 2);
   const segment = editor.locator('.vector-segment').nth(1);
   const segmentPoint = await segment.evaluate((path: SVGPathElement) => {
     const point = path.getPointAtLength(path.getTotalLength() * .5).matrixTransform(path.getScreenCTM()!);
