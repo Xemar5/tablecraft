@@ -67,19 +67,19 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('roll'), ids: z.array(id).min(1), seed: z.number().int() }),
   z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num }),
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
-  z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id }),
+  z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional() }),
   z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(), rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional() }),
-  z.object({ type: z.literal('drawSelection'), ids: z.array(id).min(1), playerId: id }),
+  z.object({ type: z.literal('drawSelection'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('delete'), ids: z.array(id) }),
   z.object({ type: z.literal('stack'), ids: z.array(id), stackId: id }),
   z.object({ type: z.literal('dropStack'), ids: z.array(id).min(1), targetId: id, stackId: id }),
   z.object({ type: z.literal('unstack'), id }),
   z.object({ type: z.literal('reorder'), ids: z.array(id) }),
   z.object({ type: z.literal('shuffle'), id, seed: z.number().int() }),
-  z.object({ type: z.literal('draw'), id, playerId: id }),
-  z.object({ type: z.literal('drawMany'), id, playerId: id, count: z.number().int().min(1).max(1000) }),
+  z.object({ type: z.literal('draw'), id, playerId: id, faceUp: z.boolean().optional() }),
+  z.object({ type: z.literal('drawMany'), id, playerId: id, count: z.number().int().min(1).max(1000), faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('release'), id, x: num, y: num }),
   z.object({ type: z.literal('dropFromHand'), id, targetId: id, stackId: id }),
   z.object({ type: z.literal('reorderHand'), ids: z.array(id), playerId: id }),
@@ -304,6 +304,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId && !items.includes(i)).map(i => i.order));
       drawOrder(items).forEach(item => {
         if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+        if (command.faceUp !== false) item.flipped = false;
         Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
       });
       break;
@@ -434,6 +435,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId).map(i => i.order));
       drawn.forEach(item => {
         if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+        if (command.faceUp !== false) item.flipped = false;
         Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
       });
       break;
@@ -448,6 +450,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         editable(item);
         if (item.holder || item.locked || !component(item).hand) throw new Error('Only unlocked tabletop components that support hands can be drawn.');
         if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+        if (command.faceUp !== false) item.flipped = false;
         Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
       }
       break;

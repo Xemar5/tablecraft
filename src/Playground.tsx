@@ -12,7 +12,7 @@ type Props = {
   inspectorVisible: boolean; handVisible: boolean;
   onShowInspector: () => void;
 };
-export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch, onEdit, onSwitch, notify }: Props) {
+export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onEdit, onSwitch, notify }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -34,6 +34,13 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
   const [handHidden, setHandHidden] = useState(false);
+  const [faceUpInHand, setFaceUpInHand] = useState(true);
+  const dispatch = useCallback((command: Command) => {
+    if (command.type === 'draw' || command.type === 'drawMany' || command.type === 'drawSelection' || command.type === 'transferToHand') {
+      return dispatchCommand({ ...command, faceUp: faceUpInHand });
+    }
+    return dispatchCommand(command);
+  }, [dispatchCommand, faceUpInHand]);
   const [handDrag, setHandDrag] = useState<{ id: string; x: number; y: number }>();
   const [insertion, setInsertion] = useState<number>();
   const [dropHint, setDropHint] = useState<{ id: string; x: number; y: number }>();
@@ -511,6 +518,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         {insertion !== undefined && insertion === held.filter(i => !(handDrag && (selected.includes(handDrag.id) ? selected.includes(i.id) : i.id === handDrag.id))).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
         </div>
       </div><div className="hand-toolbar" aria-label="Hand actions">
+        <button className="icon-button" aria-label="Turn cards face up when entering a hand" title="Turn cards face up when entering a hand" aria-pressed={faceUpInHand} onClick={() => setFaceUpInHand(!faceUpInHand)}><FlipHorizontal2 size={16} /></button>
         <button className="icon-button" aria-label={handHidden ? 'Show my table hand' : 'Hide my table hand'} title={handHidden ? 'Show my table hand' : 'Hide my table hand'} aria-pressed={handHidden} onClick={() => setHandHidden(!handHidden)}>{handHidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
         <button className="icon-button" aria-label="Shuffle hand" title="Shuffle hand" disabled={held.length < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
         <button className="icon-button" aria-label="Reverse hand" title="Reverse hand" disabled={held.length < 2} onClick={() => dispatch({ type: 'reorderHand', ids: held.map(i => i.id).reverse(), playerId: actor })}><FlipHorizontal2 size={16} /></button>
@@ -529,7 +537,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         const comp = p.components.find(c => c.id === item.componentId)!;
         const position = preview[item.id], rect = viewport.current!.getBoundingClientRect();
         const angle = camera * Math.PI / 180;
-        return <div key={item.id} className="board-drag-preview" aria-hidden="true" style={{
+        return <div key={item.stack ?? item.id} className="board-drag-preview" aria-hidden="true" style={{
           left: rect.left + pan.x + zoom * (position.x * Math.cos(angle) - position.y * Math.sin(angle)),
           top: rect.top + pan.y + zoom * (position.x * Math.sin(angle) + position.y * Math.cos(angle)),
           width: comp.width, height: comp.height,

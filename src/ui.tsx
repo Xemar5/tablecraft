@@ -39,7 +39,7 @@ export function NumberField({ label, value, onChange, min, max, step = 1 }: {
   const drag = useRef<{ pointer: number; y: number; value: number }>(null);
   useEffect(() => { if (!editing) setDraft(String(value)); }, [value, editing]);
   return <Field label={label}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step}
-    onFocus={e => { setEditing(true); e.currentTarget.select(); }}
+    onFocus={() => setEditing(true)}
     onPointerDown={e => {
       if (e.button !== 0) return;
       drag.current = { pointer: e.pointerId, y: e.clientY, value };

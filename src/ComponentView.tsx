@@ -1,4 +1,4 @@
-import type { CSSProperties, PointerEvent } from 'react';
+import { useState, type CSSProperties, type PointerEvent } from 'react';
 import { bind, safeImage, type Component, type DesignNode } from './domain';
 
 function Botanical({ variant, color }: { variant: string; color: string }) {
@@ -33,6 +33,9 @@ export function ComponentView({ component: c, row = 0, back = false, hidden = fa
   component: Component; row?: number; back?: boolean; hidden?: boolean; onNode?: (id: string, event: PointerEvent<HTMLDivElement>) => void; selectedNode?: string; selectedNodes?: string[];
 }) {
   const selectedIds = selectedNodes ?? (selectedNode ? [selectedNode] : []);
+  const face = hidden || (back && c.flippable) ? 'back' : 'front';
+  const [reveal, setReveal] = useState({ face, changed: false });
+  if (reveal.face !== face) setReveal({ face, changed: true });
   const nodes = hidden ? c.back : back && c.flippable ? c.back : c.front;
   const data = c.rows[row] ?? {};
   const render = (node: DesignNode, parent?: DesignNode) => {
@@ -67,7 +70,7 @@ export function ComponentView({ component: c, row = 0, back = false, hidden = fa
       {nodes.filter(n => n.parent === node.id).map(child => render(child, node))}
     </div>;
   };
-  return <div key={hidden || back ? 'back' : 'front'} className={`component-face component-${c.kind}`} style={{
+  return <div key={face} className={`component-face component-${c.kind}${reveal.changed ? ' face-flipped' : ''}`} style={{
     width: c.width, height: c.height, background: hidden && !nodes.length ? '#365d46' : c.color,
     borderRadius: c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
   }}>{hidden && !nodes.length ? <div className="hidden-face"><Botanical variant="fern" color="#bbcda2" /></div> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;

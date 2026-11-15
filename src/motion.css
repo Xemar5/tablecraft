@@ -49,7 +49,7 @@
 .table-piece.dragging {
   transition: none;
 }
-.table-piece > .component-face {
+.component-face.face-flipped {
   animation: piece-reveal .22s cubic-bezier(.2, .8, .2, 1) both;
 }
 .hand-card {
@@ -94,7 +94,6 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hand-toolbar .icon-button { width: 28px; height: 28px; }
 .table-piece.drag-source { opacity: .12; }
 .board-drag-preview { position: fixed; z-index: 1000; pointer-events: none; filter: drop-shadow(0 10px 12px #29433155); }
-.board-drag-preview > .component-face, .hand-drag-preview .component-face { animation: piece-reveal .22s cubic-bezier(.2, .8, .2, 1) both; }
 .selection-marquee { position: fixed; z-index: 900; pointer-events: none; background: #7d9b6026; border: 1px solid #6b8c4f; border-radius: 3px; }
 .table-piece.stack-drop-target { outline: 4px solid #7d9b60; outline-offset: 9px; filter: drop-shadow(0 0 14px #78984d88); }
 .stack-drop-hint { position: fixed; z-index: 1100; pointer-events: none; display: grid; gap: 5px; padding: 10px 14px; background: #365d46; color: #fff; border-radius: 8px; box-shadow: 0 6px 20px #29433144; font-size: 12px; }

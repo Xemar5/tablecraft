@@ -44,6 +44,22 @@ describe('component design and bindings', () => {
 });
 
 describe('tabletop commands', () => {
+  it('turns incoming cards face up by default and optionally preserves their visible face on every hand-entry path', () => {
+    for (const type of ['draw', 'drawMany', 'drawSelection', 'transferToHand'] as const) {
+      for (const faceUp of [undefined, false]) {
+        const p = starterProject();
+        p.settings.allowOtherHands = true;
+        const card = p.instances.find(i => i.componentId === p.components[0].id && !i.stack)!;
+        card.flipped = true;
+        const command = type === 'draw' ? { type, id: card.id, playerId: 'player-1', faceUp }
+          : type === 'drawMany' ? { type, id: card.id, playerId: 'player-1', count: 1, faceUp }
+          : { type, ids: [card.id], playerId: 'player-1', faceUp };
+        const next = applyCommand(p, command, 'player-1');
+        expect(next.instances.find(i => i.id === card.id)).toMatchObject({ holder: 'player-1', flipped: faceUp === false });
+        expect(card.flipped).toBe(true);
+      }
+    }
+  });
   it('only allows cross-hand transfers and plays when explicitly enabled for an authenticated actor', () => {
     let p = starterProject();
     const card = p.instances.find(i => i.componentId === p.components[0].id && !i.stack)!;
@@ -62,6 +78,7 @@ describe('tabletop commands', () => {
     let p = starterProject();
     const deck = p.instances.find(i => i.stack)!;
     const original = stackMembers(p, deck);
+    original[0].flipped = false;
     original[1].flipped = true;
     const before = original.map(i => ({ id: i.id, order: i.order, flipped: i.flipped }));
     p = applyCommand(p, { type: 'transform', ids: original.map(i => i.id), flip: true }, 'player-1');
@@ -69,7 +86,7 @@ describe('tabletop commands', () => {
     expect(flipped.map(i => ({ id: i.id, order: i.order, flipped: i.flipped }))).toEqual(before);
     expect(visibleStackMembers(p, flipped[0]).map(i => i.id)).toEqual(before.map(i => i.id).reverse());
     expect(visibleBack(flipped[0])).toBe(!before[0].flipped);
-    p = applyCommand(p, { type: 'drawMany', id: flipped[0].id, playerId: 'player-1', count: 2 }, 'player-1');
+    p = applyCommand(p, { type: 'drawMany', id: flipped[0].id, playerId: 'player-1', count: 2, faceUp: false }, 'player-1');
     const held = p.instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order);
     expect(held.map(i => i.id)).toEqual(before.slice(0, 2).map(i => i.id));
     expect(held.map(i => i.flipped)).toEqual(before.slice(0, 2).map(i => !i.flipped));
@@ -97,7 +114,7 @@ describe('tabletop commands', () => {
     const deck = p.instances.find(i => i.stack)!;
     const members = stackMembers(p, deck), ids = members.map(i => i.id);
     p = applyCommand(p, { type: 'transform', ids, flip: true }, 'player-1');
-    p = applyCommand(p, { type: 'drawSelection', ids: [...ids].reverse(), playerId: 'player-1' }, 'player-1');
+    p = applyCommand(p, { type: 'drawSelection', ids: [...ids].reverse(), playerId: 'player-1', faceUp: false }, 'player-1');
     const held = p.instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order);
     expect(held.map(i => i.id)).toEqual(ids);
     expect(held.map(i => i.flipped)).toEqual(members.map(i => !i.flipped));

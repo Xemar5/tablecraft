@@ -76,13 +76,40 @@ export default function App() {
   }, [fontFamilies]);
   useEffect(() => () => sessionRef.current?.disconnect(), []);
   useEffect(() => {
+    let pointer: { id: number; x: number; y: number; moved: boolean; target?: HTMLInputElement | HTMLTextAreaElement } | undefined;
+    const pointerDown = (event: PointerEvent) => {
+      if (event.button === 0) pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+    };
     const selectInput = (event: FocusEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLInputElement && ['text', 'number', 'search', 'url'].includes(target.type))) return;
+      if (pointer) { pointer.target = target; return; }
       requestAnimationFrame(() => { if (document.activeElement === target) target.select(); });
     };
+    const pointerMove = (event: PointerEvent) => {
+      if (pointer?.id === event.pointerId && Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) >= 4) pointer.moved = true;
+    };
+    const pointerUp = (event: PointerEvent) => {
+      if (pointer?.id !== event.pointerId) return;
+      const { target, moved } = pointer;
+      pointer = undefined;
+      if (target && !moved) requestAnimationFrame(() => { if (document.activeElement === target) target.select(); });
+    };
+    const cancel = () => { pointer = undefined; };
+    document.addEventListener('pointerdown', pointerDown, true);
+    document.addEventListener('pointermove', pointerMove, true);
+    document.addEventListener('pointerup', pointerUp, true);
+    document.addEventListener('pointercancel', cancel, true);
+    window.addEventListener('blur', cancel);
     document.addEventListener('focusin', selectInput);
-    return () => document.removeEventListener('focusin', selectInput);
+    return () => {
+      document.removeEventListener('pointerdown', pointerDown, true);
+      document.removeEventListener('pointermove', pointerMove, true);
+      document.removeEventListener('pointerup', pointerUp, true);
+      document.removeEventListener('pointercancel', cancel, true);
+      window.removeEventListener('blur', cancel);
+      document.removeEventListener('focusin', selectInput);
+    };
   }, []);
   const setProject = useCallback((next: Project) => {
     setArchive(current => ({

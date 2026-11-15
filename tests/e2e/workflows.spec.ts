@@ -41,6 +41,7 @@ test('playground draws repeatedly, flips hands, duplicates stacks and toggles th
 
 test('flipped stacks draw from the visible top without rewriting their underlying faces', async ({ page }) => {
   await page.goto('/');
+  await page.getByRole('button', { name: 'Turn cards face up when entering a hand', exact: true }).click();
   const before = (await workspace(page)).projects[0];
   const deck = before.instances.find(i => i.stack)!;
   const members = before.instances.filter(i => i.stack === deck.stack).sort((a, b) => a.order - b.order);
@@ -111,8 +112,10 @@ test('flipping a stack while dragging retains the drag and displays the newly vi
   await page.mouse.down();
   await page.mouse.move(from.x + from.width / 2 + 30, from.y + from.height / 2, { steps: 4 });
   await expect(page.locator('.board-drag-preview .component-face')).toBeVisible();
+  await expect(page.locator('.board-drag-preview .component-face')).toHaveCSS('animation-name', 'none');
   await page.keyboard.press('f');
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.stackReversed).toBe(true);
+  await expect(page.locator('.board-drag-preview .component-face')).toHaveCSS('animation-name', 'piece-reveal');
   await page.mouse.move(from.x + from.width / 2 + 90, from.y + from.height / 2 + 40, { steps: 4 });
   await page.mouse.up();
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.x).not.toBe(members[0].x);
@@ -133,6 +136,7 @@ test('flipping selected hand cards animates the ghost and keeps the drag capture
   await page.mouse.move(viewport.x + viewport.width * .7, viewport.y + viewport.height * .6, { steps: 8 });
   const ghost = page.locator('.hand-drag-preview .component-face');
   await expect(ghost).toBeVisible();
+  await expect(ghost).toHaveCSS('animation-name', 'none');
   const previousFace = await ghost.elementHandle();
   await page.keyboard.press('f');
   for (const card of before) {
