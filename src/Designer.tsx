@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
+import { copySubtrees, groupLayers, pasteSubtrees, selectedRoots, ungroupLayers } from './designerOperations';
 import { download } from './storage';
 import { Field, Modal, NumberField, Toggle } from './ui';
 
@@ -89,6 +90,14 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const [future, setFuture] = useState<Component[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [dragPreview, setDragPreview] = useState<Record<string, DragPosition>>();
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const designer = useRef<HTMLDivElement>(null);
+  const stage = useRef<HTMLDivElement>(null);
+  const spacePressed = useRef(false);
+  const spacePanned = useRef(false);
+  const panning = useRef<{ pointer: number; x: number; y: number; panX: number; panY: number }>(null);
+  const zoomAnchor = useRef<{ x: number; y: number; relativeX: number; relativeY: number }>(null);
+  const clipboard = useRef<{ componentId: string; face: Face; nodes: DesignNode[] }>(null);
   const artboard = useRef<HTMLDivElement>(null);
   const dragging = useRef<LayerDrag>(null);
   const nodes = component[face];
@@ -117,45 +126,115 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
     setSelected([next.id]);
   };
   const createGroup = () => {
-    const chosen = selectedNodes.filter(item => !selectedNodes.some(other => other.id !== item.id && descendantsOf(nodes, [other.id]).has(item.id)));
-    if (!chosen.length) {
+    if (!selectedNodes.length) {
       const empty = makeNode('frame', { name: 'Group', fill: 'transparent', width: 180, height: 120 });
+      if (nodes.length >= 300) { notify('A face cannot contain more than 300 layers.', true); return; }
       update({ [face]: [...nodes, empty] }); setSelected([empty.id]); return;
     }
-    const shareParent = chosen.every(item => item.parent === chosen[0].parent);
-    const commonParent = shareParent ? chosen[0].parent : null;
-    const parent = commonParent ? nodes.find(item => item.id === commonParent) : undefined;
-    const flowing = shareParent && !!parent && parent.layout !== 'absolute';
-    const positions = chosen.map(item => shareParent ? { x: item.x, y: item.y } : worldPosition(item, nodes) ?? { x: item.x, y: item.y });
-    const minX = Math.min(...positions.map(point => point.x));
-    const minY = Math.min(...positions.map(point => point.y));
-    const maxX = Math.max(...chosen.map((item, index) => positions[index].x + item.width));
-    const maxY = Math.max(...chosen.map((item, index) => positions[index].y + item.height));
-    const group = makeNode('frame', {
-      name: 'Group', parent: commonParent, x: flowing ? 0 : minX, y: flowing ? 0 : minY,
-      width: Math.max(1, maxX - minX), height: Math.max(1, maxY - minY),
-      fill: 'transparent', layout: flowing ? parent!.layout : 'absolute',
-      widthMode: flowing ? 'hug' : 'fixed', heightMode: flowing ? 'hug' : 'fixed',
-      gap: flowing ? parent!.gap : 8, align: flowing ? parent!.align : 'start',
-    });
-    const chosenIds = new Set(chosen.map(item => item.id));
-    const firstIndex = Math.min(...chosen.map(item => nodes.findIndex(existing => existing.id === item.id)));
-    const grouped = nodes.map(item => {
-      if (!chosenIds.has(item.id)) return item;
-      const point = positions[chosen.findIndex(chosenNode => chosenNode.id === item.id)];
-      const position = { x: point.x - minX, y: point.y - minY };
-      return { ...item, parent: group.id, ...position };
-    });
-    grouped.splice(firstIndex, 0, group);
-    update({ [face]: grouped });
-    setSelected([group.id]);
-    if (!shareParent && chosen.some(item => !worldPosition(item, nodes))) notify('Grouped layers from different layouts; review their placement.', true);
+    try { const result = groupLayers(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Unable to group layers.', true); }
   };
   const removeNode = () => {
+    if (!selected.length) return;
     const remove = descendantsOf(nodes, selected);
     update({ [face]: nodes.filter(item => !remove.has(item.id)) });
     setSelected([]);
   };
+  const undo = () => {
+    const previous = history.at(-1); if (!previous) return;
+    setHistory(history.slice(0, -1)); setFuture([...future, component]);
+    setSelected(current => current.filter(id => previous[face].some(item => item.id === id))); void commit(previous);
+  };
+  const redo = () => {
+    const next = future.at(-1); if (!next) return;
+    setFuture(future.slice(0, -1)); setHistory([...history, component]);
+    setSelected(current => current.filter(id => next[face].some(item => item.id === id))); void commit(next);
+  };
+  useEffect(() => {
+    const isBlocked = (target: EventTarget | null) => {
+      const element = target instanceof Element ? target : null;
+      return !!document.querySelector('[role="dialog"], [aria-modal="true"]') ||
+        !!element?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])') ||
+        !!(element && element !== document.body && !designer.current?.contains(element));
+    };
+    const keydown = (event: KeyboardEvent) => {
+      if (isBlocked(event.target)) return;
+      if (event.code === 'Space' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        spacePressed.current = true;
+        if (!(event.target instanceof Element && event.target.closest('button, a'))) event.preventDefault();
+        return;
+      }
+      const command = event.ctrlKey || event.metaKey;
+      const key = event.key.toLowerCase();
+      if (event.altKey) return;
+      try {
+        if (command && key === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); }
+        else if (command && key === 'y' && !event.shiftKey) { event.preventDefault(); redo(); }
+        else if (command && key === 'a' && !event.shiftKey) { event.preventDefault(); setSelected(nodes.filter(item => !item.parent).map(item => item.id)); }
+        else if (command && (key === 'c' || key === 'x') && !event.shiftKey && selected.length) {
+          event.preventDefault(); clipboard.current = { componentId: component.id, face, nodes: copySubtrees(nodes, selected) };
+          if (key === 'x') removeNode();
+        } else if (command && (key === 'v' || key === 'd') && !event.shiftKey) {
+          if (key === 'v' && !clipboard.current) return;
+          event.preventDefault();
+          const copied = key === 'd' ? copySubtrees(nodes, selected) : clipboard.current!.nodes;
+          if (key === 'v' && (clipboard.current!.componentId !== component.id || clipboard.current!.face !== face)) throw new Error('Paste layers into their original component face.');
+          const result = pasteSubtrees(nodes, copied); update({ [face]: result.nodes }); setSelected(result.selected);
+        } else if (command && key === 'g') {
+          event.preventDefault();
+          if (event.shiftKey) { const result = ungroupLayers(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); }
+          else if (selected.length) createGroup();
+        } else if (!command && (key === 'delete' || key === 'backspace') && selected.length) {
+          event.preventDefault(); removeNode();
+        } else if (!command && key === 'escape') { event.preventDefault(); setSelected([]); }
+        else if (!command && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(key) && selected.length) {
+          event.preventDefault();
+          const roots = selectedRoots(nodes, selected);
+          if (roots.some(item => item.parent && nodes.find(parent => parent.id === item.parent)?.layout !== 'absolute')) throw new Error('Flow-layout children cannot be nudged.');
+          const distance = event.shiftKey ? 10 : 1;
+          const dx = key === 'arrowright' ? distance : key === 'arrowleft' ? -distance : 0;
+          const dy = key === 'arrowdown' ? distance : key === 'arrowup' ? -distance : 0;
+          const ids = new Set(roots.map(item => item.id));
+          update({ [face]: nodes.map(item => {
+            if (!ids.has(item.id)) return item;
+            const angle = nodeAngle(item, nodes);
+            return { ...item, x: item.x + dx * Math.cos(angle) + dy * Math.sin(angle), y: item.y - dx * Math.sin(angle) + dy * Math.cos(angle) };
+          }) });
+        }
+      } catch (error) { notify(error instanceof Error ? error.message : 'Unable to edit layers.', true); }
+    };
+    const keyup = (event: KeyboardEvent) => {
+      if (event.code === 'Space') { if (spacePanned.current) event.preventDefault(); spacePressed.current = false; spacePanned.current = false; }
+    };
+    const blur = () => { spacePressed.current = false; spacePanned.current = false; panning.current = null; };
+    window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); };
+  });
+  useLayoutEffect(() => {
+    const anchor = zoomAnchor.current;
+    const bounds = artboard.current?.getBoundingClientRect();
+    if (!anchor || !bounds) return;
+    zoomAnchor.current = null;
+    const dx = anchor.x - (bounds.left + bounds.width * anchor.relativeX);
+    const dy = anchor.y - (bounds.top + bounds.height * anchor.relativeY);
+    setPan(current => ({ x: current.x + dx, y: current.y + dy }));
+  }, [zoom]);
+  useEffect(() => {
+    const element = stage.current;
+    if (!element) return;
+    const wheel = (event: WheelEvent) => {
+      if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
+      event.preventDefault();
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1);
+      const next = Math.max(.25, Math.min(3, zoom * Math.exp(-delta * .001)));
+      const bounds = artboard.current?.getBoundingClientRect();
+      if (bounds && next !== zoom) zoomAnchor.current = { x: event.clientX, y: event.clientY,
+        relativeX: (event.clientX - bounds.left) / bounds.width, relativeY: (event.clientY - bounds.top) / bounds.height };
+      setZoom(next);
+    };
+    element.addEventListener('wheel', wheel, { passive: false });
+    return () => element.removeEventListener('wheel', wheel);
+  }, [zoom]);
   const selectFromTree = (id: string, event: MouseEvent<HTMLButtonElement>) => {
     if (event.metaKey || event.ctrlKey || event.shiftKey) {
       setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
@@ -251,6 +330,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
     </div>;
   });
   const beginCanvasDrag = (id: string, event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || spacePressed.current) return;
     const layer = nodes.find(item => item.id === id);
     if (!layer) return;
     if (event.metaKey || event.ctrlKey || event.shiftKey) {
@@ -267,7 +347,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
     artboard.current?.setPointerCapture(event.pointerId);
   };
   const rootIds = nodes.filter(item => item.parent === null).map(item => item.id);
-  return <div className="designer-layout">
+  return <div ref={designer} className="designer-layout">
     <aside className="layers-panel">
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
       <div className="face-tabs"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
@@ -292,19 +372,33 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
         </div><span className="toolbar-divider" />
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
-        <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={() => {
-          const previous = history.at(-1)!; setHistory(history.slice(0, -1)); setFuture([...future, component]);
-          setSelected(current => current.filter(id => previous[face].some(item => item.id === id))); void commit(previous);
-        }}><Undo2 size={17} /></button>
-        <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={() => {
-          const next = future.at(-1)!; setFuture(future.slice(0, -1)); setHistory([...history, component]);
-          setSelected(current => current.filter(id => next[face].some(item => item.id === id))); void commit(next);
-        }}><Redo2 size={17} /></button>
+        <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
+        <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
         <div className="toolbar-end"><select aria-label="Preview data row" value={row} onChange={event => setRow(Number(event.target.value))}>
           {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{dataRow.name ?? `Row ${index + 1}`}</option>) : <option value="0">No data source</option>}
         </select></div>
       </div>
-      <div className="designer-stage" onPointerDown={() => setSelected([])}>
+      <div ref={stage} className="designer-stage" tabIndex={-1}
+        onPointerDownCapture={event => {
+          if (event.button === 0 || event.button === 1) event.currentTarget.focus({ preventScroll: true });
+          if (event.button !== 1 && !(event.button === 0 && spacePressed.current)) return;
+          event.preventDefault(); event.stopPropagation();
+          if (event.button === 0) spacePanned.current = true;
+          panning.current = { pointer: event.pointerId, x: event.clientX, y: event.clientY, panX: pan.x, panY: pan.y };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMoveCapture={event => {
+          const drag = panning.current;
+          if (!drag || drag.pointer !== event.pointerId) return;
+          event.stopPropagation(); setPan({ x: drag.panX + event.clientX - drag.x, y: drag.panY + event.clientY - drag.y });
+        }}
+        onPointerUpCapture={event => {
+          if (panning.current?.pointer !== event.pointerId) return;
+          event.stopPropagation(); panning.current = null;
+        }}
+        onPointerCancelCapture={() => { panning.current = null; }}
+        onPointerDown={event => { if (event.button === 0) setSelected([]); }}>
+        <div className="designer-stage-content" style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
         <span className="artboard-label">{component.name} / {face} <span>{component.width} x {component.height}</span></span>
         <div ref={artboard} className="artboard" style={{ width: component.width * zoom, height: component.height * zoom }}
           onPointerMove={event => {
@@ -333,6 +427,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
           </div>
         </div>
         <div className="canvas-caption"><span className="live-dot" /> Live component <span>Changes appear on every instance</span></div>
+        </div>
       </div>
       <div className="canvas-bottom"><span><Square size={12} /> {component.kind} component</span>
         <div><button onClick={() => setZoom(value => Math.max(.25, value - .25))}>-</button><button onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div></div>

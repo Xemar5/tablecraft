@@ -26,3 +26,5 @@
 .inspector-section .toggle-row {margin-top:10px}
 .canvas-toolbar .tool-group {display:flex;align-items:center;gap:2px}
 .canvas-toolbar button:disabled {opacity:.35;cursor:not-allowed}
+.designer-stage {overflow:hidden;touch-action:none}
+.designer-stage-content {display:flex;flex-direction:column;align-items:center;flex-shrink:0;will-change:transform}
