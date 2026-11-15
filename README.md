@@ -15,6 +15,8 @@ Open **http://127.0.0.1:5173**. The component designer and hotseat playground wo
 
 On Windows, `.\Start-Tablecraft.ps1` also starts the app. It can use either an installed Node runtime or the portable runtime provisioned under `%LOCALAPPDATA%\prototyper-tools`.
 
+In VS Code, open **Run and Debug**, select **Tablecraft: Launch app**, and press **F5** to start Vite and open Chrome with frontend debugging. Use **Tablecraft: Launch app (portable Node, Windows)** for the provisioned Windows runtime. Run `npm ci` first, and stop any existing frontend on port 5173 before launching. These configurations start only the frontend; multiplayer still requires the server and published module described below.
+
 The optional script requires a PowerShell execution policy that permits local scripts. If scripts are disabled, use the npm commands instead. With the provisioned portable runtime, you can start the frontend directly without running a script:
 
 ```powershell
