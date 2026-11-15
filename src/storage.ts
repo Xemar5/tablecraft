@@ -9,6 +9,7 @@ export function loadWorkspace(): Archive {
 }
 export function parseArchive(raw: string): Archive {
   const parsed = archiveSchema.parse(JSON.parse(raw));
+  if (new Set(parsed.projects.map(project => project.id)).size !== parsed.projects.length) throw new Error('Project identifiers must be unique.');
   const archive = { ...parsed, projects: parsed.projects.map(project => ({ ...project, components: upgradeLegacyArtwork(project.components) })) };
   archive.projects.forEach(validateProject);
   return archive;

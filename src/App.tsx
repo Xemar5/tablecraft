@@ -10,10 +10,14 @@ import { Playground } from './Playground';
 import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
 import { Field, Modal, Notice, ScrollArrows } from './ui';
+import { Home } from './Home';
+import { LinkedComponent } from './LinkedComponent';
+import { linkComponent, localComponentCopy, refreshProjectLinks } from './projectLinks';
 
-function boot(): { archive: Archive; error: string | null } {
-  try { return { archive: loadWorkspace(), error: null }; }
-  catch (error) { return { archive: { format: 'tablecraft', version: 1, projects: [starterProject()] }, error: `Your previous save couldn't be read. It has not been overwritten. ${error instanceof Error ? error.message : String(error)}` }; }
+const LAST_PROJECT_KEY = 'tablecraft.last-project';
+function boot(): { archive: Archive; error: string | null; lastProjectId: string | null } {
+  try { return { archive: refreshProjectLinks(loadWorkspace()), lastProjectId: localStorage.getItem(LAST_PROJECT_KEY), error: null }; }
+  catch (error) { return { archive: { format: 'tablecraft', version: 1, projects: [starterProject()] }, lastProjectId: null, error: `Your previous save couldn't be read. It has not been overwritten. ${error instanceof Error ? error.message : String(error)}` }; }
 }
 function loadSnapshots(): { projects: Project[]; error: string | null } {
   try {
@@ -40,14 +44,17 @@ export default function App() {
     setWorkspace(current => ({ archive: typeof update === 'function' ? update(current.archive) : update, histories: {} }));
   }, []);
   const [storageError, setStorageError] = useState(initial.error);
-  const [projectId, setProjectId] = useState(initial.archive.projects[0].id);
+  const [fallbackProject] = useState(starterProject);
+  const initialProject = initial.archive.projects.find(p => p.id === initial.lastProjectId) ?? initial.archive.projects[0] ?? fallbackProject;
+  const [home, setHome] = useState(!initial.archive.projects.some(p => p.id === initial.lastProjectId));
+  const [projectId, setProjectId] = useState(initialProject.id);
   const [mode, setMode] = useState<'playground' | 'designer'>('playground');
-  const [componentId, setComponentId] = useState<string | undefined>(initial.archive.projects[0].components[0]?.id);
+  const [componentId, setComponentId] = useState<string | undefined>(initialProject.components[0]?.id);
   const [selected, setSelected] = useState<string[]>([]);
   const [libraryVisible, setLibraryVisible] = useState(true);
   const [inspectorVisible, setInspectorVisible] = useState(true);
   const [handVisible, setHandVisible] = useState(true);
-  const [actor, setActor] = useState(initial.archive.projects[0].players[0]?.id ?? '');
+  const [actor, setActor] = useState(initialProject.players[0]?.id ?? '');
   const [curtain, setCurtain] = useState<Player>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
@@ -78,7 +85,8 @@ export default function App() {
       element.removeEventListener('wheel', wheel);
     };
   }, []);
-  const [modal, setModal] = useState<'templates' | 'projects' | 'session' | 'help' | 'save'>();
+  const [modal, setModal] = useState<'templates' | 'projects' | 'session' | 'help' | 'save' | 'link'>();
+  const [removeLink, setRemoveLink] = useState<Component>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number }>();
   const [session, setSession] = useState<LiveSession>();
   const [liveUndo, setLiveUndo] = useState({ count: 0, notice: '' });
@@ -95,10 +103,28 @@ export default function App() {
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
   const fileInput = useRef<HTMLInputElement>(null);
-  const project = archive.projects.find(p => p.id === projectId) ?? archive.projects[0];
+  const project = archive.projects.find(p => p.id === projectId) ?? archive.projects[0] ?? fallbackProject;
   const activeComponent = project.components.find(c => c.id === componentId) ?? project.components[0];
   const fontFamilies = [...new Set(project.components.flatMap(c => [...c.front, ...c.back].map(n => n.font)).filter(Boolean))].sort().join('|');
   const notify = useCallback((message: string, error = false) => setToast({ message, error, id: Date.now() }), []);
+  const openProject = (id: string) => {
+    try {
+      const refreshed = refreshProjectLinks(archive);
+      const next = refreshed.projects.find(p => p.id === id);
+      if (!next) throw new Error('Project no longer exists.');
+      localStorage.setItem(LAST_PROJECT_KEY, id);
+      if (refreshed !== archive) setWorkspace(current => {
+        const histories = { ...current.histories };
+        for (const project of refreshed.projects) if (project !== archive.projects.find(p => p.id === project.id)) {
+          histories[project.id] = { entries: [], notice: 'Undo history cleared because linked component designs changed.' };
+        }
+        return { archive: refreshed, histories };
+      });
+      setProjectId(id); setActor(next.players[0]?.id ?? '');
+      setComponentId(next.components[0]?.id); setSelected([]); setSearch(''); setFilter('all');
+      setMode('playground'); setHome(false); setModal(undefined);
+    } catch (error) { notify(`Unable to open project: ${String(error)}`, true); }
+  };
   const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
   const [playgroundTab, setPlaygroundTab] = useState<'table' | 'players'>('table');
   const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, notify);
@@ -158,7 +184,10 @@ export default function App() {
       ...current, projects: current.projects.some(p => p.id === next.id) ? current.projects.map(p => p.id === next.id ? next : p) : [...current.projects, next],
     }));
     setProjectId(next.id);
-  }, []);
+    setHome(false);
+    try { localStorage.setItem(LAST_PROJECT_KEY, next.id); }
+    catch (error) { notify(`Unable to remember the last project: ${String(error)}`, true); }
+  }, [notify]);
   const dispatch = useCallback((command: Command): Promise<boolean> => {
     if (sessionRef.current) {
       return sessionRef.current.send(command, actor).then(() => true).catch(error => {
@@ -172,10 +201,13 @@ export default function App() {
           const source = current.archive.projects.find(p => p.id === projectId);
           if (!source) throw new Error('Project no longer exists.');
           const result = applyPlaygroundCommand(source, current.histories[projectId] ?? emptyPlaygroundHistory(), command, actor);
-          const next = {
-            archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) },
-            histories: { ...current.histories, [projectId]: result.history },
-          };
+          const updated = { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) };
+          const refreshed = refreshProjectLinks(updated);
+          const histories = { ...current.histories, [projectId]: result.history };
+          for (const project of refreshed.projects) if (project !== updated.projects.find(p => p.id === project.id)) {
+            histories[project.id] = { entries: [], notice: 'Undo history cleared because linked component designs changed.' };
+          }
+          const next = { archive: refreshed, histories };
           queueMicrotask(() => resolve(true));
           return next;
         } catch (error) {
@@ -204,7 +236,7 @@ export default function App() {
   }, [actor, projectId, notify]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
-      if (mode !== 'playground' || modal || curtain || event.defaultPrevented || event.isComposing || event.repeat ||
+      if (home || mode !== 'playground' || modal || curtain || event.defaultPrevented || event.isComposing || event.repeat ||
         !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]')) return;
@@ -214,7 +246,7 @@ export default function App() {
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [mode, modal, curtain, undoCount, undo]);
+  }, [home, mode, modal, curtain, undoCount, undo]);
   const edit = (id: string) => { setComponentId(id); setMode('designer'); };
   const switchPlayer = (player: Player) => {
     if (session && player.owner !== session.identity) { notify('This seat belongs to another connected player.', true); return; }
@@ -256,17 +288,22 @@ export default function App() {
       if (typeof parsed === 'object' && parsed !== null && 'format' in parsed && parsed.format === 'tablecraft') {
         if (session) throw new Error('Leave the live session before importing a project. Component JSON can be imported while connected.');
         const incoming = parseArchive(text);
-        const projects = incoming.projects.map(p => ({ ...p, id: uid('project') }));
-        setArchive(current => ({ ...current, projects: [...current.projects, ...projects] }));
+        const ids = new Map(incoming.projects.map(p => [p.id, uid('project')]));
+        const projects = incoming.projects.map(p => ({ ...p, id: ids.get(p.id)!, components: p.components.map(c => c.source && ids.has(c.source.projectId)
+          ? { ...c, source: { ...c.source, projectId: ids.get(c.source.projectId)! } } : c) }));
+        if (archive.projects.length + projects.length > 100) throw new Error('A workspace can contain at most 100 projects.');
+        if (!projects.length) throw new Error('The imported archive has no projects.');
+        setArchive(refreshProjectLinks({ ...archive, projects: [...archive.projects, ...projects] }));
         setProjectId(projects[0].id); setActor(projects[0].players[0]?.id ?? ''); setSelected([]);
+        setComponentId(projects[0].components[0]?.id); setMode('playground');
+        if (!home) localStorage.setItem(LAST_PROJECT_KEY, projects[0].id);
         setStorageError(null); notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.`);
       } else {
+        if (home) throw new Error('Open a project before importing a component.');
         const bundle = parseComponentBundle(text);
         const remapped = remapComponentBundle(bundle);
         validateProject({ ...project, components: [...project.components, ...remapped.components] });
-        for (const component of remapped.components) {
-          if (!await dispatch({ type: 'component', component })) throw new Error('A linked component could not be imported.');
-        }
+        if (!await dispatch({ type: 'addComponents', components: remapped.components })) throw new Error('Components could not be imported.');
         edit(remapped.rootId); notify(`Imported ${remapped.components.length} linked component${remapped.components.length === 1 ? '' : 's'}.`);
       }
     } catch (error) { notify(`Import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
@@ -296,22 +333,59 @@ export default function App() {
   const leave = () => {
     sessionRef.current?.disconnect(); sessionRef.current = undefined; setSession(undefined); setModal(undefined);
   };
+  const showHome = () => {
+    if (sessionRef.current) { leave(); notify('Left the live session. The latest table is saved locally.'); }
+    setHome(true); setModal(undefined); setCurtain(undefined); setSelected([]);
+  };
+  const createProject = (name: string) => {
+    if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
+    const next = { ...starterProject(), name, components: [], instances: [] };
+    setProject(next); setActor(next.players[0]?.id ?? ''); setComponentId(undefined); setSelected([]);
+    setSearch(''); setFilter('all'); setMode('playground'); setModal('templates');
+  };
+  const copyLinked = async (component: Component) => {
+    try {
+      const copy = localComponentCopy(project, component.id);
+      if (await dispatch({ type: 'addComponents', components: copy.components })) { edit(copy.rootId); notify('Created an editable local copy, including nested artwork.'); }
+    } catch (error) { notify(`Unable to copy component: ${String(error)}`, true); }
+  };
   const visible = project.components.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || c.kind === filter));
   const selectedComponent = mode === 'designer' ? activeComponent : project.components.find(c => c.id === project.instances.find(i => i.id === selected.at(-1))?.componentId);
   return <div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
     <header className="app-header">
-      <a className="brand" href="#" onClick={e => { e.preventDefault(); setMode('playground'); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
+      <a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
+      {!home && <>
       <div className="project-heading compact-project"><h1>{project.name}</h1><button className="icon-button" aria-label="Project settings" onClick={() => { setProjectName(project.name); setModal('projects'); }}><ChevronDown size={16} /></button></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
       {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain} onClick={undo}><Undo2 size={18} /></button>}
       <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
+      </>}
     </header>
-    <Notice key={`${session?.code ?? 'offline'}:${project.id}`} message={undoNotice} role="status" hidden={mode !== 'playground'} />
+    <Notice key={`${session?.code ?? 'offline'}:${project.id}`} message={undoNotice} role="status" hidden={home || mode !== 'playground'} />
     <Notice message={storageError ?? ''}><button onClick={() => {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
       setStorageError(null);
     }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></Notice>
-    <main className="main-layout" ref={panels.container}>
+    {home && <Home projects={archive.projects} onLoad={openProject} onCreate={createProject}
+      onImport={() => fileInput.current?.click()} onExport={exportProject}
+      onExportAll={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}
+      onDelete={id => {
+        try {
+          if (localStorage.getItem(LAST_PROJECT_KEY) === id) localStorage.removeItem(LAST_PROJECT_KEY);
+          setWorkspace(current => {
+            const histories = { ...current.histories }; delete histories[id];
+            return { archive: { ...current.archive, projects: current.archive.projects.filter(p => p.id !== id) }, histories };
+          });
+        } catch (error) { notify(`Unable to delete project: ${String(error)}`, true); }
+      }}
+      onReorder={(id, targetId, after) => setWorkspace(current => {
+        const moving = current.archive.projects.find(p => p.id === id);
+        if (!moving || id === targetId || !current.archive.projects.some(p => p.id === targetId)) return current;
+        const projects = current.archive.projects.filter(p => p.id !== id);
+        projects.splice(projects.findIndex(p => p.id === targetId) + (after ? 1 : 0), 0, moving);
+        return { ...current, archive: { ...current.archive, projects } };
+      })} />}
+    <main className="main-layout" ref={panels.container} style={home ? { display: 'none' } : undefined}>
       <aside id="component-library-panel" className="library-panel" style={{ width: panels.sizes.library, minWidth: 0, flex: `0 0 ${panels.sizes.library}px` }} hidden={!libraryVisible}>
         <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></div>
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
@@ -357,20 +431,48 @@ export default function App() {
                 if (target) void dispatch({ type: 'reorderComponent', id: comp.id, targetId: target.id, position: e.key === 'ArrowUp' ? 'before' : 'after' });
               }}><GripVertical size={14} /></button>
             <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
+          {comp.source && <div className="library-link-note"><small><Link size={11} /> Read-only · {comp.source.projectName}</small><button className="text-button" aria-label={`Make local copy of ${comp.name}`} onClick={() => void copyLinked(comp)}>Make local copy</button></div>}
           {mode === 'playground' && <div className="library-item-options"><button onClick={() => spawn(comp, true)}><Plus size={11} /> {comp.rows.length > 1 ? 'Spawn all variants' : 'Spawn piece'}</button></div>}
         </div>)}
           {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
         </div>
-        <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<button className="new-component-button" onClick={() => setModal('templates')}><Plus size={16} /> Create component</button><div className="library-footer-actions"><button onClick={() => fileInput.current?.click()}><Upload size={13} /> Import</button><button onClick={() => exportProject(project)}><Download size={13} /> Export</button></div></div>
+        <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<button className="new-component-button" onClick={() => setModal('templates')}><Plus size={16} /> Create component</button>
+          <button className="new-component-button" onClick={() => setModal('link')}><Link size={14} /> Link from another project</button>
+          <div className="library-footer-actions"><button onClick={() => fileInput.current?.click()}><Upload size={13} /> Import</button><button onClick={() => exportProject(project)}><Download size={13} /> Export</button></div></div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+        activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
+          available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
+          onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
         activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
-        }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>}</div>
+        }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>
     <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}
+    {modal === 'link' && <Modal title="Link from another project" subtitle="Linked designs are read-only here. Their saved snapshot travels with this project." wide onClose={() => setModal(undefined)}>
+      <div className="link-project-list">{archive.projects.filter(p => p.id !== project.id).map(source => <section key={source.id}><h3>{source.name}</h3>
+        {source.components.map(component => <div className="link-component-option" key={component.id}><span>{component.name}<small>{component.kind}{component.source ? ' · linked' : ''}</small></span><button className="button" aria-label={`Link ${component.name} from ${source.name}`} onClick={async () => {
+          try {
+            const linked = linkComponent(project, source, component.id);
+            const proposed = { ...archive, projects: archive.projects.map(p => p.id === project.id ? linked.project : p) };
+            const refreshed = refreshProjectLinks(proposed).projects.find(p => p.id === project.id)!;
+            const changes = refreshed.components.filter(c => JSON.stringify(project.components.find(existing => existing.id === c.id)) !== JSON.stringify(c));
+            if (changes.length && !await dispatch({ type: 'syncLinkedComponents', components: changes })) return;
+            setModal(undefined); edit(linked.rootId); notify('Component linked. Its design is read-only in this project.');
+          } catch (error) { notify(`Unable to link component: ${String(error)}`, true); }
+        }}>Link component</button></div>)}
+        {!source.components.length && <p>No components in this project.</p>}
+      </section>)}
+      {!archive.projects.some(p => p.id !== project.id) && <p>Create or import another project from Home first.</p>}
+      </div>
+    </Modal>}
+    {removeLink && <Modal title={`Remove ${removeLink.name}?`} subtitle="This removes the link and its placed pieces from this project, not the original component." onClose={() => setRemoveLink(undefined)}>
+      <div className="modal-actions"><button className="button" onClick={() => setRemoveLink(undefined)}>Cancel</button><button className="button danger" onClick={async () => {
+        if (await dispatch({ type: 'removeComponent', id: removeLink.id })) { setRemoveLink(undefined); setComponentId(undefined); }
+      }}>Remove link</button></div>
+    </Modal>}
     {modal === 'templates' && <Modal title="What will you make?" subtitle="A starting point, not a limitation. Every detail is yours to change." wide onClose={() => setModal(undefined)}>
       <div className="template-grid">{([
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
@@ -381,13 +483,11 @@ export default function App() {
     </Modal>}
     {modal === 'projects' && <Modal title="Your workshop" subtitle="All your worlds, works in progress, and what-ifs." wide onClose={() => setModal(undefined)}>
       <div className="projects-dialog"><div className="projects-list">{archive.projects.map(p => <button key={p.id} disabled={!!session && p.id !== project.id} className={`project-card ${p.id === project.id ? 'active' : ''}`} onClick={() => {
-        setProjectId(p.id); setActor(p.players.find(player => !session || player.owner === session.identity)?.id ?? p.players[0]?.id ?? '');
-        setComponentId(p.components[0]?.id); setSelected([]); setModal(undefined);
+        openProject(p.id);
       }}><span className="project-card-icon"><Leaf size={24} /></span><span><strong>{p.name}</strong><small>{p.components.length} components · {p.instances.length} pieces · {p.players.length} players</small></span><ChevronRight size={18} /></button>)}</div>
         <div className="project-tools"><Field label="Project name"><input maxLength={100} value={projectName || project.name} onChange={e => setProjectName(e.target.value)} /></Field><button className="button" onClick={() => { void dispatch({ type: 'rename', name: projectName || project.name }).then(success => { if (success) notify('Project renamed.'); }); }}>Rename</button></div>
         <div className="button-row"><button className="button primary" disabled={!!session} onClick={() => {
-          const next = starterProject(); next.name = `Untitled project ${archive.projects.length + 1}`; next.components = []; next.instances = [];
-          setProject(next); setActor(next.players[0].id); setModal('templates');
+          createProject(`Untitled project ${archive.projects.length + 1}`);
         }}><Plus size={15} /> New project</button><button className="button" disabled={!!session} onClick={() => fileInput.current?.click()}><Upload size={15} /> Import JSON</button><button className="button" onClick={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}><Download size={15} /> Export all projects</button></div>
       </div>
     </Modal>}

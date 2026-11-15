@@ -1,5 +1,10 @@
 import Papa from 'papaparse';
 
+export function variantLabels(csv: string, rows: Record<string, string>[]): string[] {
+  const firstColumn = Papa.parse<string[]>(csv, { skipEmptyLines: 'greedy' }).data[0]?.[0] ?? Object.keys(rows[0] ?? {})[0];
+  return rows.map((row, index) => `${index + 1}. ${row[firstColumn] ?? ''}`);
+}
+
 export function parseCsvData(csv: string): Record<string, string>[] {
   if (!csv.trim()) return [];
   const result = Papa.parse<string[]>(csv, { skipEmptyLines: 'greedy' });

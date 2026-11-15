@@ -47,6 +47,7 @@ export const componentSchema = z.object({
   rows: z.array(z.record(z.string(), z.string())).max(10000),
   flippable: z.boolean(), hand: z.boolean(), hideInHand: z.boolean(),
   stackable: z.boolean(), shufflable: z.boolean(), stackTag: z.string().max(100),
+  source: z.object({ projectId: id, componentId: id, projectName: z.string().min(1).max(100) }).optional(),
 });
 export type Component = z.infer<typeof componentSchema>;
 export const instanceSchema = z.object({
@@ -73,11 +74,13 @@ export const projectSchema = z.object({
 });
 export type Project = z.infer<typeof projectSchema>;
 export const archiveSchema = z.object({
-  format: z.literal('tablecraft'), version: z.literal(1), projects: z.array(projectSchema).min(1).max(100),
+  format: z.literal('tablecraft'), version: z.literal(1), projects: z.array(projectSchema).max(100),
 });
 export type Archive = z.infer<typeof archiveSchema>;
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('component'), component: componentSchema, removedDataRow: z.number().int().min(0).optional() }),
+  z.object({ type: z.literal('addComponents'), components: z.array(componentSchema).min(1).max(500) }),
+  z.object({ type: z.literal('syncLinkedComponents'), components: z.array(componentSchema).min(1).max(500) }),
   z.object({ type: z.literal('removeComponent'), id }),
   z.object({ type: z.literal('reorderComponent'), id, targetId: id, position: z.enum(['before', 'after']) }),
   z.object({ type: z.literal('spawn'), instances: z.array(instanceSchema).min(1).max(1000) }),
@@ -262,6 +265,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
   switch (command.type) {
     case 'component': {
       const index = p.components.findIndex(c => c.id === command.component.id);
+      if (p.components[index]?.source || command.component.source) throw new Error('Linked components are read-only. Make a local copy to edit them.');
       if (command.removedDataRow !== undefined) {
         const previous = p.components[index];
         if (!previous || previous.kind !== 'dice' || command.component.kind !== 'dice' ||
@@ -284,6 +288,42 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         if (!command.component.flippable) i.flipped = false;
         if (!command.component.hand) i.holder = null;
         if (!command.component.stackable || source.components.find(c => c.id === i.componentId)?.stackTag !== command.component.stackTag) i.stack = null;
+      }
+      break;
+    }
+    case 'addComponents':
+    case 'syncLinkedComponents': {
+      const ids = new Set<string>();
+      for (const component of command.components) {
+        if (ids.has(component.id)) throw new Error('Duplicate component identifier.');
+        ids.add(component.id);
+        const previous = p.components.find(c => c.id === component.id);
+        if (command.type === 'addComponents') {
+          if (previous) throw new Error('Component identifier already exists.');
+          p.components.push(component);
+        } else {
+          if (!component.source || (previous && (!previous.source ||
+            component.source.projectId !== previous.source.projectId || component.source.componentId !== previous.source.componentId))) {
+            throw new Error('Only matching read-only component links can be refreshed.');
+          }
+          if (previous) p.components[p.components.indexOf(previous)] = component;
+          else p.components.push(component);
+        }
+      }
+      if (command.type === 'syncLinkedComponents') {
+        for (const instance of p.instances.filter(item => ids.has(item.componentId))) {
+          const component = p.components.find(c => c.id === instance.componentId)!;
+          const previous = source.components.find(c => c.id === instance.componentId)!;
+          instance.row = Math.min(instance.row, Math.max(0, component.rows.length - 1));
+          if (!component.flippable) instance.flipped = false;
+          if (!component.hand) instance.holder = null;
+          if (!component.stackable || previous.stackTag !== component.stackTag) instance.stack = null;
+        }
+        for (const component of p.components) for (const node of [...component.front, ...component.back]) {
+          if (node.type === 'component' && node.componentId && ids.has(node.componentId) && node.dataSource === 'row') {
+            node.dataRow = Math.min(node.dataRow, Math.max(0, p.components.find(c => c.id === node.componentId)!.rows.length - 1));
+          }
+        }
       }
       break;
     }

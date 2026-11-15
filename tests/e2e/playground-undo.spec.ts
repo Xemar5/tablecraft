@@ -9,6 +9,7 @@ const undoButton = (page: Page) => page.getByRole('button', { name: 'Undo playgr
 
 async function connect(page: Page, code: string, host: boolean, name: string) {
   await page.goto('/');
+  if (await page.getByRole('region', { name: 'Project home' }).count()) await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
   await page.getByRole('button', { name: /Invite players/ }).click();
   await page.getByLabel('Your name', { exact: true }).fill(name);
   await page.getByLabel('Room code', { exact: true }).fill(code);
@@ -55,8 +56,8 @@ test('offline toolbar and Ctrl/Cmd+Z undo while typing, dialogs and Designer kee
   await expect(undoButton(page)).toBeDisabled();
 });
 
-test('live undo is global, serialized, preserves joins, and rejects spoofed actors', async ({ browser }) => {
-  const contexts = await Promise.all([browser.newContext(), browser.newContext(), browser.newContext()]);
+test('live undo is global, serialized, preserves joins, and rejects spoofed actors', async ({ browser, storageState }) => {
+  const contexts = await Promise.all([browser.newContext({ storageState }), browser.newContext({ storageState }), browser.newContext({ storageState })]);
   const [a, b, c] = await Promise.all(contexts.map(context => context.newPage()));
   try {
     const code = `UNDO-${Date.now()}`;

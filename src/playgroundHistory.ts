@@ -24,7 +24,7 @@ export function applyPlaygroundCommand(
   const command = commandSchema.parse(raw);
   const next = applyCommand(project, command, actor);
   if (JSON.stringify(project) === JSON.stringify(next)) return { project: next, history };
-  if (command.type === 'component' || command.type === 'removeComponent') {
+  if (command.type === 'component' || command.type === 'removeComponent' || command.type === 'addComponents' || command.type === 'syncLinkedComponents') {
     return { project: next, history: { entries: [], notice: 'Undo history cleared because component designs changed.' } };
   }
   // Seat identities are session infrastructure. Never remove a seat through undo.

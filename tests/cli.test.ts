@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { starterProject } from '../src/templates';
+import { linkComponent } from '../src/projectLinks';
 
 let dir: string;
 const runner = resolve('node_modules/tsx/dist/cli.mjs');
@@ -19,6 +21,22 @@ beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'tablecraft-cli-test-')); })
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
 describe('agent CLI', () => {
+  it('imports portable readonly links and refreshes source edits across an archive', () => {
+    const source = { ...starterProject(), id: 'source' };
+    const empty = { ...starterProject(), id: 'target', components: [], instances: [] };
+    const linked = linkComponent(empty, source, source.components[0].id);
+    const file = join(dir, 'workspace.json'), batch = join(dir, 'commands.json'), bundle = join(dir, 'linked.json'), imported = join(dir, 'imported.json');
+    writeFileSync(file, JSON.stringify({ format: 'tablecraft', version: 1, projects: [source, linked.project] }));
+    writeFileSync(batch, JSON.stringify({ type: 'component', component: { ...source.components[0], name: 'Refreshed by CLI' } }));
+    run('apply', '--file', file, '--project', source.id, '--commands', batch);
+    const target = run('inspect', '--file', file, '--project', 'target');
+    expect(target.components.find((c: { id: string }) => c.id === linked.rootId).name).toBe('Refreshed by CLI');
+    run('export', '--file', file, '--project', 'target', '--component', linked.rootId, '--out', bundle);
+    run('new', '--out', imported);
+    run('import', '--file', imported, '--bundle', bundle);
+    expect(run('inspect', '--file', imported).components.every((c: { source?: unknown }) => !!c.source)).toBe(true);
+  }, 30000);
+
   it('generates artwork and exposes its kind in help and the component schema', () => {
     const help = execFileSync(process.execPath, [runner, cli, '--help'], { encoding: 'utf8' });
     expect(help).toContain('blank|card|token|board|dice|artwork');

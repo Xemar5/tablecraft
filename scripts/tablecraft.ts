@@ -7,6 +7,7 @@ import { exportComponentBundle, parseArchive, parseComponentBundle, remapCompone
 import { starterProject, templateBundle } from '../src/templates';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { live } from './live';
+import { refreshProjectLinks } from '../src/projectLinks';
 
 const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzero exit.
 Usage: npm --silent run cli -- <command> [options]
@@ -71,10 +72,10 @@ async function atomicJson(path: string, value: unknown, overwrite: boolean) {
   } finally { await rm(temp, { force: true }); }
 }
 async function load(path: string, projectId?: string): Promise<{ archive: Archive; project: Project; index: number }> {
-  const archive = parseArchive(await readFile(path, 'utf8'));
+  const archive = refreshProjectLinks(parseArchive(await readFile(path, 'utf8')));
   if (!projectId && archive.projects.length !== 1) throw new Error('Select a project with --project.');
   const index = projectId ? archive.projects.findIndex(p => p.id === projectId) : 0;
-  if (index < 0) throw new Error('Project not found.');
+  if (index < 0 || !archive.projects[index]) throw new Error('Project not found.');
   return { archive, project: archive.projects[index], index };
 }
 async function commands(path: string, allowUndo = false) {
@@ -149,7 +150,7 @@ async function main(args: string[]) {
       changed = true; result = { component };
     } else if (cmd === 'import') {
       const bundle = remapComponentBundle(parseComponentBundle(await readFile(option(o, 'bundle'), 'utf8')));
-      for (const component of bundle.components) project = applyCommand(project, { type: 'component', component });
+      project = applyCommand(project, { type: 'addComponents', components: bundle.components });
       changed = true; result = bundle;
     } else if (cmd === 'apply' || cmd === 'spawn') {
       const batch = cmd === 'apply' ? await commands(option(o, 'commands'), true) : [{
@@ -188,7 +189,7 @@ async function main(args: string[]) {
     if (changed) {
       validateProject(project);
       loaded.archive.projects[loaded.index] = project;
-      await atomicJson(file, archiveSchema.parse(loaded.archive), true);
+      await atomicJson(file, archiveSchema.parse(refreshProjectLinks(loaded.archive)), true);
     }
   }
   console.log(JSON.stringify(result, null, 2));

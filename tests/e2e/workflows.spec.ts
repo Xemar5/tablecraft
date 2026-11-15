@@ -317,9 +317,9 @@ test('named saves restore hands and seats; JSON exports can be imported', async 
   await expect(page.getByRole('status')).toContainText('Imported 2 projects');
 });
 
-test('two real SpaceTimeDB clients share pieces, live designs, hands and returning seats', async ({ browser }) => {
-  const first = await browser.newContext();
-  const second = await browser.newContext();
+test('two real SpaceTimeDB clients share pieces, live designs, hands and returning seats', async ({ browser, storageState }) => {
+  const first = await browser.newContext({ storageState });
+  const second = await browser.newContext({ storageState });
   const a = await first.newPage(), b = await second.newPage();
   await a.routeWebSocket(/\/subscribe/, socket => {
     const server = socket.connectToServer();
@@ -542,8 +542,8 @@ test('zero draws ten and hover flip does not require selecting the piece', async
   await expect(page.getByLabel("You's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(10);
 });
 
-test('multiplayer synchronizes atomic hand and stack interactions', async ({ browser }) => {
-  const first = await browser.newContext(), second = await browser.newContext();
+test('multiplayer synchronizes atomic hand and stack interactions', async ({ browser, storageState }) => {
+  const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
   const a = await first.newPage(), b = await second.newPage();
   const code = `INTERACT-${Date.now()}`;
   await a.goto('/');
@@ -585,7 +585,7 @@ test('multiplayer synchronizes atomic hand and stack interactions', async ({ bro
   await first.close(); await second.close();
 });
 
-test('compact chrome toggles both panes without resetting camera and restores designer panes', async ({ page }) => {
+test('compact chrome toggles panes without resetting camera and retains library visibility in designer', async ({ page }) => {
   await page.goto('/');
   const header = (await page.locator('.app-header').boundingBox())!;
   const table = (await page.locator('.table-viewport').boundingBox())!;
@@ -606,7 +606,7 @@ test('compact chrome toggles both panes without resetting camera and restores de
   await expect(page.locator('.player-list')).toBeVisible();
   await page.getByRole('button', { name: 'Toggle table inspector' }).click();
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
-  await expect(page.locator('.library-panel')).toBeVisible();
+  await expect(page.locator('.library-panel')).toBeHidden();
   await expect(page.locator('.designer-layout .inspector')).toBeVisible();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(page.locator('.library-panel')).toBeHidden();

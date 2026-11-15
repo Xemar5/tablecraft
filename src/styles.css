@@ -83,6 +83,33 @@
 .horizontal-scroll-arrow.scroll-left{left:0}
 .horizontal-scroll-arrow.scroll-right{right:0}
 @media(hover:none){.horizontal-scroll-arrow svg{opacity:1}}
+.home-screen{flex:1;min-height:0;overflow:auto;padding:36px clamp(18px,5vw,80px);background:var(--paper)}
+.home-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:28px}
+.home-heading h1{font-size:32px;margin:6px 0}
+.home-heading p,.home-project p{color:#7e8d70;font-size:12px}
+.home-projects{display:flex;flex-direction:column;gap:18px;max-width:1200px;margin:auto}
+.home-project{position:relative;background:#fff;border:1px solid var(--line);border-radius:12px;padding:20px}
+.home-project-heading{display:flex;gap:14px;align-items:center;margin-bottom:12px}
+.home-project-heading h2{font-size:19px;margin:0 0 5px}
+.home-project-actions{display:flex;align-items:center;gap:8px;margin-left:auto}
+.home-project summary{cursor:pointer;font-size:12px;color:var(--green);padding:10px 0}
+.home-components{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;list-style:none;padding:12px 0}
+.home-components li{display:flex;align-items:center;gap:12px;min-width:0}
+.home-component-image{width:54px;height:68px;flex:none;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#f3f5ef;border-radius:6px}
+.home-components strong{font-size:12px}
+.home-components small{display:flex;align-items:center;gap:4px;font-size:10px;color:#7e8d70;margin-top:5px}
+.library-link-note small{display:flex;align-items:center;gap:3px;font-size:9px;color:#7e8d70;margin-top:6px}
+.library-link-note button{font-size:10px}
+.linked-component-view{flex:1;min-width:0;overflow:auto;padding:28px;display:flex;flex-direction:column;align-items:center;gap:16px;background:var(--paper)}
+.linked-component-view p{font-size:12px;text-align:center}
+.linked-component-view .field{max-width:260px;width:100%}
+.linked-component-art{padding:18px;overflow:clip;max-width:100%;background:repeating-conic-gradient(#e5e9df 0% 25%,#fff 0% 50%) 0 0/16px 16px}
+.linked-component-art .component-thumbnail{overflow:clip}
+.link-project-list{max-height:60vh;overflow:auto}
+.link-project-list section{margin-bottom:20px}
+.link-component-option{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);gap:12px;font-size:12px}
+.link-component-option small{display:block;color:#7e8d70;font-size:10px;margin-top:3px}
+@media(max-width:700px){.home-project-heading{flex-wrap:wrap}.home-project-actions{margin-left:0}.home-screen{padding:18px}}
 
 /* Presentation-only splitters; their sizes are managed independently of project data. */
 .panel-separator{flex:none;position:relative;z-index:4;background:var(--line);touch-action:none;user-select:none;outline:none}
