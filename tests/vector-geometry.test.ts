@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeNode } from '../src/domain';
 import { combineLayers, uncombineLayers } from '../src/designerOperations';
-import { compoundGeometry, pathForCompound, pathForShape, polygonArea } from '../src/vectorGeometry';
+import { closestSegmentParameter, compoundGeometry, cubicAt, expandPathBounds, pathBounds, pathForCompound, pathForShape, polygonArea, segmentControls, splitPathSegment } from '../src/vectorGeometry';
 
 function overlappingSquares() {
   return [
@@ -11,6 +11,45 @@ function overlappingSquares() {
 }
 
 describe('live vector geometry', () => {
+  it('finds exact cubic extrema and includes stroke, without using the control hull', () => {
+    const node = makeNode('shape', { shapeKind: 'path', pathClosed: false, width: 100, height: 100, stroke: '#111', strokeWidth: 10, points: [
+      { x: 0, y: 0, inX: 0, inY: 0, outX: 0, outY: 120 },
+      { x: 100, y: 0, inX: 0, inY: 120, outX: 0, outY: 0 },
+    ] });
+    expect(pathBounds(node)).toEqual({ minX: -5, minY: -5, maxX: 105, maxY: 95 });
+    const rotated = { ...node, rotation: 37, x: 42, y: 23 };
+    const expanded = expandPathBounds(rotated);
+    const world = (n: typeof node, x: number, y: number) => {
+      const a = n.rotation * Math.PI / 180, dx = x - n.width / 2, dy = y - n.height / 2;
+      return [n.x + n.width / 2 + dx * Math.cos(a) - dy * Math.sin(a), n.y + n.height / 2 + dx * Math.sin(a) + dy * Math.cos(a)];
+    };
+    const before = world(rotated, node.points[0].x, node.points[0].y);
+    const after = world(expanded, expanded.points[0].x, expanded.points[0].y);
+    expect(after[0]).toBeCloseTo(before[0], 10);
+    expect(after[1]).toBeCloseTo(before[1], 10);
+    expect(expanded.width).toBe(110);
+  });
+  it('splits a cubic exactly at the clicked curve parameter, including the closing segment', () => {
+    const points = [
+      { x: 10, y: 20, inX: -20, inY: 7, outX: 33, outY: -50 },
+      { x: 130, y: 80, inX: -40, inY: 45, outX: 10, outY: 4 },
+      { x: 70, y: 140, inX: 0, inY: 0, outX: -30, outY: 8 },
+    ];
+    for (const index of [0, 2]) {
+      const t = .37, controls = segmentControls(points[index], points[(index + 1) % points.length]);
+      const click = cubicAt(controls, t);
+      expect(closestSegmentParameter(controls, click)).toBeCloseTo(t, 5);
+      const split = splitPathSegment(points, index, t);
+      const left = segmentControls(split[index], split[index + 1]);
+      const right = segmentControls(split[index + 1], split[(index + 2) % split.length]);
+      for (const u of [0, .15, .5, .9, 1]) {
+        const a = cubicAt(controls, u * t), b = cubicAt(left, u);
+        expect(b[0]).toBeCloseTo(a[0], 9); expect(b[1]).toBeCloseTo(a[1], 9);
+        const c = cubicAt(controls, t + u * (1 - t)), d = cubicAt(right, u);
+        expect(d[0]).toBeCloseTo(c[0], 9); expect(d[1]).toBeCloseTo(c[1], 9);
+      }
+    }
+  });
   it('computes actual union, subtract, intersection and symmetric-difference regions', () => {
     const [a, b] = overlappingSquares();
     expect(polygonArea(compoundGeometry([a, b], 'union'))).toBeCloseTo(15000, 5);

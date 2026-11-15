@@ -3,6 +3,80 @@ import type { DesignNode } from './domain';
 
 type Point = [number, number];
 type MultiPolygon = clipping.MultiPolygon;
+type VectorPoint = DesignNode['points'][number];
+
+const lerp = (a: Point, b: Point, t: number): Point => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+export function segmentControls(from: VectorPoint, to: VectorPoint): [Point, Point, Point, Point] {
+  return [[from.x, from.y], [from.x + from.outX, from.y + from.outY],
+    [to.x + to.inX, to.y + to.inY], [to.x, to.y]];
+}
+export function cubicAt(p: [Point, Point, Point, Point], t: number): Point {
+  const u = 1 - t;
+  return [0, 1].map(axis => u ** 3 * p[0][axis] + 3 * u ** 2 * t * p[1][axis] +
+    3 * u * t ** 2 * p[2][axis] + t ** 3 * p[3][axis]) as Point;
+}
+export function splitPathSegment(points: VectorPoint[], index: number, t: number): VectorPoint[] {
+  const next = (index + 1) % points.length, from = points[index], to = points[next];
+  const [p0, p1, p2, p3] = segmentControls(from, to);
+  const q0 = lerp(p0, p1, t), q1 = lerp(p1, p2, t), q2 = lerp(p2, p3, t);
+  const r0 = lerp(q0, q1, t), r1 = lerp(q1, q2, t), s = lerp(r0, r1, t);
+  const result = points.map(point => ({ ...point }));
+  result[index] = { ...from, outX: q0[0] - p0[0], outY: q0[1] - p0[1] };
+  result[next] = { ...to, inX: q2[0] - p3[0], inY: q2[1] - p3[1] };
+  result.splice(index + 1, 0, { x: s[0], y: s[1], inX: r0[0] - s[0], inY: r0[1] - s[1],
+    outX: r1[0] - s[0], outY: r1[1] - s[1] });
+  return result;
+}
+// Search every interval, not just the closest sample: a cubic can loop back on itself.
+export function closestSegmentParameter(controls: [Point, Point, Point, Point], target: Point): number {
+  const distance = (t: number) => { const p = cubicAt(controls, t); return (p[0] - target[0]) ** 2 + (p[1] - target[1]) ** 2; };
+  let best = 0, bestDistance = distance(0);
+  for (let i = 0; i < 64; i++) {
+    let a = i / 64, b = (i + 1) / 64;
+    for (let j = 0; j < 24; j++) {
+      const l = a + (b - a) / 3, r = b - (b - a) / 3;
+      if (distance(l) < distance(r)) b = r; else a = l;
+    }
+    const t = (a + b) / 2, d = distance(t);
+    if (d < bestDistance) { best = t; bestDistance = d; }
+  }
+  return best;
+}
+export function pathBounds(node: DesignNode) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = ([x, y]: Point) => { minX = Math.min(minX, x); minY = Math.min(minY, y); maxX = Math.max(maxX, x); maxY = Math.max(maxY, y); };
+  node.points.forEach(point => add([point.x, point.y]));
+  const count = node.points.length - (node.pathClosed ? 0 : 1);
+  for (let i = 0; i < count; i++) {
+    const p = segmentControls(node.points[i], node.points[(i + 1) % node.points.length]);
+    for (let axis = 0; axis < 2; axis++) {
+      const a = -p[0][axis] + 3 * p[1][axis] - 3 * p[2][axis] + p[3][axis];
+      const b = 2 * (p[0][axis] - 2 * p[1][axis] + p[2][axis]);
+      const c = p[1][axis] - p[0][axis];
+      const roots: number[] = [];
+      if (Math.abs(a) < 1e-12) { if (Math.abs(b) > 1e-12) roots.push(-c / b); }
+      else { const d = b * b - 4 * a * c; if (d >= 0) roots.push((-b + Math.sqrt(d)) / (2 * a), (-b - Math.sqrt(d)) / (2 * a)); }
+      roots.filter(t => t > 0 && t < 1).forEach(t => add(cubicAt(p, t)));
+    }
+  }
+  const padding = node.pathClosed ? (node.stroke === 'transparent' ? 0 : node.strokeWidth / 2) : Math.max(1, node.strokeWidth) / 2;
+  return { minX: minX - padding, minY: minY - padding, maxX: maxX + padding, maxY: maxY + padding };
+}
+// Expand only, keeping every existing point fixed in the parent's coordinate system,
+// including when the node rotates about its own centre.
+export function expandPathBounds(node: DesignNode): DesignNode {
+  if (node.type !== 'shape' || node.shapeKind !== 'path' || !node.points.length) return node;
+  const bounds = pathBounds(node);
+  const left = Math.min(0, bounds.minX), top = Math.min(0, bounds.minY);
+  const width = Math.max(node.width, bounds.maxX) - left, height = Math.max(node.height, bounds.maxY) - top;
+  if (width > 4000 || height > 4000) throw new Error('Path bounds cannot exceed 4000 units.');
+  if (!left && !top && width === node.width && height === node.height) return node;
+  const angle = node.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+  const dx = left + width / 2 - node.width / 2, dy = top + height / 2 - node.height / 2;
+  return { ...node, x: node.x + node.width / 2 + dx * cos - dy * sin - width / 2,
+    y: node.y + node.height / 2 + dx * sin + dy * cos - height / 2, width, height,
+    points: node.points.map(point => ({ ...point, x: point.x - left, y: point.y - top })) };
+}
 const clippingApi = (clipping as unknown as { default: {
   difference: (geometry: MultiPolygon, ...others: MultiPolygon[]) => MultiPolygon;
   intersection: (geometry: MultiPolygon, ...others: MultiPolygon[]) => MultiPolygon;
