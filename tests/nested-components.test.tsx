@@ -109,4 +109,14 @@ describe('nested linked components', () => {
     expect(moon).toContain('#d9d9b2');
     expect(moon).not.toContain('botanical-moon');
   });
+
+  it('rejects a legacy upgrade that exceeds layer limits without mutating its input', () => {
+    const artwork = makeNode('shape', { text: 'fern' });
+    const nodes = [artwork, ...Array.from({ length: 299 }, () => makeNode('shape'))];
+    const original = project([component('full', 'Full', [], nodes)]);
+    const raw = JSON.stringify({ format: 'tablecraft', version: 1, projects: [original] });
+    expect(() => parseArchive(raw)).toThrow();
+    expect(original.components[0].front).toHaveLength(300);
+    expect(original.components[0].front[0].text).toBe('fern');
+  });
 });
