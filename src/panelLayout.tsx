@@ -66,18 +66,20 @@ export function usePanelLayout(mode: 'designer' | 'playground', libraryVisible: 
   const [initial] = useState(readSizes);
   const [preferred, setPreferred] = useState(initial.sizes);
   const [bounds, setBounds] = useState({ width: 1440, height: 900 });
-  const container = useRef<HTMLElement>(null);
+  const [container, setContainer] = useState<HTMLElement | null>(null);
   const canWrite = useRef(!initial.error);
   useEffect(() => { if (initial.error) notify(initial.error, true); }, [initial.error, notify]);
   useEffect(() => {
-    const element = container.current;
+    const element = container;
     if (!element) return;
-    const measure = () => setBounds({ width: element.clientWidth, height: element.clientHeight });
+    const measure = () => {
+      if (element.clientWidth > 0 && element.clientHeight > 0) setBounds({ width: element.clientWidth, height: element.clientHeight });
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [container]);
   const { sizes, limits } = resolvePanelSizes(preferred, bounds.width, bounds.height, mode, libraryVisible, inspectorVisible);
   const resize = (name: PanelName, value: number) => {
     const limit = limits[name];
@@ -88,7 +90,7 @@ export function usePanelLayout(mode: 'designer' | 'playground', libraryVisible: 
     try { localStorage.setItem(storageKey, JSON.stringify(next)); }
     catch (error) { canWrite.current = false; notify(`Panel sizes couldn't be saved in this browser. ${String(error)}`, true); }
   };
-  return { container, sizes, limits, resize };
+  return { container: setContainer, sizes, limits, resize };
 }
 
 type SeparatorProps = {

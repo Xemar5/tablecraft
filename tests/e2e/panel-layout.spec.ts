@@ -4,6 +4,42 @@ async function size(page: Page, selector: string, dimension: 'width' | 'height')
   return (await page.locator(selector).boundingBox())![dimension];
 }
 
+test('panel dragging works after opening Home and returning to a project', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.removeItem('tablecraft.last-project'));
+  await page.reload();
+  await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
+  await page.getByRole('link', { name: 'Tablecraft home', exact: true }).click();
+  await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
+  for (const [label, selector, dimension, dx, dy] of [
+    ['Resize component library', '#component-library-panel', 'width', 40, 0],
+    ['Resize table inspector', '#playground-inspector-panel', 'width', -40, 0],
+    ['Resize hand tray', '#hand-tray-panel', 'height', 0, -40],
+  ] as const) {
+    const separator = page.getByRole('separator', { name: label, exact: true });
+    const initial = await size(page, selector, dimension);
+    const box = (await separator.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(() => size(page, selector, dimension)).toBe(initial + 40);
+  }
+  await page.getByRole('button', { name: 'Component designer', exact: true }).click();
+  for (const [label, selector, dx] of [
+    ['Resize designer layers', '#designer-layers-panel', 30],
+    ['Resize designer inspector', '#designer-inspector-panel', -30],
+  ] as const) {
+    const initial = await size(page, selector, 'width');
+    const box = (await page.getByRole('separator', { name: label, exact: true }).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 + dx, box.y + 100, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(() => size(page, selector, 'width')).toBe(initial + 30);
+  }
+});
+
 test('panel separators resize by pointer and keyboard, survive toggles, modes and reload', async ({ page }) => {
   await page.goto('/');
   const library = page.getByRole('separator', { name: 'Resize component library' });
