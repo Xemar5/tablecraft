@@ -1,6 +1,32 @@
 import { expect, test } from '@playwright/test';
 import type { Archive } from '../../src/domain';
 
+test('designer toolbar scrolls with the wheel and shows edge shadows without clipping menus', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  const toolbar = page.locator('.canvas-toolbar');
+  const wrapper = page.locator('.designer-toolbar-scroll');
+  await expect(toolbar).toHaveCSS('scrollbar-width', 'none');
+  await expect(wrapper).toHaveClass(/overflow-right/);
+  await expect(wrapper).not.toHaveClass(/overflow-left/);
+  expect(await toolbar.innerText()).not.toContain('Preview row');
+  await toolbar.hover();
+  await page.mouse.wheel(0, 1000);
+  await expect(wrapper).toHaveClass(/overflow-left/);
+  await expect(wrapper).not.toHaveClass(/overflow-right/);
+  await expect(toolbar.getByLabel('Preview row', { exact: true })).toBeInViewport();
+  await page.mouse.wheel(0, -1000);
+  await expect(wrapper).not.toHaveClass(/overflow-left/);
+  await expect(wrapper).toHaveClass(/overflow-right/);
+  await page.getByRole('button', { name: 'Add shape', exact: true }).click();
+  const rectangle = page.getByRole('menuitem', { name: 'Rectangle', exact: true });
+  await expect(rectangle).toBeInViewport();
+  const layerCount = await page.locator('.layer-row').count();
+  await rectangle.click();
+  await expect(page.locator('.layer-row')).toHaveCount(layerCount + 1);
+});
+
 test('toolbar preview row switches artwork variants and stays synced with data bindings', async ({ page }) => {
   await page.goto('/');
   await page.locator('.library-filters').getByRole('button', { name: 'Artwork', exact: true }).click();

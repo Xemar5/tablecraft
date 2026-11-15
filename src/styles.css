@@ -36,8 +36,17 @@
 .designer-tool-menu .tool-indicator{position:absolute;right:1px;bottom:1px}
 .designer-popover{position:absolute;top:100%;left:0;min-width:145px;max-height:260px;overflow:auto;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px #0002;padding:4px;z-index:20}
 .canvas-toolbar .designer-popover button{width:100%;height:auto;min-height:30px;text-align:left;justify-content:flex-start;padding:6px 9px;white-space:nowrap;font-size:12px}
-.canvas-toolbar{height:auto;flex-wrap:wrap;padding-top:6px;padding-bottom:6px}
-.toolbar-preview-row{display:flex;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--ink);white-space:nowrap}
+.designer-toolbar-scroll{position:relative;min-width:0;flex-shrink:0;z-index:10}
+.designer-toolbar-scroll::before,.designer-toolbar-scroll::after{content:'';position:absolute;top:0;bottom:0;width:18px;pointer-events:none;z-index:1;opacity:0;transition:opacity .15s}
+.designer-toolbar-scroll::before{left:0;background:linear-gradient(to right,#293d3640,transparent)}
+.designer-toolbar-scroll::after{right:0;background:linear-gradient(to left,#293d3640,transparent)}
+.designer-toolbar-scroll.overflow-left::before,.designer-toolbar-scroll.overflow-right::after{opacity:1}
+.designer-toolbar-scroll .canvas-toolbar{height:49px;flex-wrap:nowrap;justify-content:flex-start;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;overscroll-behavior-x:contain}
+.designer-toolbar-scroll .canvas-toolbar::-webkit-scrollbar{display:none}
+.designer-toolbar-popover{position:fixed;z-index:100;max-width:calc(100vw - 16px)}
+.designer-toolbar-popover button{width:100%;min-height:30px;text-align:left;padding:6px 9px;white-space:nowrap;font-size:12px;border-radius:4px;color:#8a9e77}
+.designer-toolbar-popover button:hover{background:#e9f0df}
+.toolbar-preview-row{display:flex;flex:none;align-items:center;gap:6px;margin-left:auto;font-size:11px;color:var(--ink);white-space:nowrap}
 .boolean-actions{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .boolean-actions .icon-button{width:34px;height:34px;border:1px solid var(--line);background:#fff}
 .vector-point-editor .vector-segment{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke;cursor:crosshair;vector-effect:non-scaling-stroke}

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
@@ -100,10 +101,38 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedPoint, setSelectedPoint] = useState(-1);
   const [toolMenu, setToolMenu] = useState<'shape' | 'link' | null>(null);
+  const [toolMenuPosition, setToolMenuPosition] = useState({ left: 0, top: 0 });
+  const toolbar = useRef<HTMLDivElement>(null);
+  const [toolbarEdges, setToolbarEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const element = toolbar.current;
+    if (!element) return;
+    const measure = () => setToolbarEdges({ left: element.scrollLeft > 1, right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 });
+    const scroll = () => { measure(); setToolMenu(null); };
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      event.preventDefault();
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? element.clientWidth : 1;
+      element.scrollLeft += delta * unit;
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    element.addEventListener('scroll', scroll);
+    element.addEventListener('wheel', wheel, { passive: false });
+    measure();
+    return () => { observer.disconnect(); element.removeEventListener('scroll', scroll); element.removeEventListener('wheel', wheel); };
+  }, []);
+  const toggleToolMenu = (menu: 'shape' | 'link', button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect();
+    setToolMenuPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 180)), top: rect.bottom + 4 });
+    setToolMenu(toolMenu === menu ? null : menu);
+  };
   useEffect(() => {
     if (!toolMenu) return;
     const dismiss = (event: globalThis.PointerEvent) => {
-      if (!(event.target instanceof Element) || !event.target.closest('.designer-tool-menu')) setToolMenu(null);
+      if (!(event.target instanceof Element) || !event.target.closest('.designer-tool-menu,.designer-toolbar-popover')) setToolMenu(null);
     };
     document.addEventListener('pointerdown', dismiss);
     return () => document.removeEventListener('pointerdown', dismiss);
@@ -507,26 +536,27 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     </aside>
     <PanelSeparator label="Resize designer layers" controls="designer-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} />
     <section className="designer-canvas">
-      <div className="canvas-toolbar">
+      <div className={`designer-toolbar-scroll${toolbarEdges.left ? ' overflow-left' : ''}${toolbarEdges.right ? ' overflow-right' : ''}`}>
+      <div className="canvas-toolbar" ref={toolbar}>
         <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>
-          <div className="designer-tool-menu"><button aria-label="Add shape" title="Add shape" aria-expanded={toolMenu === 'shape'} onClick={() => setToolMenu(toolMenu === 'shape' ? null : 'shape')}><Square size={18} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'shape' && <div className="designer-popover" role="menu">{(['rectangle', 'ellipse', 'polygon', 'star', 'path'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', false, kind); setToolMenu(null); }}>{kind === 'path' ? 'Pen path' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>}</div>
+          <div className="designer-tool-menu"><button aria-label="Add shape" title="Add shape" aria-expanded={toolMenu === 'shape'} onClick={event => toggleToolMenu('shape', event.currentTarget)}><Square size={18} /><ChevronDown className="tool-indicator" size={9} /></button>
+            {toolMenu === 'shape' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{(['rectangle', 'ellipse', 'polygon', 'star', 'path'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', false, kind); setToolMenu(null); }}>{kind === 'path' ? 'Pen path' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>, document.body)}</div>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><Frame size={18} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
-          <div className="designer-tool-menu"><button aria-label="Link nested component" title="Link nested component" aria-expanded={toolMenu === 'link'} onClick={() => setToolMenu(toolMenu === 'link' ? null : 'link')}><Link2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'link' && <div className="designer-popover" role="menu">{components.filter(item => item.id !== component.id).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>}</div>
+          <div className="designer-tool-menu"><button aria-label="Link nested component" title="Link nested component" aria-expanded={toolMenu === 'link'} onClick={event => toggleToolMenu('link', event.currentTarget)}><Link2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
+            {toolMenu === 'link' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{components.filter(item => item.id !== component.id).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>, document.body)}</div>
         </div><span className="toolbar-divider" />
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
-        <label className="toolbar-preview-row">Preview row
+        <div className="toolbar-preview-row">
           <select aria-label="Preview row" value={component.rows.length ? row : ''} disabled={!component.rows.length} onChange={event => setRow(Number(event.target.value))}>
             {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{index + 1}: {dataRow.name || dataRow.value || `Row ${index + 1}`}</option>) : <option value="">Default</option>}
           </select>
-        </label>
-      </div>
+        </div>
+      </div></div>
       <div ref={stage} className="designer-stage" tabIndex={-1}
         onPointerDownCapture={event => {
           if (event.button === 0 || event.button === 1) event.currentTarget.focus({ preventScroll: true });
