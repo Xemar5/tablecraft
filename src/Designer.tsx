@@ -521,6 +521,11 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
+        <label className="toolbar-preview-row">Preview row
+          <select aria-label="Preview row" value={component.rows.length ? row : ''} disabled={!component.rows.length} onChange={event => setRow(Number(event.target.value))}>
+            {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{index + 1}: {dataRow.name || dataRow.value || `Row ${index + 1}`}</option>) : <option value="">Default</option>}
+          </select>
+        </label>
       </div>
       <div ref={stage} className="designer-stage" tabIndex={-1}
         onPointerDownCapture={event => {

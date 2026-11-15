@@ -40,5 +40,5 @@ test('designer menus, curve editing, point deletion and undo work with real poin
   await anchors.nth(2).click({ modifiers: ['Alt'] });
   await expect(anchors).toHaveCount(4);
   await page.getByRole('button', { name: /Data bindings/ }).click();
-  await expect(page.getByLabel('Preview row')).toBeVisible();
+  await expect(page.getByRole('dialog').getByLabel('Preview row')).toBeVisible();
 });

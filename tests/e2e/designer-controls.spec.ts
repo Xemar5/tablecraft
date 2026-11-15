@@ -1,6 +1,28 @@
 import { expect, test } from '@playwright/test';
 import type { Archive } from '../../src/domain';
 
+test('toolbar preview row switches artwork variants and stays synced with data bindings', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.library-filters').getByRole('button', { name: 'Artwork', exact: true }).click();
+  const artwork = page.locator('.library-item').filter({ has: page.locator('.preview-variants') }).first();
+  await artwork.getByRole('button', { name: /^Edit / }).click();
+  const toolbarRow = page.locator('.canvas-toolbar').getByLabel('Preview row', { exact: true });
+  const face = page.locator('.artboard .component-face').first();
+  await expect(toolbarRow).toBeVisible();
+  const initial = await face.innerHTML();
+  await toolbarRow.selectOption('1');
+  await expect.poll(() => face.innerHTML()).not.toBe(initial);
+  await page.getByRole('button', { name: /Data bindings/ }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByLabel('Preview row', { exact: true })).toHaveValue('1');
+  await dialog.getByLabel('Preview row', { exact: true }).selectOption('0');
+  await page.keyboard.press('Escape');
+  await expect(toolbarRow).toHaveValue('0');
+  await expect.poll(() => face.innerHTML()).toBe(initial);
+  await page.getByRole('button', { name: 'Behavior', exact: true }).click();
+  await expect(toolbarRow).toBeVisible();
+});
+
 test('shape menu inserts directly, boolean controls are contextual and parenting uses the tree', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
