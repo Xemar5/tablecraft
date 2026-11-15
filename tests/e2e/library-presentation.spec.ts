@@ -1,5 +1,29 @@
 import { expect, test } from '@playwright/test';
 
+test('component library can be toggled in the designer and stays hidden across modes', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  const toggle = page.getByRole('button', { name: 'Toggle component library', exact: true });
+  const library = page.locator('#component-library-panel');
+  const separator = page.getByRole('separator', { name: 'Resize component library', exact: true });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  const width = await library.evaluate(el => el.getBoundingClientRect().width);
+  await toggle.click();
+  await expect(library).toBeHidden();
+  await expect(separator).toHaveCount(0);
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByRole('button', { name: 'Add text', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Playground', exact: true }).click();
+  await expect(library).toBeHidden();
+  await page.getByRole('button', { name: 'Component designer', exact: true }).click();
+  await expect(library).toBeHidden();
+  await toggle.click();
+  await expect(library).toBeVisible();
+  await expect(separator).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect.poll(() => library.evaluate(el => el.getBoundingClientRect().width)).toBe(width);
+});
+
 test('filter wheel scrolling hides the scrollbar and updates overflow shadows', async ({ page }) => {
   await page.goto('/');
   const separator = page.getByRole('separator', { name: 'Resize component library', exact: true });
