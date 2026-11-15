@@ -34,6 +34,6 @@ if ($Database -or $Publish) {
     }
 } else {
     if (!(Test-Path 'node_modules\vite\bin\vite.js')) { throw 'Dependencies are missing. Run npm ci first.' }
-    & $nodePath 'node_modules\vite\bin\vite.js' --host 127.0.0.1 --port 5173 --strictPort
+    & $nodePath 'node_modules\vite\bin\vite.js' --host 127.0.0.1 --port 5173 --strictPort --open
 }
 exit $LASTEXITCODE

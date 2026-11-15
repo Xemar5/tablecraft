@@ -5,7 +5,7 @@
   "type": "module",
   "engines": { "node": "^22.23.4 || ^24.22.1 || >=26.12.1" },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1 --open",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "test:e2e": "playwright test",

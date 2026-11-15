@@ -11,9 +11,9 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173**. The component designer and hotseat playground work without a backend, account or multiplayer connection. The included Wildwood project is a fully editable example, not a fixed game.
+Starting the development server automatically opens **http://127.0.0.1:5173** in your browser. The component designer and hotseat playground work without a backend, account or multiplayer connection. The included Wildwood project is a fully editable example, not a fixed game.
 
-On Windows, `.\Start-Tablecraft.ps1` also starts the app. It can use either an installed Node runtime or the portable runtime provisioned under `%LOCALAPPDATA%\prototyper-tools`.
+On Windows, `.\Start-Tablecraft.ps1` also starts the app and opens it in your browser. It can use either an installed Node runtime or the portable runtime provisioned under `%LOCALAPPDATA%\prototyper-tools`.
 
 In VS Code, open **Run and Debug**, select **Tablecraft: Launch app**, and press **F5** to start Vite and open Chrome with frontend debugging. On Windows this uses the provisioned runtime at `%LOCALAPPDATA%\prototyper-tools\node.exe`, so Node does not need to be on PATH. On other platforms it uses `node` from PATH. If you installed Node yourself, choose **Tablecraft: Launch app (installed Node)** instead; restart VS Code after installing Node so it picks up PATH changes. Run `npm ci` first, and stop any existing frontend on port 5173 before launching. These configurations start only the frontend; multiplayer still requires the server and published module described below.
 
