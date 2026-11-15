@@ -51,6 +51,31 @@ export default function App() {
   const [curtain, setCurtain] = useState<Player>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  const filterStrip = useRef<HTMLDivElement>(null);
+  const [filterEdges, setFilterEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const element = filterStrip.current;
+    if (!element) return;
+    const measure = () => setFilterEdges({ left: element.scrollLeft > 1, right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 });
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      event.preventDefault();
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? element.clientWidth : 1;
+      element.scrollLeft += delta * unit;
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    element.addEventListener('scroll', measure);
+    element.addEventListener('wheel', wheel, { passive: false });
+    measure();
+    return () => {
+      observer.disconnect();
+      element.removeEventListener('scroll', measure);
+      element.removeEventListener('wheel', wheel);
+    };
+  }, []);
   const [modal, setModal] = useState<'templates' | 'projects' | 'session' | 'help' | 'save'>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number }>();
   const [session, setSession] = useState<LiveSession>();
@@ -288,7 +313,9 @@ export default function App() {
       <aside id="component-library-panel" className="library-panel" style={{ width: panels.sizes.library, minWidth: 0, flex: `0 0 ${panels.sizes.library}px` }} hidden={mode === 'playground' && !libraryVisible}>
         <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></div>
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
-        <div className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
+        <div className={`library-filter-scroll${filterEdges.left ? ' overflow-left' : ''}${filterEdges.right ? ' overflow-right' : ''}`}>
+          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
+        </div>
         <div className="library-section-label">PROJECT LIBRARY <span>{visible.length}</span></div>
         <div className="component-library">{visible.map(comp => <div key={comp.id} className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}`}>
           <button className={`library-preview library-preview-${comp.kind}`} onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
