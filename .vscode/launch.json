@@ -6,6 +6,9 @@
       "type": "node",
       "request": "launch",
       "runtimeExecutable": "node",
+      "windows": {
+        "runtimeExecutable": "${env:LOCALAPPDATA}\\prototyper-tools\\node.exe"
+      },
       "program": "${workspaceFolder}/node_modules/vite/bin/vite.js",
       "args": ["--host", "127.0.0.1", "--port", "5173", "--strictPort"],
       "cwd": "${workspaceFolder}",
@@ -19,10 +22,10 @@
       }
     },
     {
-      "name": "Tablecraft: Launch app (portable Node, Windows)",
+      "name": "Tablecraft: Launch app (installed Node)",
       "type": "node",
       "request": "launch",
-      "runtimeExecutable": "${env:LOCALAPPDATA}\\prototyper-tools\\node.exe",
+      "runtimeExecutable": "node",
       "program": "${workspaceFolder}/node_modules/vite/bin/vite.js",
       "args": ["--host", "127.0.0.1", "--port", "5173", "--strictPort"],
       "cwd": "${workspaceFolder}",
