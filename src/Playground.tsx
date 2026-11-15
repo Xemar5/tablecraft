@@ -419,7 +419,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                   }}
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); }}
                   onClick={e => e.stopPropagation()}>
-                  <ComponentThumbnail component={comp} row={i.row} back={i.flipped} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
+                  <ComponentThumbnail component={comp} components={p.components} row={i.row} back={i.flipped} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
                 </div>;
               })}
             </div>
@@ -438,7 +438,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const ids = members.map(i => i.id); setSelected(e.shiftKey ? [...new Set([...selected, ...ids])] : ids); } }}
               onDoubleClick={e => { e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
               {members.length > 1 && <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>}
-              <ComponentView component={comp} row={item.row} back={visibleBack(item)} />
+              <ComponentView component={comp} components={p.components} row={item.row} back={visibleBack(item)} />
               {members.length > 1 && <span className="stack-count"><Layers size={13} /> {members.length}</span>}
               {item.locked && <span className="piece-lock"><LockKeyhole size={15} /></span>}
               {selected.includes(item.id) && <><i className="selection-corner tl" /><i className="selection-corner tr" /><i className="selection-corner bl" /><i className="selection-corner br" /></>}
@@ -458,7 +458,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           const comp = p.components.find(c => c.id === item?.componentId);
           return item && comp ? <div className="hover-preview" aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
-          }}><ComponentThumbnail component={comp} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong><small>F flip · R rotate · S shuffle/roll · G stack<br />1–0 draw · Alt hide preview</small></div> : null;
+          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong><small>F flip · R rotate · S shuffle/roll · G stack<br />1–0 draw · Alt hide preview</small></div> : null;
         })()}
         <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
       </div>
@@ -506,7 +506,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y });
             }
           }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}>
-            <ComponentThumbnail component={comp} row={item.row} back={item.flipped} width={66} /><span>Drag to play</span></button>
+            <ComponentThumbnail component={comp} components={p.components} row={item.row} back={item.flipped} width={66} /><span>Drag to play</span></button>
             <div className="hand-order">
               {[-1, 1].map(offset => <button key={offset} type="button" aria-label={`Move ${comp.name} ${offset < 0 ? 'left' : 'right'} in hand`} disabled={held.indexOf(item) + offset < 0 || held.indexOf(item) + offset >= held.length} onClick={() => {
                 const ids = held.map(i => i.id), index = ids.indexOf(item.id);
@@ -528,7 +528,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       {handDrag && (() => {
         const item = p.instances.find(i => i.id === handDrag.id);
         const comp = p.components.find(c => c.id === item?.componentId);
-        return item && comp ? <div className="hand-drag-preview" style={{ left: handDrag.x, top: handDrag.y }} aria-hidden="true"><ComponentThumbnail component={comp} row={item.row} back={item.flipped} hidden={!!item.holder && item.holder !== actor && comp.hideInHand} width={66} /></div> : null;
+        return item && comp ? <div className="hand-drag-preview" style={{ left: handDrag.x, top: handDrag.y }} aria-hidden="true"><ComponentThumbnail component={comp} components={p.components} row={item.row} back={item.flipped} hidden={!!item.holder && item.holder !== actor && comp.hideInHand} width={66} /></div> : null;
       })()}
       <footer className="table-status"><span>{p.instances.length} pieces on the table</span><span>{p.settings.snap ? `Snapping to ${p.settings.gridSize}px` : 'Free movement'}<span className="status-divider">/</span>{p.players.length} players<span className="status-divider">/</span>2D playground</span></footer>
     </section>
@@ -542,7 +542,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           top: rect.top + pan.y + zoom * (position.x * Math.sin(angle) + position.y * Math.cos(angle)),
           width: comp.width, height: comp.height,
           transform: `translate(-50%, -50%) rotate(${camera + item.rotation}deg) scale(${zoom * item.scale})`,
-        }}><ComponentView component={comp} row={item.row} back={visibleBack(item)} /></div>;
+        }}><ComponentView component={comp} components={p.components} row={item.row} back={visibleBack(item)} /></div>;
       })}
       {marquee && <div className="selection-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       {dropHint && <div className={`stack-drop-hint ${altDown ? 'stack-bypassed' : ''}`} role="status" style={{ left: Math.min(dropHint.x + 18, window.innerWidth - 285), top: Math.max(12, dropHint.y - 62) }}>
@@ -563,7 +563,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         </div>
       </> : <>
         {piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
-          <div className="selected-component"><ComponentThumbnail component={c} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
+          <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
           <div className="action-grid">
             <button disabled={!selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable)} onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>
             <button onClick={rotate}><RotateCw size={17} /><span>Rotate<kbd>R</kbd></span></button>
@@ -602,7 +602,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           const name = comp.rows[i.row]?.name ?? comp.name;
           if (!`${name} ${comp.name}`.toLowerCase().includes(query.toLowerCase())) return null;
           const reorder = (offset: number) => { const ids = all.map(i => i.id); [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }); };
-          return <div className="stack-search-row" key={i.id}><ComponentThumbnail component={comp} row={i.row} back={visibleBack(i)} width={43} /><div><strong>{name}</strong><small>{index === all.length - 1 ? 'Top of stack' : `Position ${index + 1}`} · {comp.name}</small></div>
+          return <div className="stack-search-row" key={i.id}><ComponentThumbnail component={comp} components={p.components} row={i.row} back={visibleBack(i)} width={43} /><div><strong>{name}</strong><small>{index === all.length - 1 ? 'Top of stack' : `Position ${index + 1}`} · {comp.name}</small></div>
             <button className="icon-button" aria-label={`Move ${name} down`} disabled={!index || !i.stack} onClick={() => reorder(-1)}><ArrowDown size={16} /></button><button className="icon-button" aria-label={`Move ${name} up`} disabled={index === all.length - 1 || !i.stack} onClick={() => reorder(1)}><ArrowUp size={16} /></button>
             <button className="button" disabled={!comp.hand || !p.settings.hands} onClick={() => {
               const ids = all.map(item => item.id).filter(id => id !== i.id); ids.push(i.id);

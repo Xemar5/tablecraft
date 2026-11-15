@@ -16,7 +16,8 @@ Tablecraft is a local-first, 2D board-game design and playtesting app. It uses R
 ## Architecture
 
 - `src/domain.ts` is the authoritative shared contract: Zod schemas, project invariants, and immutable game commands are used by both the browser and server.
-- `src/Designer.tsx` and `src/ComponentView.tsx` implement component editing and rendering. `src/Playground.tsx` implements the table, pieces, stacks, hands and seats.
+- `src/Designer.tsx` and `src/ComponentView.tsx` implement component editing and rendering. `src/vectorGeometry.ts` computes SVG path and live boolean-compound geometry; keep the source shapes editable in the layer tree. Nested component nodes hold live component-ID references and render against the full project catalog on every surface.
+- `src/Playground.tsx` implements the table, pieces, stacks, hands and seats.
 - `src/App.tsx` coordinates projects, persistence, commands and navigation. `src/storage.ts` validates portable JSON and local saves.
 - `src/multiplayer.ts` and generated `src/module_bindings/` connect clients to the SpaceTimeDB module in `server/src/index.ts`.
 - Keep offline and multiplayer behavior consistent by routing mutations through `applyCommand` and the shared command schema; put multiplayer authority checks in server reducers as well.
@@ -24,6 +25,7 @@ Tablecraft is a local-first, 2D board-game design and playtesting app. It uses R
 ## Invariants and trust boundaries
 
 - Validate imported data, project state and commands at their boundaries. Preserve unique IDs, valid layer-parent trees, component/player references, and compatible stack membership.
+- `validateProject` also owns nested-component reference/cycle/depth checks, nested data-row bounds, and vector-compound source invariants. Component JSON exports include their linked dependency closure; imports remap those IDs and insert dependencies before parents. Keep missing or invalid parent-field row indices explicit in rendered output—never silently fall back.
 - Instances reference component IDs and CSV row indices. Keep that relationship so design and CSV updates refresh all spawned, stacked and held pieces.
 - Untagged stackable pieces combine only with the same component; nonempty matching tags permit cross-component stacks.
 - Turning off hand, flipping or stacking support must keep existing instances valid. Do not silently discard player-held pieces when hands are hidden.

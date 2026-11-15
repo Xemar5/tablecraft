@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Sparkles, Square, Table2, Trash2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { applyCommand, archiveSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { starterProject, template } from './templates';
-import { download, exportProject, loadWorkspace, parseArchive, parseComponent, saveWorkspace } from './storage';
+import { download, exportProject, loadWorkspace, parseArchive, parseComponentBundle, remapComponentBundle, saveWorkspace } from './storage';
 import { ComponentThumbnail } from './ComponentView';
 import { Designer } from './Designer';
 import { Playground } from './Playground';
@@ -164,7 +164,7 @@ export default function App() {
       if (file.size > 20_000_000) throw new Error('Import files must be smaller than 20 MB.');
       const text = await file.text();
       const parsed: unknown = JSON.parse(text);
-      if (typeof parsed === 'object' && parsed !== null && 'format' in parsed) {
+      if (typeof parsed === 'object' && parsed !== null && 'format' in parsed && parsed.format === 'tablecraft') {
         if (session) throw new Error('Leave the live session before importing a project. Component JSON can be imported while connected.');
         const incoming = parseArchive(text);
         const projects = incoming.projects.map(p => ({ ...p, id: uid('project') }));
@@ -172,8 +172,13 @@ export default function App() {
         setProjectId(projects[0].id); setActor(projects[0].players[0]?.id ?? ''); setSelected([]);
         setStorageError(null); notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.`);
       } else {
-        const component = { ...parseComponent(text), id: uid('component') };
-        if (await dispatch({ type: 'component', component })) { edit(component.id); notify('Component imported.'); }
+        const bundle = parseComponentBundle(text);
+        const remapped = remapComponentBundle(bundle);
+        validateProject({ ...project, components: [...project.components, ...remapped.components] });
+        for (const component of remapped.components) {
+          if (!await dispatch({ type: 'component', component })) throw new Error('A linked component could not be imported.');
+        }
+        edit(remapped.rootId); notify(`Imported ${remapped.components.length} linked component${remapped.components.length === 1 ? '' : 's'}.`);
       }
     } catch (error) { notify(`Import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
   };
@@ -224,8 +229,8 @@ export default function App() {
         <div className="component-library">{visible.map(comp => <div key={comp.id} className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}`}>
           <button className={`library-preview library-preview-${comp.kind}`} onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
-            {comp.kind === 'card' && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} row={1} width={66} /></div><div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} row={2} width={66} /></div></>}
-            <div className="preview-main"><ComponentThumbnail component={comp} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
+            {comp.kind === 'card' && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div><div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div></>}
+            <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
             <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : <Square size={10} />}{comp.kind}</span>
             <span className="preview-add"><Plus size={17} /></span>
           </button>
@@ -239,7 +244,9 @@ export default function App() {
         <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<div className="library-tip"><Sparkles size={16} /><p>{mode === 'playground' ? 'Click a component to spawn it.' : 'Design once. Update everywhere.'}<small>{mode === 'playground' ? 'Your ideas belong on the table.' : 'Every instance stays connected.'}</small></p></div><div className="library-footer-actions"><button onClick={() => fileInput.current?.click()}><Upload size={13} /> Import</button><button onClick={() => exportProject(project)}><Download size={13} /> Export</button></div></div>
       </aside>
       <div className="workspace-content">{mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} /> :
-        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} onChange={component => dispatch({ type: 'component', component })} onDelete={() => { dispatch({ type: 'removeComponent', id: activeComponent.id }); setComponentId(undefined); setSelected([]); }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>}</div>
+        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} onChange={component => dispatch({ type: 'component', component })} onDelete={async () => {
+          if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
+        }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>}</div>
     </main>
     <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}

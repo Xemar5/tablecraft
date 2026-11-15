@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload, Combine } from 'lucide-react';
 import Papa from 'papaparse';
-import { ComponentView } from './ComponentView';
+import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
-import { copySubtrees, groupLayers, pasteSubtrees, selectedRoots, ungroupLayers } from './designerOperations';
-import { download } from './storage';
+import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
+import { download, exportComponentBundle } from './storage';
 import { Field, Modal, NumberField, Toggle } from './ui';
 
 type Face = 'front' | 'back';
 type DragPosition = { x: number; y: number };
 type LayerDrag = { ids: string[]; pointer: number; clientX: number; clientY: number; positions: Record<string, DragPosition>; angles: Record<string, number> };
+type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; angle: number; point: DesignNode['points'][number] };
 
 function descendantsOf(nodes: DesignNode[], ids: string[]) {
   const descendants = new Set(ids);
@@ -68,8 +69,8 @@ function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
   return angle * Math.PI / 180;
 }
 
-export function Designer({ component: incoming, onChange, onDelete, notify }: {
-  component: Component; onChange: (c: Component) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
+export function Designer({ component: incoming, components, onChange, onDelete, notify }: {
+  component: Component; components: Component[]; onChange: (c: Component) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
 }) {
   const [component, setComponent] = useState(incoming);
   const pending = useRef(0);
@@ -78,6 +79,9 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   useEffect(() => { if (!pending.current) setComponent(incoming); }, [incoming]);
   const [face, setFace] = useState<Face>('front');
   const [selected, setSelected] = useState<string[]>([]);
+  const [selectedPoint, setSelectedPoint] = useState(0);
+  const [shapeKind, setShapeKind] = useState<DesignNode['shapeKind']>('rectangle');
+  const [compoundOperation, setCompoundOperation] = useState<DesignNode['compoundOperation']>('union');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [draggedLayer, setDraggedLayer] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{ id: string; mode: 'inside' | 'before' | 'after' }>();
@@ -90,6 +94,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const [future, setFuture] = useState<Component[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [dragPreview, setDragPreview] = useState<Record<string, DragPosition>>();
+  const [pointPreview, setPointPreview] = useState<{ nodeId: string; pointIndex: number; point: DesignNode['points'][number] }>();
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const designer = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -100,9 +105,14 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const clipboard = useRef<{ componentId: string; face: Face; nodes: DesignNode[] }>(null);
   const artboard = useRef<HTMLDivElement>(null);
   const dragging = useRef<LayerDrag>(null);
+  const pointDragging = useRef<PointDrag>(null);
   const nodes = component[face];
   const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
   const node = selectedNodes[0];
+  useEffect(() => {
+    if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
+    else setSelectedPoint(0);
+  }, [node?.id, node?.type === 'shape' ? node.points.length : 0]);
   const commit = async (next: Component) => {
     pending.current++;
     setComponent(next);
@@ -120,10 +130,25 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
     [face]: nodes.map(item => selected.includes(item.id) ? { ...item, ...patch } : item),
   });
   const addNode = (type: DesignNode['type'], empty = false) => {
-    const parent = selectedNodes.length === 1 && selectedNodes[0].type === 'frame' ? selectedNodes[0].id : null;
-    const next = makeNode(type, empty ? { name: 'Empty element', fill: 'transparent', width: 150, height: 100, parent } : { parent });
+    const parentCandidate = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
+    const parent = parentCandidate && (parentCandidate.type === 'frame' || (type === 'shape' && parentCandidate.type === 'compound')) ? parentCandidate.id : null;
+    const next = makeNode(type, empty ? { name: 'Empty element', fill: 'transparent', width: 150, height: 100, parent } : {
+      parent, ...(type === 'shape' ? { shapeKind, width: 100, height: 100,
+        points: shapeKind === 'path' ? [{ x: 12, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
+          { x: 88, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
+          { x: 88, y: 88, inX: 0, inY: 0, outX: 0, outY: 0 },
+          { x: 12, y: 88, inX: 0, inY: 0, outX: 0, outY: 0 }] : [] } : {}),
+    });
     update({ [face]: [...nodes, next] });
     setSelected([next.id]);
+  };
+  const addNestedComponent = (componentId: string) => {
+    const linked = components.find(item => item.id === componentId);
+    if (!linked) return;
+    const parent = selectedNodes.length === 1 && selectedNodes[0].type === 'frame' ? selectedNodes[0].id : null;
+    const nested = makeNode('component', { name: linked.name, componentId, width: linked.width, height: linked.height,
+      fill: 'transparent', parent, dataSource: 'inherit' });
+    update({ [face]: [...nodes, nested] }); setSelected([nested.id]);
   };
   const createGroup = () => {
     if (!selectedNodes.length) {
@@ -137,8 +162,63 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const removeNode = () => {
     if (!selected.length) return;
     const remove = descendantsOf(nodes, selected);
-    update({ [face]: nodes.filter(item => !remove.has(item.id)) });
+    const survivors = nodes.filter(item => !remove.has(item.id));
+    if (survivors.some(item => item.type === 'compound' && survivors.filter(child => child.parent === item.id).length < 2)) {
+      notify('Live compounds need at least two source shapes. Uncombine or delete the compound instead.', true); return;
+    }
+    update({ [face]: survivors });
     setSelected([]);
+  };
+  const makeCompound = () => {
+    try { const result = combineLayers(nodes, selected, compoundOperation); update({ [face]: result.nodes }); setSelected(result.selected); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Unable to create a live compound.', true); }
+  };
+  const uncombine = () => {
+    try { const result = uncombineLayers(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Unable to uncombine shapes.', true); }
+  };
+  const pointDown = ({ nodeId, pointIndex, handle, event }: PointEditEvent) => {
+    event.preventDefault();
+    const selectedNode = nodes.find(item => item.id === nodeId);
+    if (!selectedNode) return;
+    setSelected([nodeId]); setSelectedPoint(pointIndex);
+    pointDragging.current = { nodeId, pointIndex, handle, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY,
+      angle: nodeAngle(selectedNode, nodes) + selectedNode.rotation * Math.PI / 180, point: { ...selectedNode.points[pointIndex] } };
+    artboard.current?.setPointerCapture(event.pointerId);
+  };
+  const appendPoint = () => {
+    if (selected.length !== 1 || node?.type !== 'shape' || node.shapeKind !== 'path') return;
+    if (node.points.length >= 128) { notify('Paths are limited to 128 points.', true); return; }
+    const index = Math.min(selectedPoint, node.points.length - 1), from = node.points[index];
+    const points = [...node.points];
+    const hasNext = index + 1 < points.length || node.pathClosed;
+    if (!hasNext) {
+      points.push({ x: from.x + Math.min(node.width, node.height) / 6, y: from.y, inX: 0, inY: 0, outX: 0, outY: 0 });
+      setSelectedPoint(points.length - 1);
+    } else {
+      const nextIndex = (index + 1) % points.length, to = points[nextIndex];
+      const average = (a: number, b: number) => (a + b) / 2;
+      const p0 = { x: from.x, y: from.y }, p1 = { x: from.x + from.outX, y: from.y + from.outY };
+      const p2 = { x: to.x + to.inX, y: to.y + to.inY }, p3 = { x: to.x, y: to.y };
+      const q0 = { x: average(p0.x, p1.x), y: average(p0.y, p1.y) };
+      const q1 = { x: average(p1.x, p2.x), y: average(p1.y, p2.y) };
+      const q2 = { x: average(p2.x, p3.x), y: average(p2.y, p3.y) };
+      const r0 = { x: average(q0.x, q1.x), y: average(q0.y, q1.y) };
+      const r1 = { x: average(q1.x, q2.x), y: average(q1.y, q2.y) };
+      const midpoint = { x: average(r0.x, r1.x), y: average(r0.y, r1.y) };
+      points[index] = { ...from, outX: q0.x - p0.x, outY: q0.y - p0.y };
+      points[nextIndex] = { ...to, inX: q2.x - p3.x, inY: q2.y - p3.y };
+      points.splice(index + 1, 0, { ...midpoint, inX: r0.x - midpoint.x, inY: r0.y - midpoint.y,
+        outX: r1.x - midpoint.x, outY: r1.y - midpoint.y });
+      setSelectedPoint(index + 1);
+    }
+    updateNode({ points }); setSelectedPoint(index + 1);
+  };
+  const deletePoint = () => {
+    if (selected.length !== 1 || node?.type !== 'shape' || node.shapeKind !== 'path') return;
+    if (node.points.length <= (node.pathClosed ? 3 : 2)) { notify(`A ${node.pathClosed ? 'closed' : 'open'} path needs at least ${node.pathClosed ? 3 : 2} points.`, true); return; }
+    const points = node.points.filter((_, index) => index !== selectedPoint);
+    updateNode({ points }); setSelectedPoint(Math.max(0, Math.min(selectedPoint, points.length - 1)));
   };
   const undo = () => {
     const previous = history.at(-1); if (!previous) return;
@@ -182,7 +262,11 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
           const result = pasteSubtrees(nodes, copied); update({ [face]: result.nodes }); setSelected(result.selected);
         } else if (command && key === 'g') {
           event.preventDefault();
-          if (event.shiftKey) { const result = ungroupLayers(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); }
+          if (event.shiftKey) {
+            const result = selectedNodes.length && selectedNodes.every(item => item.type === 'compound')
+              ? uncombineLayers(nodes, selected) : ungroupLayers(nodes, selected);
+            update({ [face]: result.nodes }); setSelected(result.selected);
+          }
           else if (selected.length) createGroup();
         } else if (!command && (key === 'delete' || key === 'backspace') && selected.length) {
           event.preventDefault(); removeNode();
@@ -275,7 +359,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
   const dropModeFor = (event: DragEvent<HTMLDivElement>, item: DesignNode): 'inside' | 'before' | 'after' => {
     const bounds = event.currentTarget.getBoundingClientRect();
     const relativeY = (event.clientY - bounds.top) / Math.max(1, bounds.height);
-    return item.type === 'frame' && relativeY > .28 && relativeY < .72 ? 'inside' : relativeY < .5 ? 'before' : 'after';
+    return (item.type === 'frame' || item.type === 'compound') && relativeY > .28 && relativeY < .72 ? 'inside' : relativeY < .5 ? 'before' : 'after';
   };
   const dropAtRoot = (sourceIds: string[]) => {
     const selectedIds = new Set(sourceIds);
@@ -302,7 +386,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
     }
   };
   const layers = (parent: string | null, depth = 0): ReactNode => nodes.filter(item => item.parent === parent).map(item => {
-    const hasChildren = item.type === 'frame' && nodes.some(child => child.parent === item.id);
+    const hasChildren = (item.type === 'frame' || item.type === 'compound') && nodes.some(child => child.parent === item.id);
     const dragClass = dropTarget?.id === item.id ? ` drop-${dropTarget.mode}` : '';
     return <div className={`layer-tree-item${dragClass}`} key={item.id}>
       <div className="layer-tree-row" style={{ paddingLeft: 8 + depth * 14 }}
@@ -318,7 +402,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
             setDraggedLayer(moving);
           }}
           onDragEnd={() => { setDraggedLayer([]); setDropTarget(undefined); }}>
-          {item.type === 'text' ? <Type size={14} /> : item.type === 'frame' ? <Frame size={14} /> : item.type === 'image' ? <ImagePlus size={14} /> : <Square size={14} />}
+          {item.type === 'text' ? <Type size={14} /> : item.type === 'frame' ? <Frame size={14} /> : item.type === 'image' ? <ImagePlus size={14} /> : item.type === 'component' ? <Layers size={14} /> : <Square size={14} />}
           <span>{item.name}</span>
         </button>
         {hasChildren && <button className="tree-disclosure" aria-label={`${collapsed.has(item.id) ? 'Expand' : 'Collapse'} ${item.name}`}
@@ -326,7 +410,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
           {hasChildren && (collapsed.has(item.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />)}
         </button>}
       </div>
-      {item.type === 'frame' && !collapsed.has(item.id) && layers(item.id, depth + 1)}
+      {(item.type === 'frame' || item.type === 'compound') && !collapsed.has(item.id) && layers(item.id, depth + 1)}
     </div>;
   });
   const beginCanvasDrag = (id: string, event: PointerEvent<HTMLDivElement>) => {
@@ -366,11 +450,23 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
         <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>
           <button title="Add shape" aria-label="Add shape" onClick={() => addNode('shape')}><Square size={18} /></button>
+          <select aria-label="Shape type to add" value={shapeKind} onChange={event => setShapeKind(event.target.value as DesignNode['shapeKind'])}>
+            <option value="rectangle">Rectangle</option><option value="ellipse">Ellipse</option><option value="polygon">Polygon</option>
+            <option value="star">Star</option><option value="path">Pen path</option>
+          </select>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title="Add frame" aria-label="Add frame" onClick={() => addNode('frame')}><Frame size={18} /></button>
           <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><SquareDashed size={17} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
+          <select aria-label="Link nested component" value="" onChange={event => { if (event.target.value) addNestedComponent(event.target.value); }}>
+            <option value="">Link component…</option>{components.filter(item => item.id !== component.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+          </select>
         </div><span className="toolbar-divider" />
+        <select aria-label="Boolean operation" value={compoundOperation} onChange={event => setCompoundOperation(event.target.value as DesignNode['compoundOperation'])}>
+          <option value="union">Union</option><option value="subtract">Subtract</option><option value="intersect">Intersect</option><option value="exclude">Exclude</option>
+        </select>
+        <button title="Create editable live compound" aria-label="Create live compound" disabled={selected.length < 2} onClick={makeCompound}><Combine size={16} /></button>
+        <button title="Uncombine live compound" aria-label="Uncombine live compound" disabled={!selectedNodes.length || selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={16} /></button>
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
@@ -402,6 +498,20 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
         <span className="artboard-label">{component.name} / {face} <span>{component.width} x {component.height}</span></span>
         <div ref={artboard} className="artboard" style={{ width: component.width * zoom, height: component.height * zoom }}
           onPointerMove={event => {
+            const pointDrag = pointDragging.current;
+            if (pointDrag && pointDrag.pointer === event.pointerId) {
+              const dx = (event.clientX - pointDrag.clientX) / zoom, dy = (event.clientY - pointDrag.clientY) / zoom;
+              const angle = -pointDrag.angle, cos = Math.cos(angle), sin = Math.sin(angle);
+              const localX = dx * cos - dy * sin, localY = dx * sin + dy * cos;
+              const point = { ...pointDrag.point };
+              if (pointDrag.handle === 'point') { point.x += localX; point.y += localY; }
+              else if (pointDrag.handle === 'in') { point.inX += localX; point.inY += localY; }
+              else { point.outX += localX; point.outY += localY; }
+              const round = (value: number) => Math.round(value * 100) / 100;
+              setPointPreview({ nodeId: pointDrag.nodeId, pointIndex: pointDrag.pointIndex,
+                point: { x: round(point.x), y: round(point.y), inX: round(point.inX), inY: round(point.inY), outX: round(point.outX), outY: round(point.outY) } });
+              return;
+            }
             const drag = dragging.current;
             if (!drag || drag.pointer !== event.pointerId) return;
             const dx = (event.clientX - drag.clientX) / zoom, dy = (event.clientY - drag.clientY) / zoom;
@@ -413,6 +523,14 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
             setDragPreview(next);
           }}
           onPointerUp={event => {
+            const pointDrag = pointDragging.current;
+            if (pointDrag && pointDrag.pointer === event.pointerId) {
+              const preview = pointPreview;
+              if (preview) update({ [face]: nodes.map(item => item.id !== preview.nodeId ? item : {
+                ...item, points: item.points.map((point, index) => index === preview.pointIndex ? preview.point : point),
+              }) });
+              pointDragging.current = null; setPointPreview(undefined); return;
+            }
             const drag = dragging.current;
             if (drag && drag.pointer === event.pointerId && Math.hypot(event.clientX - drag.clientX, event.clientY - drag.clientY) > 2) {
               const positions = dragPreview ?? Object.fromEntries(drag.ids.map(id => [id, drag.positions[id]]));
@@ -420,10 +538,13 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
             }
             dragging.current = null; setDragPreview(undefined);
           }}
-          onPointerCancel={() => { dragging.current = null; setDragPreview(undefined); }}>
+          onPointerCancel={() => { dragging.current = null; pointDragging.current = null; setDragPreview(undefined); setPointPreview(undefined); }}>
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-            <ComponentView component={dragPreview ? { ...component, [face]: nodes.map(item => dragPreview[item.id] ? { ...item, ...dragPreview[item.id] } : item) } : component}
-              row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} />
+            <ComponentView component={{ ...component, [face]: nodes.map(item => ({
+              ...item, ...(dragPreview?.[item.id] ?? {}),
+              ...(pointPreview?.nodeId === item.id ? { points: item.points.map((point, index) => index === pointPreview.pointIndex ? pointPreview.point : point) } : {}),
+            })) }} components={components}
+              row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} editableVector onPointDown={pointDown} />
           </div>
         </div>
         <div className="canvas-caption"><span className="live-dot" /> Live component <span>Changes appear on every instance</span></div>
@@ -446,7 +567,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>
           <div className="inspector-section"><h3>Portable by design</h3><p className="help-text">Export the full component, including both faces, behavior and CSV data.</p>
-            <button className="button full" onClick={() => download(`${component.name}.component.json`, JSON.stringify(component, null, 2))}><Download size={15} /> Export component</button>
+            <button className="button full" onClick={() => download(`${component.name}.component.json`, JSON.stringify(exportComponentBundle(component, components), null, 2))}><Download size={15} /> Export component</button>
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>
         </> : node ? <>
           <div className="inspector-section" key={node.id}><div className="section-title"><h3>{selected.length > 1 ? `${selected.length} selected layers` : `${node.type} layer`}</h3><button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button></div>
@@ -456,13 +577,14 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
               <NumberField label="Width" value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} />
               <NumberField label="Height" value={node.height} min={1} max={4000} onChange={height => updateNode({ height })} />
               <NumberField label="Rotation" value={node.rotation} onChange={rotation => updateNode({ rotation })} />
-              {selected.length === 1 && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
+              {selected.length === 1 && node.type === 'frame' && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
             {selected.length === 1 && <Field label="Parent"><select value={node.parent ?? ''} onChange={event => {
               const parentId = event.target.value || null;
               try { update({ [face]: movePreservingPosition(node.id, parentId) }); }
               catch (error) { notify(error instanceof Error ? error.message : 'Unable to move layer.', true); }
             }}><option value="">Component root</option>
-              {nodes.filter(item => item.type === 'frame' && !descendantsOf(nodes, selected).has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              {nodes.filter(item => (item.type === 'frame' || (['shape', 'compound'].includes(node.type) && item.type === 'compound')) &&
+                !descendantsOf(nodes, selected).has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
             </select></Field>}
             <Field label="Width sizing"><select value={selectedNodes.every(item => (item.widthMode ?? 'fixed') === (node.widthMode ?? 'fixed')) ? node.widthMode ?? 'fixed' : 'mixed'}
               onChange={event => { if (event.target.value !== 'mixed') updateNode({ widthMode: event.target.value as DesignNode['widthMode'] }); }}>
@@ -486,7 +608,80 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
               <Field label="Alignment"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
             </>}
             {node.type === 'image' && selected.length === 1 && <><Field label="Image URL / binding"><textarea rows={3} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://... or {{image}}" /></Field><p className="help-text">HTTPS texture URLs and CSV bindings are supported.</p></>}
-            {node.type === 'shape' && selected.length === 1 && <Field label="Botanical motif (optional)"><select value={node.text} onChange={event => updateNode({ text: event.target.value })}><option value="">None</option><option value="fern">Fern</option><option value="moon">Moon</option><option value="sun">Sun</option></select></Field>}
+            {node.type === 'shape' && selected.length === 1 && <>
+              <Field label="Vector shape"><select value={node.shapeKind} onChange={event => {
+                const nextKind = event.target.value as DesignNode['shapeKind'];
+                const points = nextKind === 'path' && node.points.length < 2
+                  ? [{ x: 12, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
+                    { x: node.width - 12, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
+                    { x: node.width - 12, y: node.height - 12, inX: 0, inY: 0, outX: 0, outY: 0 },
+                    { x: 12, y: node.height - 12, inX: 0, inY: 0, outX: 0, outY: 0 }]
+                  : node.points;
+                updateNode({ shapeKind: nextKind, points });
+              }}>
+                <option value="rectangle">Rectangle</option><option value="ellipse">Ellipse</option><option value="polygon">Polygon</option>
+                <option value="star">Star</option><option value="path">Pen path</option>
+              </select></Field>
+              {(node.shapeKind === 'polygon' || node.shapeKind === 'star') && <>
+                <NumberField label="Sides" value={node.sides} min={3} max={100} onChange={sides => updateNode({ sides })} />
+                {node.shapeKind === 'star' && <NumberField label="Inner radius ratio" value={node.innerRadius} min={.05} max={.95} step={.05} onChange={innerRadius => updateNode({ innerRadius })} />}
+              </>}
+              {node.shapeKind === 'rectangle' && <NumberField label="Corner radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}
+              <div className="field-grid">
+                <Field label="Stroke color"><input type="color" value={/^#[0-9a-f]{6}$/i.test(node.stroke) ? node.stroke : '#253d37'} onChange={event => updateNode({ stroke: event.target.value })} /></Field>
+                <NumberField label="Stroke weight" value={node.strokeWidth} min={0} max={200} step={.5} onChange={strokeWidth => updateNode({ strokeWidth })} />
+              </div>
+              {node.shapeKind === 'path' && <>
+                <div className="vector-editor-heading"><strong>Path points</strong><span>{node.points.length} points</span></div>
+                <Field label="Selected point"><select value={Math.min(selectedPoint, Math.max(0, node.points.length - 1))} onChange={event => setSelectedPoint(Number(event.target.value))}>
+                  {node.points.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
+                </select></Field>
+                {node.points[selectedPoint] && <>
+                  <div className="field-grid"><NumberField label="X" value={node.points[selectedPoint].x} min={-4000} max={4000} step={.5} onChange={x => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, x } : point) })} />
+                    <NumberField label="Y" value={node.points[selectedPoint].y} min={-4000} max={4000} step={.5} onChange={y => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, y } : point) })} /></div>
+                  <div className="field-grid"><NumberField label="In handle X" value={node.points[selectedPoint].inX} min={-4000} max={4000} step={.5} onChange={inX => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, inX } : point) })} />
+                    <NumberField label="In handle Y" value={node.points[selectedPoint].inY} min={-4000} max={4000} step={.5} onChange={inY => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, inY } : point) })} /></div>
+                  <div className="field-grid"><NumberField label="Out handle X" value={node.points[selectedPoint].outX} min={-4000} max={4000} step={.5} onChange={outX => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, outX } : point) })} />
+                    <NumberField label="Out handle Y" value={node.points[selectedPoint].outY} min={-4000} max={4000} step={.5} onChange={outY => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, outY } : point) })} /></div>
+                  <div className="button-row">
+                    <button className="button" onClick={() => updateNode({ points: node.points.map((point, index) => index === selectedPoint
+                      ? { ...point, inX: -Math.min(node.width, node.height) / 6, inY: 0, outX: Math.min(node.width, node.height) / 6, outY: 0 } : point) })}>Smooth handles</button>
+                    <button className="button" onClick={() => updateNode({ points: node.points.map((point, index) => index === selectedPoint
+                      ? { ...point, inX: 0, inY: 0, outX: 0, outY: 0 } : point) })}>Straight handles</button>
+                  </div>
+                </>}
+                <div className="button-row"><button className="button" onClick={appendPoint}>Add point</button>
+                  <button className="button danger" onClick={deletePoint}>Delete point</button></div>
+                <Toggle label="Closed path" checked={node.pathClosed} onChange={pathClosed => updateNode({ pathClosed })} />
+                <p className="help-text">Drag anchors and Bézier handles on the canvas, or edit their coordinates here.</p>
+              </>}
+            </>}
+            {node.type === 'compound' && selected.length === 1 && <>
+              <Field label="Live boolean operation"><select value={node.compoundOperation} onChange={event => updateNode({ compoundOperation: event.target.value as DesignNode['compoundOperation'] })}>
+                <option value="union">Union</option><option value="subtract">Subtract</option><option value="intersect">Intersect</option><option value="exclude">Exclude (XOR)</option>
+              </select></Field>
+              <p className="help-text">Source layers remain editable in the hierarchy. Edit a source, change the operation, or uncombine to separate them again.</p>
+              <button className="button full" onClick={uncombine}>Uncombine source shapes</button>
+            </>}
+            {node.type === 'component' && selected.length === 1 && <>
+              <Field label="Linked component"><select value={node.componentId ?? ''} onChange={event => {
+                const linked = components.find(item => item.id === event.target.value);
+                if (linked) updateNode({ componentId: linked.id, name: linked.name, width: linked.width, height: linked.height, dataRow: 0 });
+              }}>
+                {components.filter(item => item.id !== component.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select></Field>
+              <Field label="Nested data"><select value={node.dataSource} onChange={event => updateNode({ dataSource: event.target.value as DesignNode['dataSource'] })}>
+                <option value="inherit">Inherit parent row</option><option value="row">Use this component’s row</option><option value="field">Choose row from parent CSV field</option>
+              </select></Field>
+              {node.dataSource === 'row' && <NumberField label={`Own row (0–${Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)})`}
+                value={node.dataRow} min={0} max={Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)}
+                onChange={dataRow => updateNode({ dataRow })} />}
+              {node.dataSource === 'field' && <>
+                <Field label="Parent CSV field (zero-based row index)"><input value={node.dataField} list="nested-data-fields" placeholder="e.g. portraitRow" onChange={event => updateNode({ dataField: event.target.value })} /></Field>
+                <datalist id="nested-data-fields">{Object.keys(component.rows[row] ?? {}).map(key => <option key={key}>{key}</option>)}</datalist>
+                <p className="help-text">The selected parent row must contain an integer from 0 to {Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)}. Invalid or missing values show an error instead of silently choosing another row.</p>
+              </>}
+            </>}
             {selected.length === 1 && node.type === 'frame' && <>
               <Field label="Child layout"><select value={node.layout} onChange={event => updateNode({ layout: event.target.value as DesignNode['layout'] })}><option value="absolute">Absolute</option><option value="row">Horizontal stack</option><option value="column">Vertical stack</option></select></Field>
               <div className="field-grid"><NumberField label="Gap" value={node.gap} min={0} max={200} onChange={gap => updateNode({ gap })} />

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { makeNode } from '../src/domain';
-import { copySubtrees, groupLayers, pasteSubtrees, ungroupLayers } from '../src/designerOperations';
+import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, uncombineLayers, ungroupLayers } from '../src/designerOperations';
 
 describe('designer subtree operations', () => {
   it('copies selected subtrees once, remapping every ID and internal parent', () => {
@@ -53,5 +53,22 @@ describe('designer subtree operations', () => {
     expect(() => groupLayers([a, b, c], [a.id, c.id])).toThrow('consecutive');
     const clip = makeNode('frame', { width: 30, height: 30, fill: 'transparent' });
     expect(() => ungroupLayers([clip, { ...child, parent: clip.id }], [clip.id])).toThrow('clipped');
+  });
+
+  it('creates live compounds and round-trips editable source subtrees', () => {
+    const a = makeNode('shape', { x: 10, y: 20, width: 80, height: 60 });
+    const b = makeNode('shape', { x: 50, y: 30, width: 80, height: 60 });
+    const result = combineLayers([a, b], [a.id, b.id], 'exclude');
+    const compound = result.nodes.find(node => node.type === 'compound')!;
+    expect(compound.compoundOperation).toBe('exclude');
+    expect(result.nodes.filter(node => node.parent === compound.id)).toHaveLength(2);
+    const copied = copySubtrees(result.nodes, [compound.id]);
+    const pasted = pasteSubtrees(result.nodes, copied);
+    expect(pasted.nodes.filter(node => node.type === 'compound')).toHaveLength(2);
+    expect(pasted.nodes.filter(node => node.parent === pasted.selected[0])).toHaveLength(2);
+    const uncombined = uncombineLayers(result.nodes, [compound.id]);
+    expect(uncombined.nodes.filter(node => node.type === 'compound')).toHaveLength(0);
+    expect(uncombined.nodes.find(node => node.id === a.id)).toMatchObject({ parent: null, x: 10, y: 20 });
+    expect(uncombined.nodes.find(node => node.id === b.id)).toMatchObject({ parent: null, x: 50, y: 30 });
   });
 });

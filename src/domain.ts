@@ -3,9 +3,15 @@ import { z } from 'zod';
 const id = z.string().min(1).max(100);
 const num = z.number().finite();
 const color = z.string().max(80);
+const MAX_NESTED_RENDER_NODES = 10_000;
+export const vectorPointSchema = z.object({
+  x: num.min(-8000).max(8000), y: num.min(-8000).max(8000),
+  inX: num.min(-8000).max(8000).default(0), inY: num.min(-8000).max(8000).default(0),
+  outX: num.min(-8000).max(8000).default(0), outY: num.min(-8000).max(8000).default(0),
+});
 export const nodeSchema = z.object({
   id, parent: id.nullable(), name: z.string().max(100),
-  type: z.enum(['frame', 'text', 'image', 'shape']),
+  type: z.enum(['frame', 'text', 'image', 'shape', 'compound', 'component']),
   x: num, y: num, width: num.min(1).max(4000), height: num.min(1).max(4000),
   text: z.string().max(10000), fill: color, color, fontSize: num.min(4).max(400),
   font: z.string().max(100), radius: num.min(0).max(2000), rotation: num,
@@ -17,6 +23,17 @@ export const nodeSchema = z.object({
   paddingTop: num.min(0).max(200).optional(), paddingRight: num.min(0).max(200).optional(),
   paddingBottom: num.min(0).max(200).optional(), paddingLeft: num.min(0).max(200).optional(),
   opacity: num.min(0).max(1),
+  shapeKind: z.enum(['rectangle', 'ellipse', 'polygon', 'star', 'path']).default('rectangle'),
+  points: z.array(vectorPointSchema).max(128).default([]),
+  pathClosed: z.boolean().default(true),
+  sides: z.number().int().min(3).max(100).default(5),
+  innerRadius: num.min(0.05).max(0.95).default(0.5),
+  stroke: color.default('transparent'), strokeWidth: num.min(0).max(200).default(0),
+  compoundOperation: z.enum(['union', 'subtract', 'intersect', 'exclude']).default('union'),
+  componentId: id.optional(),
+  dataSource: z.enum(['inherit', 'row', 'field']).default('inherit'),
+  dataRow: z.number().int().min(0).max(9999).default(0),
+  dataField: z.string().max(100).default(''),
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
@@ -113,18 +130,65 @@ export function validateProject(project: Project): Project {
       const nodes = new Map(face.map(n => [n.id, n]));
       if (nodes.size !== face.length) throw new Error('Duplicate layer identifiers.');
       for (const node of face) {
+        if (node.type === 'shape' && node.shapeKind === 'path' && node.points.length < (node.pathClosed ? 3 : 2)) {
+          throw new Error(`Path “${node.name}” needs at least ${node.pathClosed ? 3 : 2} points.`);
+        }
+        if (node.type === 'component') {
+          if (!node.componentId || !componentIds.has(node.componentId)) throw new Error(`Nested component “${node.name}” references a missing component.`);
+          const nested = project.components.find(item => item.id === node.componentId)!;
+          if (node.dataSource === 'row' && node.dataRow >= nested.rows.length) {
+            throw new Error(`Nested component “${node.name}” row ${node.dataRow} is out of range.`);
+          }
+        }
+        if (node.type === 'compound' && face.filter(child => child.parent === node.id).length < 2) {
+          throw new Error(`Live compound “${node.name}” needs at least two source shapes.`);
+        }
+        if (node.parent) {
+          const parentNode = nodes.get(node.parent);
+          if (parentNode?.type === 'compound' && !['shape', 'compound'].includes(node.type)) {
+            throw new Error('Live compounds can contain only vector shapes and other compounds.');
+          }
+        }
         const seen = new Set([node.id]);
         let parent = node.parent;
         while (parent) {
           if (seen.has(parent)) throw new Error('Layer hierarchy contains a cycle.');
           seen.add(parent);
           const ancestor = nodes.get(parent);
-          if (!ancestor || ancestor.type !== 'frame') throw new Error('Layer parent must be an existing frame.');
+          if (!ancestor || !['frame', 'compound'].includes(ancestor.type)) throw new Error('Layer parent must be an existing frame or live compound.');
           parent = ancestor.parent;
         }
       }
     }
   }
+  const links = new Map(project.components.map(component => [component.id, new Set(
+    [...component.front, ...component.back].flatMap(node => node.type === 'component' && node.componentId ? [node.componentId] : []),
+  )]));
+  const references = new Map(project.components.map(component => [component.id,
+    [...component.front, ...component.back].flatMap(node => node.type === 'component' && node.componentId ? [node.componentId] : []),
+  ]));
+  const visiting = new Set<string>(), visited = new Set<string>();
+  const visit = (componentId: string, depth: number) => {
+    if (depth > 32) throw new Error('Nested components cannot be more than 32 levels deep.');
+    if (visiting.has(componentId)) throw new Error('Nested component references contain a cycle.');
+    if (visited.has(componentId)) return;
+    visiting.add(componentId);
+    for (const linkedId of links.get(componentId) ?? []) visit(linkedId, depth + 1);
+    visiting.delete(componentId); visited.add(componentId);
+  };
+  for (const component of project.components) visit(component.id, 0);
+  const renderCosts = new Map<string, number>();
+  const renderCost = (componentId: string): number => {
+    const cached = renderCosts.get(componentId);
+    if (cached !== undefined) return cached;
+    const component = project.components.find(item => item.id === componentId)!;
+    const ownNodes = Math.max(component.front.length, component.back.length);
+    const total = ownNodes + (references.get(componentId) ?? []).reduce((sum, linkedId) => sum + renderCost(linkedId), 0);
+    if (total > MAX_NESTED_RENDER_NODES) throw new Error(`Nested component rendering exceeds ${MAX_NESTED_RENDER_NODES} layers.`);
+    renderCosts.set(componentId, total);
+    return total;
+  };
+  project.components.forEach(component => { renderCost(component.id); });
   for (const i of project.instances) {
     if (!componentIds.has(i.componentId) || (i.holder && !playerIds.has(i.holder))) throw new Error('Broken component or player reference.');
     if (i.stack && i.holder) throw new Error('A held component cannot belong to a stack.');
@@ -203,10 +267,14 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       }
       break;
     }
-    case 'removeComponent':
+    case 'removeComponent': {
+      if (!p.components.some(component => component.id === command.id)) throw new Error('Component no longer exists.');
+      const referencing = p.components.find(component => [...component.front, ...component.back].some(node => node.type === 'component' && node.componentId === command.id));
+      if (referencing) throw new Error(`“${referencing.name}” links this component. Remove or relink that nested instance first.`);
       p.components = p.components.filter(c => c.id !== command.id);
       p.instances = p.instances.filter(i => i.componentId !== command.id);
       break;
+    }
     case 'spawn':
       for (const item of command.instances) {
         if (p.instances.some(i => i.id === item.id)) throw new Error('Instance identifier already exists.');
@@ -518,6 +586,10 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
     fill: type === 'text' ? 'transparent' : '#e8b86d', color: '#253d37',
     fontSize: 20, font: 'DM Sans', radius: 0, rotation: 0,
     layout: 'absolute', gap: 8, padding: 0, align: 'start', opacity: 1, ...values,
+    shapeKind: values.shapeKind ?? 'rectangle', points: values.points ?? [], pathClosed: values.pathClosed ?? true,
+    sides: values.sides ?? 5, innerRadius: values.innerRadius ?? 0.5, stroke: values.stroke ?? 'transparent',
+    strokeWidth: values.strokeWidth ?? 0, compoundOperation: values.compoundOperation ?? 'union',
+    dataSource: values.dataSource ?? 'inherit', dataRow: values.dataRow ?? 0, dataField: values.dataField ?? '',
     widthMode: values.widthMode ?? 'fixed', heightMode: values.heightMode ?? 'fixed', wrap: values.wrap ?? false,
     paddingTop: values.paddingTop ?? values.padding ?? 0, paddingRight: values.paddingRight ?? values.padding ?? 0,
     paddingBottom: values.paddingBottom ?? values.padding ?? 0, paddingLeft: values.paddingLeft ?? values.padding ?? 0,
@@ -528,7 +600,10 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
 export function moveLayer(nodes: DesignNode[], id: string, parent: string | null, beforeId?: string): DesignNode[] {
   const source = nodes.find(node => node.id === id);
   if (!source) throw new Error('Layer to move does not exist.');
-  if (parent && nodes.find(node => node.id === parent)?.type !== 'frame') throw new Error('Layer parent must be an existing frame.');
+  if (parent && !['frame', 'compound'].includes(nodes.find(node => node.id === parent)?.type ?? '')) throw new Error('Layer parent must be an existing frame or live compound.');
+  if (parent && nodes.find(node => node.id === parent)?.type === 'compound' && !['shape', 'compound'].includes(source.type)) {
+    throw new Error('Live compounds can contain only vector shapes and other compounds.');
+  }
   const descendants = new Set([id]);
   let previousSize = -1;
   while (previousSize !== descendants.size) {

@@ -77,7 +77,10 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 ## Designing components
 
 - Start with a card, token, board or die template, or a blank component.
-- Add text, shapes, images, empty elements and nested frames. The collapsible hierarchy supports drag-and-drop reordering, reparenting, and moving layers back to the component root.
+- Add text, vector shapes, images, linked components, empty elements and nested frames. The collapsible hierarchy supports drag-and-drop reordering, reparenting, and moving layers back to the component root.
+- Choose rectangles, ellipses, regular polygons, stars or pen paths from the shape-type menu. Edit fill, stroke and stroke weight in the inspector. Pen paths expose editable anchors and Bézier in/out handles; drag them on the canvas or edit their coordinates, add/delete anchors, and open or close the path.
+- Select two or more vector layers, choose **Union**, **Subtract**, **Intersect** or **Exclude (XOR)**, then create a live compound. The source shapes stay in the layer hierarchy and update the boolean result when edited; change the operation or **Uncombine** to recover the editable sources. Compounds support holes and overlapping regions. Bézier curves are sampled for boolean calculations; the original paths remain editable and are not flattened in the project.
+- **Link component…** nests a live reference to another project component. Linked designs refresh in the Designer, component previews, playground, hands and exports. Nested data can inherit the parent row, use a selected row from the linked component, or read a row index from a parent CSV field. Parent-field row indices are zero-based integers; a missing, malformed or out-of-range value displays a visible error instead of silently choosing a row. Component export includes its nested dependency closure; imports remap linked IDs. A linked component cannot be deleted until its parent links are removed or changed.
 - Select multiple layers in the hierarchy with Ctrl/Cmd-click (or Shift-click). Drag the selection on the canvas, edit shared properties, group it under a transparent parent, or delete it together. Designer edits support undo and redo.
 - Designer shortcuts (outside fields and dialogs): Delete/Backspace deletes the selection; Ctrl/Cmd+X, C, V and D cut, copy, paste and duplicate layer subtrees; Ctrl/Cmd+G groups and Ctrl/Cmd+Shift+G ungroups. Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (or Ctrl+Y) undo and redo; Ctrl/Cmd+A selects root layers, Escape clears selection, and arrows nudge by 1 unit (Shift: 10). The in-editor clipboard stays on the original component face and retains the original parent. Grouping requires consecutive siblings in fixed-size absolute layouts; ungrouping also requires a transparent frame without clipped content. Unsupported operations report an error rather than changing placement unexpectedly.
 - Use the mouse wheel over the Designer canvas to zoom around the pointer; drag with the middle mouse button or Space+left mouse button to pan.
@@ -88,8 +91,8 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 - Instances reference **row indices**, not copied content. Reordering CSV rows changes which data those instances display. Removed rows resolve bindings to empty strings; existing pieces are not silently deleted.
 - **Behavior** controls flippability/back design, hands, front visibility, stacking, shuffling and stack tags. Untagged pieces stack only with instances of the same component; tagged pieces can stack with any stackable component sharing that tag.
 - Turning off hand/stack/flip support normalizes existing instances. Disabling player hands at the table level only hides the hand UI; it does not discard held pieces.
-- Export a component as JSON from **Behavior**. The library's **Import** accepts component JSON or project/workspace JSON. Component imports also work inside live sessions.
-- Deleting a component requires confirmation and removes all its spawned instances.
+- Export a component as JSON from **Behavior**. The library's **Import** accepts component bundles, legacy component JSON or project/workspace JSON. Component imports also work inside live sessions.
+- Deleting a component requires confirmation and removes all its spawned instances; referenced nested components must first be unlinked.
 
 ## Playing
 

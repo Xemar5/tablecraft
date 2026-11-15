@@ -15,10 +15,11 @@
     "db:publish": "spacetime publish tablecraft-studio --module-path server --server http://127.0.0.1:3000"
   },
   "dependencies": {
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
     "lucide-react": "^0.468.0",
     "papaparse": "^5.5.3",
+    "polygon-clipping": "^0.15.7",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
     "spacetimedb": "2.15.0",
     "zod": "^4.1.0"
   },
