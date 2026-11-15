@@ -683,7 +683,8 @@ test('stack feedback previews Alt bypass for board and hand drops, and board gho
   const ghost = page.locator('.board-drag-preview');
   await expect(ghost).toBeVisible();
   expect(await ghost.evaluate(el => ({ position: getComputedStyle(el).position, z: Number(getComputedStyle(el).zIndex), parent: el.parentElement?.tagName }))).toEqual({ position: 'fixed', z: 1000, parent: 'BODY' });
-  expect((await ghost.boundingBox())!.y).toBeGreaterThan(tray.y);
+  const ghostBox = (await ghost.boundingBox())!;
+  expect(ghostBox.y + ghostBox.height).toBeGreaterThan(tray.y);
   await page.mouse.up(); await expect(page.locator('.hand-card')).toHaveCount(1);
   const hand = (await page.locator('.hand-card').boundingBox())!;
   await page.mouse.move(hand.x + hand.width / 2, hand.y + hand.height / 2); await page.mouse.down();

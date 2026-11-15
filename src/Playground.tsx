@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizon
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Instance, type Player, type Project } from './domain';
 import { Field, Modal, NumberField, Toggle } from './ui';
+import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
 type Props = {
   project: Project; actor: string; owner: string; selected: string[]; setSelected: (ids: string[]) => void;
@@ -11,8 +12,10 @@ type Props = {
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
   inspectorVisible: boolean; handVisible: boolean;
   onShowInspector: () => void;
+  panel: 'table' | 'players'; setPanel: (panel: 'table' | 'players') => void;
+  panels: ReturnType<typeof usePanelLayout>;
 };
-export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onEdit, onSwitch, notify }: Props) {
+export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -20,7 +23,6 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [camera, setCamera] = useState(0);
   const [tool, setTool] = useState<'select' | 'pan'>('select');
   const [preview, setPreview] = useState<Record<string, { x: number; y: number }>>({});
-  const [panel, setPanel] = useState<'table' | 'players'>('table');
   const [search, setSearch] = useState<string[]>();
   const [query, setQuery] = useState('');
   const [seatEditor, setSeatEditor] = useState<Player>();
@@ -469,7 +471,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         })()}
         <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
       </div>
-      {p.settings.hands && handVisible && <><div className="hand-tray" aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
+      {p.settings.hands && handVisible && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
         <div ref={handScroller} className="hand-cards" aria-label="Hand cards">{held.length ? held.map(item => {
          const comp = p.components.find(c => c.id === item.componentId)!;
           const draggingIds = handDrag ? selected.includes(handDrag.id) ? selected : [handDrag.id] : [];
@@ -557,7 +559,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         <span>{altDown ? 'Release Alt to stack instead' : 'Hold Alt to move without stacking'}</span>
       </div>}
     </>, document.body)}
-    <aside className="inspector playground-inspector" hidden={!inspectorVisible}>
+    {inspectorVisible && <PanelSeparator label="Resize table inspector" controls="playground-inspector-panel" value={panels.sizes.playgroundInspector} {...panels.limits.playgroundInspector} direction={-1} onResize={value => panels.resize('playgroundInspector', value)} />}
+    <aside id="playground-inspector-panel" className="inspector playground-inspector" style={{ width: panels.sizes.playgroundInspector, minWidth: 0, flex: `0 0 ${panels.sizes.playgroundInspector}px` }} hidden={!inspectorVisible}>
       <div className="inspector-tabs"><button className={panel === 'table' ? 'active' : ''} onClick={() => setPanel('table')}><Settings2 size={14} /> Table</button><button className={panel === 'players' ? 'active' : ''} onClick={() => setPanel('players')}><Users size={14} /> Players <span>{p.players.length}</span></button></div>
       <div className="inspector-scroll">{panel === 'players' ? <>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">Hotseat</span></div>

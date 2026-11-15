@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload, Combine, Minus, Ungroup } from 'lucide-react';
+import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
@@ -8,8 +8,23 @@ import { download, exportComponentBundle } from './storage';
 import { Field, Modal, NumberField, Toggle } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { parseCsvData } from './csv';
+import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
 type Face = 'front' | 'back';
+type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude';
+function BooleanIcon({ operation }: { operation: BooleanOperation }) {
+  const paths: Record<BooleanOperation, string> = {
+    union: 'M3 3H14V9H20V20H9V14H3Z',
+    subtract: 'M3 3H14V9H9V14H3Z',
+    intersect: 'M9 9H14V14H9Z',
+    exclude: 'M3 3H14V9H9V14H3Z M14 9H20V20H9V14H14Z',
+  };
+  return <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+    <path d={paths[operation]} fill="currentColor" />
+    <rect x="3" y="3" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    <rect x="9" y="9" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.2" />
+  </svg>;
+}
 type DragPosition = { x: number; y: number };
 type LayerDrag = { ids: string[]; pointer: number; clientX: number; clientY: number; positions: Record<string, DragPosition>; angles: Record<string, number> };
 type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; inverse: DOMMatrix; localX: number; localY: number; point: DesignNode['points'][number] };
@@ -71,8 +86,9 @@ function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
   return angle * Math.PI / 180;
 }
 
-export function Designer({ component: incoming, components, onChange, onDelete, notify }: {
+export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels }: {
   component: Component; components: Component[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
+  tab: 'design' | 'behavior'; setTab: (tab: 'design' | 'behavior') => void; panels: ReturnType<typeof usePanelLayout>;
 }) {
   const [component, setComponent] = useState(incoming);
   const pending = useRef(0);
@@ -80,6 +96,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   latestIncoming.current = incoming;
   useEffect(() => { if (!pending.current) setComponent(incoming); }, [incoming]);
   const [face, setFace] = useState<Face>('front');
+  useEffect(() => { if (!component.flippable) setFace('front'); }, [component.flippable]);
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedPoint, setSelectedPoint] = useState(-1);
   const [toolMenu, setToolMenu] = useState<'shape' | 'link' | null>(null);
@@ -94,7 +111,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [draggedLayer, setDraggedLayer] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{ id: string; mode: 'inside' | 'before' | 'after' }>();
-  const [tab, setTab] = useState<'design' | 'behavior'>('design');
   const [dataOpen, setDataOpen] = useState(false);
   const [csv, setCsv] = useState(component.csv);
   const [row, setRow] = useState(0);
@@ -476,7 +492,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   };
   const rootIds = nodes.filter(item => item.parent === null).map(item => item.id);
   return <div ref={designer} className="designer-layout">
-    <aside className="layers-panel">
+    <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
       <div className="face-tabs"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
         <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></div>
@@ -489,6 +505,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       </div>
       <div className="layer-footer"><button onClick={() => { setCsv(component.csv); setDataOpen(true); }}><Database size={16} /><span>Data bindings<small>{component.rows.length} rows connected</small></span><ChevronRight size={14} /></button></div>
     </aside>
+    <PanelSeparator label="Resize designer layers" controls="designer-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} />
     <section className="designer-canvas">
       <div className="canvas-toolbar">
         <div className="tool-group">
@@ -585,18 +602,19 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <div className="canvas-bottom"><span><Square size={12} /> {component.kind} component</span>
         <div><button onClick={() => setZoom(value => Math.max(.25, value - .25))}>-</button><button onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div></div>
     </section>
-    <aside className="inspector">
+    <PanelSeparator label="Resize designer inspector" controls="designer-inspector-panel" value={panels.sizes.designerInspector} {...panels.limits.designerInspector} direction={-1} onResize={value => panels.resize('designerInspector', value)} />
+    <aside id="designer-inspector-panel" className="inspector" style={{ width: panels.sizes.designerInspector, minWidth: 0, flex: `0 0 ${panels.sizes.designerInspector}px` }}>
       <div className="inspector-tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></div>
       <div className="inspector-scroll">
         {tab === 'design' && <div className="inspector-section"><div className="boolean-actions" aria-label="Boolean operations">
           {([
-            { operation: 'union', label: 'Union', Icon: Combine },
-            { operation: 'subtract', label: 'Subtract', Icon: Minus },
-            { operation: 'intersect', label: 'Intersect', Icon: Layers },
-            { operation: 'exclude', label: 'Exclude', Icon: Ungroup },
-          ] as const).map(({ operation, label, Icon }) => <button key={operation} className="icon-button" title={label} aria-label={label}
+            { operation: 'union', label: 'Union' },
+            { operation: 'subtract', label: 'Subtract' },
+            { operation: 'intersect', label: 'Intersect' },
+            { operation: 'exclude', label: 'Exclude' },
+          ] as const).map(({ operation, label }) => <button key={operation} className="icon-button" title={label} aria-label={label}
             disabled={selectedNodes.length < 2 || selectedNodes.some(item => !['shape', 'compound'].includes(item.type))}
-            onClick={() => makeCompound(operation)}><Icon size={18} /></button>)}
+            onClick={() => makeCompound(operation)}><BooleanIcon operation={operation} /></button>)}
           <button className="icon-button" title="Uncombine live compound" aria-label="Uncombine live compound"
             disabled={!selectedNodes.length || selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={18} /></button>
         </div></div>}
