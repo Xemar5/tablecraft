@@ -136,6 +136,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
   return <div key={face} className={`component-face component-${c.kind}${reveal.changed ? ' face-flipped' : ''}`} style={{
     width: c.width, height: c.height, background: hidden && !nodes.length ? '#365d46' : c.color,
     borderRadius: c.kind === 'artwork' ? 0 : c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
+    boxShadow: c.kind === 'artwork' ? 'none' : undefined,
   }}>{hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 }
 
