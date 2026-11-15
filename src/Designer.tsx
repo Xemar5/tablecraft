@@ -6,7 +6,7 @@ import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { download, exportComponentBundle } from './storage';
-import { ColorField, Field, Modal, NumberField, Toggle } from './ui';
+import { ColorField, Field, Modal, NumberField, ScrollArrows, Toggle } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { parseCsvData } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
@@ -539,6 +539,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     <PanelSeparator label="Resize designer layers" controls="designer-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} />
     <section className="designer-canvas">
       <div className={`designer-toolbar-scroll${toolbarEdges.left ? ' overflow-left' : ''}${toolbarEdges.right ? ' overflow-right' : ''}`}>
+      <ScrollArrows target={toolbar} {...toolbarEdges} label="designer toolbar" />
       <div className="canvas-toolbar" ref={toolbar}>
         <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>

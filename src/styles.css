@@ -75,6 +75,14 @@
 .dismissible-notice[hidden]{display:none}
 .notice-content{display:flex;flex:1;align-items:center;flex-wrap:wrap;gap:10px;min-width:0;overflow-wrap:anywhere}
 .dismissible-notice .notice-close{flex:none;width:24px;height:24px;padding:3px;border:0;color:inherit}
+.horizontal-scroll-arrow{position:absolute;top:0;bottom:0;width:20px;z-index:12;display:flex;align-items:center;justify-content:center;padding:0;border:0;border-radius:0;color:var(--green);background:transparent;touch-action:none;cursor:pointer}
+.designer-toolbar-scroll::before,.designer-toolbar-scroll::after{z-index:11}
+.horizontal-scroll-arrow svg{opacity:0;transition:opacity .15s;pointer-events:none}
+.horizontal-scroll-arrow:hover svg,.horizontal-scroll-arrow:focus-visible svg,.horizontal-scroll-arrow:active svg{opacity:1}
+.horizontal-scroll-arrow:hover,.horizontal-scroll-arrow:focus-visible{background:#f2f6eccc}
+.horizontal-scroll-arrow.scroll-left{left:0}
+.horizontal-scroll-arrow.scroll-right{right:0}
+@media(hover:none){.horizontal-scroll-arrow svg{opacity:1}}
 
 /* Presentation-only splitters; their sizes are managed independently of project data. */
 .panel-separator{flex:none;position:relative;z-index:4;background:var(--line);touch-action:none;user-select:none;outline:none}

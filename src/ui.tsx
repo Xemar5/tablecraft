@@ -1,5 +1,41 @@
-import { X, Check } from 'lucide-react';
-import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+
+export function ScrollArrows({ target, left, right, label }: {
+  target: RefObject<HTMLDivElement | null>; left: boolean; right: boolean; label: string;
+}) {
+  const frame = useRef<number | null>(null);
+  const stop = () => { if (frame.current !== null) cancelAnimationFrame(frame.current); frame.current = null; };
+  useEffect(() => {
+    window.addEventListener('blur', stop);
+    return () => { stop(); window.removeEventListener('blur', stop); };
+  }, []);
+  return <>{([-1, 1] as const).map(direction => {
+    const available = direction === -1 ? left : right;
+    return available && <button key={direction} type="button" className={`horizontal-scroll-arrow scroll-${direction === -1 ? 'left' : 'right'}`}
+      aria-label={`Scroll ${label} ${direction === -1 ? 'left' : 'right'}`}
+      onPointerDown={event => {
+        if (event.button !== 0) return;
+        event.preventDefault(); stop();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        let previous = performance.now();
+        const tick = (now: number) => {
+          const element = target.current;
+          if (!element) { stop(); return; }
+          const before = element.scrollLeft;
+          element.scrollLeft += direction * Math.min(now - previous, 50) * .4;
+          previous = now;
+          if (element.scrollLeft === before && (direction < 0 ? element.scrollLeft <= 0 : element.scrollLeft + element.clientWidth >= element.scrollWidth - 1)) { stop(); return; }
+          frame.current = requestAnimationFrame(tick);
+        };
+        frame.current = requestAnimationFrame(tick);
+      }}
+      onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop}
+      onClick={event => { if (event.detail === 0) target.current?.scrollBy({ left: direction * 80 }); }}>
+      {direction === -1 ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+    </button>;
+  })}</>;
+}
 
 export function Modal({ title, subtitle, children, onClose, wide = false }: {
   title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean;
