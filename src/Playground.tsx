@@ -192,10 +192,13 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       const hoveredPiece = p.instances.find(i => i.id === hovered && (!i.holder || i.holder === actor));
       const shortcutIds = hoveredPiece && !selected.includes(hoveredPiece.id) ? stackMembers(p, hoveredPiece).map(i => i.id) : selected;
       const shortcutPiece = hoveredPiece ?? piece;
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f' && shortcutPiece) {
+      const draggedHandPiece = handDrag && p.instances.find(i => i.id === handDrag.id && i.holder === actor);
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f' && (draggedHandPiece || shortcutPiece)) {
         // A flipped stack can replace its top DOM node. Keep the active drag on the stable viewport.
         if (gesture.current && viewport.current && !gesture.current.pan) viewport.current.setPointerCapture(gesture.current.pointer);
-        dispatch({ type: 'transform', ids: shortcutIds, flip: true });
+        const ids = draggedHandPiece ? selected.includes(draggedHandPiece.id)
+          ? held.filter(i => selected.includes(i.id)).map(i => i.id) : [draggedHandPiece.id] : shortcutIds;
+        dispatch({ type: 'transform', ids, flip: true });
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && shortcutPiece) dispatch({ type: 'transform', ids: shortcutIds, rotation: 90 });
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 's' && shortcutPiece) { e.preventDefault(); shuffleOrRoll(shortcutIds); }

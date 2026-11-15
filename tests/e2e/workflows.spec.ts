@@ -118,6 +118,56 @@ test('flipping a stack while dragging retains the drag and displays the newly vi
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.x).not.toBe(members[0].x);
 });
 
+test('flipping selected hand cards animates the ghost and keeps the drag captured', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.hover(); await page.keyboard.press('2');
+  const cards = page.locator('.hand-card');
+  await expect(cards).toHaveCount(2);
+  await cards.nth(0).click({ modifiers: ['Control'] });
+  await cards.nth(1).click({ modifiers: ['Control'] });
+  const before = (await workspace(page)).projects[0].instances.filter(i => i.holder === 'player-1');
+  const from = (await cards.first().boundingBox())!, viewport = (await page.locator('.table-viewport').boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(viewport.x + viewport.width * .7, viewport.y + viewport.height * .6, { steps: 8 });
+  const ghost = page.locator('.hand-drag-preview .component-face');
+  await expect(ghost).toBeVisible();
+  const previousFace = await ghost.elementHandle();
+  await page.keyboard.press('f');
+  for (const card of before) {
+    await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.flipped).toBe(!card.flipped);
+  }
+  expect(await previousFace!.evaluate(element => element.isConnected)).toBe(false);
+  await expect(ghost).toHaveCSS('animation-name', 'piece-reveal');
+  await page.mouse.move(viewport.x + viewport.width * .75, viewport.y + viewport.height * .55, { steps: 5 });
+  await page.mouse.up();
+  await expect(cards).toHaveCount(0);
+  await expect(ghost).toHaveCount(0);
+  const after = (await workspace(page)).projects[0].instances;
+  for (const card of before) expect(after.find(i => i.id === card.id)).toMatchObject({ holder: null, flipped: !card.flipped });
+});
+
+test('flipping an unselected hand drag does not flip another selected card', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.hover(); await page.keyboard.press('2');
+  const cards = page.locator('.hand-card');
+  await expect(cards).toHaveCount(2);
+  await cards.first().click({ modifiers: ['Control'] });
+  const before = (await workspace(page)).projects[0].instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order);
+  const from = (await cards.nth(1).boundingBox())!, viewport = (await page.locator('.table-viewport').boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(viewport.x + viewport.width * .7, viewport.y + viewport.height * .6, { steps: 8 });
+  await page.keyboard.press('f');
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === before[1].id)?.flipped).toBe(!before[1].flipped);
+  await page.mouse.up();
+  const after = (await workspace(page)).projects[0].instances;
+  expect(after.find(i => i.id === before[0].id)).toMatchObject({ holder: 'player-1', flipped: before[0].flipped });
+  expect(after.find(i => i.id === before[1].id)).toMatchObject({ holder: null, flipped: !before[1].flipped });
+});
+
 test('visible hands can exchange cards only after the table setting is enabled', async ({ page }) => {
   await page.goto('/');
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
