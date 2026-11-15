@@ -1,6 +1,21 @@
 import { expect, test } from '@playwright/test';
 import type { Archive } from '../../src/domain';
 
+test('variant selectors show numbered first-column values rather than name or value fields', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Spirit die', exact: true }).click();
+  await page.getByRole('button', { name: /Data bindings/ }).click();
+  await page.getByLabel('CSV data', { exact: true }).fill('10,2,name,value\nAlpha,Other,Wrong,1\n,Other,Wrong,2\n"Beta, gamma",Other,Wrong,3');
+  await page.getByRole('button', { name: 'Apply data & refresh instances', exact: true }).click();
+  const labels = ['1. Alpha', '2. ', '3. Beta, gamma'];
+  const toolbar = page.locator('.canvas-toolbar').getByLabel('Preview row', { exact: true });
+  await expect(toolbar.locator('option')).toHaveText(labels);
+  await page.getByRole('button', { name: 'Behavior', exact: true }).click();
+  await expect(page.getByLabel('Dice variant', { exact: true }).locator('option')).toHaveText(labels);
+  await page.getByRole('button', { name: /Data bindings/ }).click();
+  await expect(page.getByRole('dialog').getByLabel('Preview row', { exact: true }).locator('option')).toHaveText(labels);
+});
+
 test('designer toolbar scrolls with the wheel and shows edge shadows without clipping menus', async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 900 });
   await page.goto('/');

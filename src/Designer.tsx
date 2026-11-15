@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload } from 'lucide-react';
 import Papa from 'papaparse';
@@ -472,6 +472,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     }
   };
   const variantFields = [...new Set(component.rows.flatMap(item => Object.keys(item)))];
+  const firstVariantColumn = useMemo(() => Papa.parse<string[]>(component.csv, { skipEmptyLines: 'greedy' }).data[0]?.[0], [component.csv]);
+  const variantLabel = (data: Component['rows'][number], index: number) => `${index + 1}. ${data[firstVariantColumn ?? variantFields[0]] ?? ''}`;
   if (!variantFields.length) variantFields.push('value');
   const updateVariants = (rows: Component['rows'], removedDataRow?: number) => update({ rows, csv: Papa.unparse(rows) }, removedDataRow);
   const layers = (parent: string | null, depth = 0): ReactNode => nodes.filter(item => item.parent === parent).map(item => {
@@ -553,7 +555,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
         <div className="toolbar-preview-row">
           <select aria-label="Preview row" value={component.rows.length ? row : ''} disabled={!component.rows.length} onChange={event => setRow(Number(event.target.value))}>
-            {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{index + 1}: {dataRow.name || dataRow.value || `Row ${index + 1}`}</option>) : <option value="">Default</option>}
+            {component.rows.length ? component.rows.map((dataRow, index) => <option key={index} value={index}>{variantLabel(dataRow, index)}</option>) : <option value="">Default</option>}
           </select>
         </div>
       </div></div>
@@ -671,7 +673,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <p className="help-text">Each CSV row is one equally likely roll result. Edit its fields here, or use Data bindings to add columns. Bind text with {'{{value}}'} or another column name.</p>
             {!!component.rows.length && <>
               <Field label="Dice variant"><select value={row} onChange={event => setRow(Number(event.target.value))}>
-                {component.rows.map((variant, index) => <option key={index} value={index}>{index + 1}: {variant.name ?? variant.value ?? `Variant ${index + 1}`}</option>)}
+                {component.rows.map((variant, index) => <option key={index} value={index}>{variantLabel(variant, index)}</option>)}
               </select></Field>
               {variantFields.map(field => <Field key={`${row}-${field}`} label={`Variant ${field}`}><input maxLength={10000} value={component.rows[row]?.[field] ?? ''} onChange={event => {
                 void updateVariants(component.rows.map((variant, index) => index === row ? { ...variant, [field]: event.target.value } : variant));
@@ -830,7 +832,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         try { const file = event.target.files?.[0]; if (file) setCsv(await file.text()); } catch (error) { notify(String(error), true); }
       }} /></label></div>
         {!!component.rows.length && <Field label="Preview row"><select value={row} onChange={event => setRow(Number(event.target.value))}>
-          {component.rows.map((dataRow, index) => <option key={index} value={index}>{dataRow.name ?? `Row ${index + 1}`}</option>)}
+          {component.rows.map((dataRow, index) => <option key={index} value={index}>{variantLabel(dataRow, index)}</option>)}
         </select></Field>}
         <textarea className="csv-editor" aria-label="CSV data" value={csv} onChange={event => setCsv(event.target.value)} spellCheck={false} />
         <p className="help-text">Include a header row. Quoted cells, commas and multiline text are supported. Updating data refreshes existing pieces by row index.</p>
