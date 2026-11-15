@@ -7,6 +7,7 @@ import { download, exportProject, loadWorkspace, parseArchive, parseComponentBun
 import { ComponentThumbnail } from './ComponentView';
 import { Designer } from './Designer';
 import { Playground } from './Playground';
+import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
 import { Field, Modal } from './ui';
 
@@ -71,6 +72,9 @@ export default function App() {
   const activeComponent = project.components.find(c => c.id === componentId) ?? project.components[0];
   const fontFamilies = [...new Set(project.components.flatMap(c => [...c.front, ...c.back].map(n => n.font)).filter(Boolean))].sort().join('|');
   const notify = useCallback((message: string, error = false) => setToast({ message, error, id: Date.now() }), []);
+  const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
+  const [playgroundTab, setPlaygroundTab] = useState<'table' | 'players'>('table');
+  const panels = usePanelLayout(mode, mode === 'designer' || libraryVisible, inspectorVisible, notify);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => {
     if (storageError) return;
@@ -280,8 +284,8 @@ export default function App() {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
       setStorageError(null);
     }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></div>}
-    <main className="main-layout">
-      <aside className="library-panel" hidden={mode === 'playground' && !libraryVisible}>
+    <main className="main-layout" ref={panels.container}>
+      <aside id="component-library-panel" className="library-panel" style={{ width: panels.sizes.library, minWidth: 0, flex: `0 0 ${panels.sizes.library}px` }} hidden={mode === 'playground' && !libraryVisible}>
         <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></div>
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
         <div className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
@@ -289,9 +293,10 @@ export default function App() {
         <div className="component-library">{visible.map(comp => <div key={comp.id} className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}`}>
           <button className={`library-preview library-preview-${comp.kind}`} onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
-            {comp.kind === 'card' && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div><div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div></>}
+            {comp.rows.length > 1 && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
             <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : comp.kind === 'artwork' ? <Palette size={10} /> : <Square size={10} />}{comp.kind}</span>
+            {comp.rows.length > 1 && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
             <span className="preview-add"><Plus size={17} /></span>
           </button>
           <div className="library-item-label"><button onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{comp.rows.length > 1 ? `${comp.rows.length} variants` : `${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <span className="data-dot" />}</small></button>
@@ -303,8 +308,9 @@ export default function App() {
         </div>
         <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<div className="library-tip"><Sparkles size={16} /><p>{mode === 'playground' ? 'Click a component to spawn it.' : 'Design once. Update everywhere.'}<small>{mode === 'playground' ? 'Your ideas belong on the table.' : 'Every instance stays connected.'}</small></p></div><div className="library-footer-actions"><button onClick={() => fileInput.current?.click()}><Upload size={13} /> Import</button><button onClick={() => exportProject(project)}><Download size={13} /> Export</button></div></div>
       </aside>
-      <div className="workspace-content">{mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} /> :
-        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
+      {(mode === 'designer' || libraryVisible) && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
+      <div className="workspace-content">{mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>}</div>
     </main>
