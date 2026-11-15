@@ -449,7 +449,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
             <button className="button full" onClick={() => download(`${component.name}.component.json`, JSON.stringify(component, null, 2))}><Download size={15} /> Export component</button>
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>
         </> : node ? <>
-          <div className="inspector-section"><div className="section-title"><h3>{selected.length > 1 ? `${selected.length} selected layers` : `${node.type} layer`}</h3><button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button></div>
+          <div className="inspector-section" key={node.id}><div className="section-title"><h3>{selected.length > 1 ? `${selected.length} selected layers` : `${node.type} layer`}</h3><button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button></div>
             <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
             <div className="field-grid"><NumberField label="X" value={node.x} onChange={x => updateNode({ x })} />
               <NumberField label="Y" value={node.y} onChange={y => updateNode({ y })} />
@@ -473,7 +473,7 @@ export function Designer({ component: incoming, onChange, onDelete, notify }: {
               {selectedNodes.some(item => (item.heightMode ?? 'fixed') !== (node.heightMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
               <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
           </div>
-          <div className="inspector-section"><h3>Appearance</h3>
+          <div className="inspector-section" key={`appearance-${node.id}`}><h3>Appearance</h3>
             <Field label="Fill"><div className="color-input"><input aria-label="Fill color" type="color" value={/^#[0-9a-f]{6}$/i.test(node.fill) ? node.fill : '#ffffff'} onChange={event => updateNode({ fill: event.target.value })} /><input value={node.fill} onChange={event => updateNode({ fill: event.target.value })} /></div></Field>
             <NumberField label="Opacity" value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
             {node.type === 'text' && selected.length === 1 && <>

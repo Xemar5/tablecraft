@@ -19,9 +19,11 @@ test('designer shortcuts duplicate subtrees, undo, redo, group, nudge and respec
   await expect(layers).toHaveCount(initial + 3);
   await layers.last().click();
   const x = page.getByLabel('X', { exact: true });
-  const previous = Number(await x.inputValue());
+  // A shape starts at 16; paste and duplicate each add 16. Verify the
+  // selected layer's field before nudging, not a previous selection's draft.
+  await expect(x).toHaveValue('48');
   await page.keyboard.press('Shift+ArrowRight');
-  await expect(x).toHaveValue(String(previous + 10));
+  await expect(x).toHaveValue('58');
   await x.focus();
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Backspace');
