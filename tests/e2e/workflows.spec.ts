@@ -516,7 +516,7 @@ test('drag stacking, camera rotation, hover rotation and numeric editing', async
   await page.mouse.up();
   await expect(page.locator('.stack-count')).toContainText('13');
   await deck.hover();
-  await page.keyboard.press('r');
+  await page.keyboard.press('e');
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBe(85);
   await page.getByRole('button', { name: 'Rotate camera right' }).click();
   const rotatedCamera = await page.locator('.table-world').evaluate(el => new DOMMatrix(getComputedStyle(el).transform).b);
@@ -576,7 +576,7 @@ test('multiplayer synchronizes atomic hand and stack interactions', async ({ bro
   await expect(a.locator('.stack-count')).toContainText('11');
   const topId = await deck.getAttribute('data-piece-id');
   await deck.click();
-  await b.keyboard.press('r');
+  await b.keyboard.press('e');
   await expect(a.locator(`[data-piece-id="${topId}"]`)).toHaveAttribute('style', /rotate\(90deg\)/);
   await b.getByRole('button', { name: 'Draw to hand', exact: true }).click();
   await expect(b.locator('.hand-card')).toHaveCount(12);
@@ -705,7 +705,7 @@ test('multi-selection transforms, moves, clones, draws and deletes all selected 
   await second.click({ modifiers: ['Control'] });
   await expect(page.locator('.table-piece.selected')).toHaveCount(1);
   await second.click({ modifiers: ['Shift'] });
-  await first.hover(); await page.keyboard.press('r'); await page.keyboard.press('f');
+  await first.hover(); await page.keyboard.press('e'); await page.keyboard.press('f');
   for (const card of cards) {
     await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)).toMatchObject({ rotation: card.rotation + 90, flipped: !card.flipped });
   }

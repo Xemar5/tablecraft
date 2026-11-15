@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowUp, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Instance, type Player, type Project } from './domain';
 import { Field, Modal, NumberField, Toggle } from './ui';
@@ -171,7 +171,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     void dispatch({ type: 'duplicate', copies, dx, dy }).then(ok => { if (ok) setSelected(copies.map(i => i.id)); });
   };
   const flip = () => { if (piece) dispatch({ type: 'transform', ids: selected, flip: true }); };
-  const rotate = () => { if (piece) dispatch({ type: 'transform', ids: selected, rotation: 90 }); };
+  const rotate = (rotation: number) => { if (piece) dispatch({ type: 'transform', ids: selected, rotation }); };
   const shuffleOrRoll = (ids: string[]) => {
     const chosen = p.instances.filter(i => ids.includes(i.id) && !i.holder);
     const dice = chosen.filter(i => p.components.find(c => c.id === i.componentId)?.kind === 'dice');
@@ -207,8 +207,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           ? held.filter(i => selected.includes(i.id)).map(i => i.id) : [draggedHandPiece.id] : shortcutIds;
         dispatch({ type: 'transform', ids, flip: true });
       }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && shortcutPiece) dispatch({ type: 'transform', ids: shortcutIds, rotation: 90 });
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 's' && shortcutPiece) { e.preventDefault(); shuffleOrRoll(shortcutIds); }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && ['q', 'e'].includes(e.key.toLowerCase()) && shortcutPiece) {
+        e.preventDefault();
+        dispatch({ type: 'transform', ids: shortcutIds, rotation: e.key.toLowerCase() === 'q' ? -90 : 90 });
+      }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && shortcutPiece) { e.preventDefault(); shuffleOrRoll(shortcutIds); }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'g' && selected.length > 1) { e.preventDefault(); dispatch({ type: 'stack', ids: selected, stackId: uid('stack') }); }
       if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && shortcutPiece && !shortcutPiece.holder) {
         e.preventDefault();
@@ -458,7 +461,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           const comp = p.components.find(c => c.id === item?.componentId);
           return item && comp ? <div className="hover-preview" aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
-          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong><small>F flip · R rotate · S shuffle/roll · G stack<br />1–0 draw · Alt hide preview</small></div> : null;
+          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong>
+            <div className="preview-shortcuts" aria-label="Piece shortcuts">
+              <small>F — Flip</small><small>Q / E — Rotate −90° / +90°</small><small>R — Shuffle / roll</small>
+              <small>G — Stack selection</small><small>1–0 — Draw cards</small><small>Alt — Hide preview</small>
+            </div></div> : null;
         })()}
         <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
       </div>
@@ -566,7 +573,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
           <div className="action-grid">
             <button disabled={!selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable)} onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>
-            <button onClick={rotate}><RotateCw size={17} /><span>Rotate<kbd>R</kbd></span></button>
+            <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
+            <button onClick={() => rotate(90)}><RotateCw size={17} /><span>Rotate +90°<kbd>E</kbd></span></button>
             <button onClick={() => clone()}><Copy size={17} /><span>Clone</span></button>
             <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!p.settings.hands || selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand)}><Hand size={17} /><span>Draw to hand</span></button>
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}</span></button>
