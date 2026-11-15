@@ -6,7 +6,7 @@ import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { download, exportComponentBundle } from './storage';
-import { Field, Modal, NumberField, Toggle } from './ui';
+import { ColorField, Field, Modal, NumberField, Toggle } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { parseCsvData } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
@@ -712,7 +712,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
           </div>
           <div className="inspector-section" key={`appearance-${node.id}`}><h3>Appearance</h3>
-            <Field label="Fill"><div className="color-input"><input aria-label="Fill color" type="color" value={/^#[0-9a-f]{6}$/i.test(node.fill) ? node.fill : '#ffffff'} onChange={event => updateNode({ fill: event.target.value })} /><input value={node.fill} onChange={event => updateNode({ fill: event.target.value })} /></div></Field>
+            <ColorField label="Fill color" value={node.fill} onChange={fill => updateNode({ fill })} />
             <NumberField label="Opacity" value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
             {node.type === 'text' && selected.length === 1 && <>
               <Field label="Text / binding"><textarea value={node.text} onChange={event => updateNode({ text: event.target.value })} rows={3} /></Field>
@@ -720,7 +720,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <Field label="Google font"><input list="google-fonts" value={node.font} onChange={event => updateNode({ font: event.target.value })} /></Field>
               <datalist id="google-fonts">{['DM Sans', 'Lora', 'Inter', 'Playfair Display', 'Space Grotesk', 'Roboto', 'Cinzel', 'Bebas Neue'].map(font => <option key={font}>{font}</option>)}</datalist>
               <div className="field-grid"><NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
-                <Field label="Text color"><input type="color" value={node.color} onChange={event => updateNode({ color: event.target.value })} /></Field></div>
+                <ColorField label="Text color" value={node.color} onChange={color => updateNode({ color })} /></div>
               <Field label="Alignment"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
             </>}
             {node.type === 'image' && selected.length === 1 && <><Field label="Image URL / binding"><textarea rows={3} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://... or {{image}}" /></Field><p className="help-text">HTTPS texture URLs and CSV bindings are supported.</p></>}
@@ -744,7 +744,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               </>}
               {node.shapeKind === 'rectangle' && <NumberField label="Corner radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}
               <div className="field-grid">
-                <Field label="Stroke color"><input type="color" value={/^#[0-9a-f]{6}$/i.test(node.stroke) ? node.stroke : '#253d37'} onChange={event => updateNode({ stroke: event.target.value })} /></Field>
+                <ColorField label="Stroke color" value={node.stroke} onChange={stroke => updateNode({ stroke })} />
                 <NumberField label="Stroke weight" value={node.strokeWidth} min={0} max={200} step={.5} onChange={strokeWidth => updateNode({ strokeWidth })} />
               </div>
               {node.shapeKind === 'path' && <>
@@ -820,7 +820,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           <div className="inspector-section"><h3>Component</h3>
             <Field label="Name"><input value={component.name} onChange={event => { if (event.target.value) update({ name: event.target.value }); }} /></Field>
             <div className="field-grid"><NumberField label="Width" value={component.width} min={20} max={2000} onChange={width => update({ width })} /><NumberField label="Height" value={component.height} min={20} max={2000} onChange={height => update({ height })} /></div>
-            <Field label="Background"><div className="color-input"><input type="color" aria-label="Component background" value={component.color} onChange={event => update({ color: event.target.value })} /><input value={component.color} onChange={event => update({ color: event.target.value })} /></div></Field>
+            <ColorField label="Component background" value={component.color} onChange={color => update({ color })} />
           </div>
           <div className="inspector-section"><h3>Make it yours</h3><p className="help-text">Select one or more layers to move, edit, group or delete them. Add transparent groups and responsive frames with the toolbar.</p>
             <div className="tip-card"><Code2 size={20} /><strong>One design. Endless cards.</strong><p>Use {'{{name}}'} in any text or image layer to connect it to your CSV.</p><button className="text-button" onClick={() => { setCsv(component.csv); setDataOpen(true); }}>Connect your data <ChevronRight size={13} /></button></div></div>

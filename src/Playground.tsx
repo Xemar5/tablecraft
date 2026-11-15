@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Instance, type Player, type Project } from './domain';
-import { Field, Modal, NumberField, Toggle } from './ui';
+import { ColorField, Field, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
 type Props = {
@@ -645,7 +645,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
       <form className="seat-form" onSubmit={e => { e.preventDefault(); dispatch({ type: 'player', player: seatEditor }); setSeatEditor(undefined); }}>
         <Field label="Player name"><input required maxLength={50} value={seatEditor.name} onChange={e => setSeatEditor({ ...seatEditor, name: e.target.value })} /></Field>
-        <Field label="Player color"><input type="color" value={seatEditor.color} onChange={e => setSeatEditor({ ...seatEditor, color: e.target.value })} /></Field>
+        <ColorField label="Player color" value={seatEditor.color} onChange={color => setSeatEditor({ ...seatEditor, color })} />
         <div className="field-grid"><NumberField label="Seat X" value={seatEditor.x} onChange={x => setSeatEditor({ ...seatEditor, x })} /><NumberField label="Seat Y" value={seatEditor.y} onChange={y => setSeatEditor({ ...seatEditor, y })} /></div>
         <NumberField label="Seat rotation" value={seatEditor.rotation} onChange={rotation => setSeatEditor({ ...seatEditor, rotation })} />
         <p className="help-text">Seats and hands persist with the playground. The same SpaceTimeDB identity returns to its saved seats.</p>

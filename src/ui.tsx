@@ -1,5 +1,5 @@
 import { X, Check } from 'lucide-react';
-import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 export function Modal({ title, subtitle, children, onClose, wide = false }: {
   title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean;
@@ -30,6 +30,35 @@ export function Field({ label, children }: { label: string; children: ReactNode 
     typeof children.type === 'string' && ['input', 'select', 'textarea'].includes(children.type)
     ? cloneElement(children, { 'aria-label': children.props['aria-label'] ?? label }) : children;
   return <label className="field"><span>{label}</span>{control}</label>;
+}
+export function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  const parsed = useMemo(() => {
+    if (!CSS.supports('color', value)) return null;
+    const context = document.createElement('canvas').getContext('2d');
+    if (!context) throw new Error('Unable to initialize the color picker.');
+    context.fillStyle = value;
+    const normalized = context.fillStyle;
+    const hex = normalized.match(/^#([0-9a-f]{6})([0-9a-f]{2})?$/i);
+    if (hex) return { rgb: `#${hex[1]}`, alpha: hex[2] ? parseInt(hex[2], 16) : 255 };
+    const rgba = normalized.match(/^rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)$/);
+    if (!rgba) return null;
+    return {
+      rgb: `#${rgba.slice(1, 4).map(channel => Math.round(Number(channel)).toString(16).padStart(2, '0')).join('')}`,
+      alpha: Math.round(Number(rgba[4] ?? 1) * 255),
+    };
+  }, [value]);
+  const withAlpha = (rgb: string, alpha: number) => alpha === 255 ? rgb : `${rgb}${alpha.toString(16).padStart(2, '0')}`;
+  return <div className="field color-field"><span>{label}</span>
+    <div className="color-input">
+      <input type="color" aria-label={label} value={parsed?.rgb ?? '#000000'} disabled={!parsed}
+        onChange={event => { if (parsed) onChange(withAlpha(event.target.value, parsed.alpha)); }} />
+      <input aria-label={`${label} value`} value={value} onChange={event => onChange(event.target.value)} />
+    </div>
+    <div className="color-alpha"><span>Alpha</span><input type="range" aria-label={`${label} alpha`} min={0} max={255} step={1} value={parsed?.alpha ?? 255} disabled={!parsed}
+      onChange={event => { if (parsed) onChange(withAlpha(parsed.rgb, event.target.valueAsNumber)); }} />
+      <output>{parsed ? `${Math.round(parsed.alpha / 255 * 100)}%` : 'N/A'}</output>
+    </div>
+  </div>;
 }
 export function NumberField({ label, value, onChange, min, max, step = 1 }: {
   label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number;

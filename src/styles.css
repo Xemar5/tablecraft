@@ -67,6 +67,10 @@
 .library-drop-after::after{bottom:0}
 .library-item-label .library-reorder{flex:none;cursor:grab}
 .library-item-label .library-reorder:active{cursor:grabbing}
+.color-field{min-width:0}
+.color-alpha{display:flex;align-items:center;gap:6px;min-width:0;font-size:10px;color:var(--muted)}
+.color-alpha input[type=range]{flex:1;min-width:0;width:0;height:20px;padding:0;accent-color:var(--green)}
+.color-alpha output{min-width:32px;text-align:right;font-variant-numeric:tabular-nums}
 
 /* Presentation-only splitters; their sizes are managed independently of project data. */
 .panel-separator{flex:none;position:relative;z-index:4;background:var(--line);touch-action:none;user-select:none;outline:none}
