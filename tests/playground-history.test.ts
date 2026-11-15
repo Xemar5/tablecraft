@@ -17,6 +17,18 @@ function table(): Project {
 }
 
 describe('shared Playground history', () => {
+  it('keeps library ordering outside tabletop undo without clearing existing history', () => {
+    const before = table();
+    before.components.push({ ...before.components[0], id: 'other' });
+    const moved = applyPlaygroundCommand(before, emptyPlaygroundHistory(), { type: 'move', ids: ['a'], patch: { x: 999 } }, 'alice');
+    const reordered = applyPlaygroundCommand(moved.project, moved.history, { type: 'reorderComponent', id: 'other', targetId: 'card', position: 'before' }, 'bob');
+    expect(reordered.history).toEqual(moved.history);
+    const undone = undoPlayground(reordered.project, reordered.history);
+    expect(undone.project.components.map(c => c.id)).toEqual(['other', 'card']);
+    expect(undone.project.instances).toEqual(before.instances);
+    expect(undone.history.entries).toHaveLength(0);
+  });
+
   const commands: Command[] = [
     { type: 'spawn', instances: [{ ...makeInstance('card'), id: 'new' }] },
     { type: 'paste', instances: [{ ...makeInstance('card'), id: 'pasted' }] },

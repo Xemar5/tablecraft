@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { archiveSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
@@ -51,6 +51,8 @@ export default function App() {
   const [curtain, setCurtain] = useState<Player>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  const [libraryDrag, setLibraryDrag] = useState<string>();
+  const [libraryDrop, setLibraryDrop] = useState<{ id: string; position: 'before' | 'after' }>();
   const filterStrip = useRef<HTMLDivElement>(null);
   const [filterEdges, setFilterEdges] = useState({ left: false, right: false });
   useEffect(() => {
@@ -317,7 +319,24 @@ export default function App() {
           <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
         </div>
         <div className="library-section-label">PROJECT LIBRARY <span>{visible.length}</span></div>
-        <div className="component-library">{visible.map(comp => <div key={comp.id} className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}`}>
+        <div className="component-library">{visible.map((comp, index) => <div key={comp.id}
+          className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}${libraryDrag === comp.id ? ' library-dragging' : ''}${libraryDrop?.id === comp.id ? ` library-drop-${libraryDrop.position}` : ''}`}
+          onDragOver={e => {
+            if (!libraryDrag || libraryDrag === comp.id) return;
+            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+            const rect = e.currentTarget.getBoundingClientRect();
+            setLibraryDrop({ id: comp.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+          }}
+          onDragLeave={e => {
+            if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setLibraryDrop(undefined);
+          }}
+          onDrop={e => {
+            if (!libraryDrag) return;
+            e.preventDefault();
+            const rect = e.currentTarget.getBoundingClientRect();
+            if (libraryDrag !== comp.id) void dispatch({ type: 'reorderComponent', id: libraryDrag, targetId: comp.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+            setLibraryDrag(undefined); setLibraryDrop(undefined);
+          }}>
           <button className={`library-preview library-preview-${comp.kind}`} onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
             {comp.rows.length > 1 && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
@@ -327,6 +346,15 @@ export default function App() {
             <span className="preview-add"><Plus size={17} /></span>
           </button>
           <div className="library-item-label"><button onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{comp.rows.length > 1 ? `${comp.rows.length} variants` : `${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <span className="data-dot" />}</small></button>
+            <button className="icon-button library-reorder" draggable aria-label={`Reorder ${comp.name}`} title="Drag to reorder; use Up/Down arrows when focused"
+              onDragStart={e => { e.dataTransfer.setData('text/plain', comp.id); e.dataTransfer.effectAllowed = 'move'; setLibraryDrag(comp.id); }}
+              onDragEnd={() => { setLibraryDrag(undefined); setLibraryDrop(undefined); }}
+              onKeyDown={e => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                e.preventDefault();
+                const target = visible[index + (e.key === 'ArrowUp' ? -1 : 1)];
+                if (target) void dispatch({ type: 'reorderComponent', id: comp.id, targetId: target.id, position: e.key === 'ArrowUp' ? 'before' : 'after' });
+              }}><GripVertical size={14} /></button>
             <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
           {mode === 'playground' && <div className="library-item-options"><button onClick={() => spawn(comp, true)}><Plus size={11} /> {comp.rows.length > 1 ? 'Spawn all variants' : 'Spawn piece'}</button></div>}
         </div>)}

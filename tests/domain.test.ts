@@ -4,6 +4,22 @@ import { starterProject, template } from '../src/templates';
 import { parseArchive, parseComponent } from '../src/storage';
 
 describe('component design and bindings', () => {
+  it('reorders components relative to a target without changing designs or placed pieces', () => {
+    const p = starterProject();
+    const ids = p.components.map(c => c.id);
+    const moved = applyCommand(p, { type: 'reorderComponent', id: ids[0], targetId: ids[2], position: 'after' });
+    expect(moved.components.map(c => c.id)).toEqual([ids[1], ids[2], ids[0], ...ids.slice(3)]);
+    expect(moved.instances).toEqual(p.instances);
+    expect(moved.components.find(c => c.id === ids[0])).toEqual(p.components[0]);
+    expect(p.components.map(c => c.id)).toEqual(ids);
+    const restored = applyCommand(moved, { type: 'reorderComponent', id: ids[0], targetId: ids[1], position: 'before' });
+    expect(restored).toEqual(p);
+    expect(applyCommand(p, { type: 'reorderComponent', id: ids[0], targetId: ids[0], position: 'after' })).toEqual(p);
+    for (const [id, targetId] of [['missing', ids[0]], [ids[0], 'missing']]) {
+      expect(() => applyCommand(p, { type: 'reorderComponent', id, targetId, position: 'before' })).toThrow('Component no longer exists');
+    }
+  });
+
   it('substitutes multiple bindings without evaluating HTML or expressions', () => {
     expect(bind('Cost: {{ cost }} / {{name}} {{missing}}', { cost: '4', name: '<script>' })).toBe('Cost: 4 / <script> ');
   });

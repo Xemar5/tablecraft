@@ -79,6 +79,7 @@ export type Archive = z.infer<typeof archiveSchema>;
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('component'), component: componentSchema, removedDataRow: z.number().int().min(0).optional() }),
   z.object({ type: z.literal('removeComponent'), id }),
+  z.object({ type: z.literal('reorderComponent'), id, targetId: id, position: z.enum(['before', 'after']) }),
   z.object({ type: z.literal('spawn'), instances: z.array(instanceSchema).min(1).max(1000) }),
   z.object({ type: z.literal('paste'), instances: z.array(instanceSchema).min(1).max(1000) }),
   z.object({ type: z.literal('duplicate'), copies: z.array(z.object({ sourceId: id, id, stack: id.nullable() })).min(1).max(1000), dx: num, dy: num }),
@@ -284,6 +285,15 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         if (!command.component.hand) i.holder = null;
         if (!command.component.stackable || source.components.find(c => c.id === i.componentId)?.stackTag !== command.component.stackTag) i.stack = null;
       }
+      break;
+    }
+    case 'reorderComponent': {
+      const moving = p.components.find(c => c.id === command.id);
+      if (!moving || !p.components.some(c => c.id === command.targetId)) throw new Error('Component no longer exists.');
+      if (command.id === command.targetId) break;
+      p.components = p.components.filter(c => c.id !== command.id);
+      const index = p.components.findIndex(c => c.id === command.targetId);
+      p.components.splice(index + (command.position === 'after' ? 1 : 0), 0, moving);
       break;
     }
     case 'removeComponent': {

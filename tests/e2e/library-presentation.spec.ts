@@ -1,5 +1,60 @@
 import { expect, test } from '@playwright/test';
 
+test('dragging a filtered library item preserves hidden components and their relative order', async ({ page }) => {
+  await page.goto('/');
+  const names = page.locator('.library-item-label strong');
+  const initial = await names.allTextContents();
+  await page.getByRole('textbox', { name: 'Search components', exact: true }).fill('Spirit');
+  const filtered = await names.allTextContents();
+  expect(filtered.length).toBeGreaterThan(1);
+  const moving = filtered.at(-1)!;
+  const targetName = filtered[0];
+  const target = page.locator('.library-item').filter({ has: page.getByRole('button', { name: `Reorder ${targetName}`, exact: true }) });
+  const bounds = (await target.boundingBox())!;
+  await page.getByRole('button', { name: `Reorder ${moving}`, exact: true }).dragTo(target, {
+    targetPosition: { x: bounds.width / 2, y: 2 },
+  });
+  await expect(names).toHaveText([moving, ...filtered.slice(0, -1)]);
+  await page.getByRole('textbox', { name: 'Search components', exact: true }).fill('');
+  const expected = initial.filter(name => name !== moving);
+  expected.splice(expected.indexOf(targetName), 0, moving);
+  await expect(names).toHaveText(expected);
+  await expect(page.locator('.library-dragging,.library-drop-before,.library-drop-after')).toHaveCount(0);
+});
+
+test('library drag ordering persists across modes, filters and reloads without spawning pieces', async ({ page }) => {
+  await page.goto('/');
+  const entries = page.locator('.library-item');
+  const names = page.locator('.library-item-label strong');
+  const initial = await names.allTextContents();
+  const pieceCount = await page.locator('.table-piece').count();
+  const source = page.getByRole('button', { name: `Reorder ${initial[0]}`, exact: true });
+  const target = entries.filter({ has: page.getByRole('button', { name: `Reorder ${initial[1]}`, exact: true }) });
+  const bounds = (await target.boundingBox())!;
+  await source.dragTo(target, { targetPosition: { x: bounds.width / 2, y: bounds.height - 2 } });
+  const reordered = [initial[1], initial[0], ...initial.slice(2)];
+  await expect(names).toHaveText(reordered);
+  await expect(page.locator('.table-piece')).toHaveCount(pieceCount);
+  await page.getByRole('button', { name: 'Component designer', exact: true }).click();
+  await expect(names).toHaveText(reordered);
+  const search = page.getByRole('textbox', { name: 'Search components', exact: true });
+  await search.fill(initial[0]);
+  await expect(names).toHaveText([initial[0]]);
+  await search.fill('');
+  await expect(names).toHaveText(reordered);
+  await source.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(names).toHaveText(initial);
+  const first = entries.filter({ has: source });
+  const firstBounds = (await first.boundingBox())!;
+  await page.getByRole('button', { name: `Reorder ${initial[1]}`, exact: true }).dragTo(first, {
+    targetPosition: { x: firstBounds.width / 2, y: 2 },
+  });
+  await expect(names).toHaveText(reordered);
+  await page.reload();
+  await expect(names).toHaveText(reordered);
+});
+
 test('create component stays in the fixed library footer in both modes', async ({ page }) => {
   await page.goto('/');
   for (const mode of ['Playground', 'Component designer']) {
