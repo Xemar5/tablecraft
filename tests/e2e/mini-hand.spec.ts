@@ -1,0 +1,38 @@
+import { expect, test } from '@playwright/test';
+
+test('own mini hand accepts and releases cards with other-player access disabled', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.getByLabel('Move cards between table hands')).not.toBeChecked();
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.dblclick();
+  const id = await page.locator('.hand-card').first().getAttribute('data-hand-id');
+  const ownSeat = page.locator('.seat-marker.active');
+  const mini = ownSeat.locator('.other-hand > div').first();
+  await expect(mini).toBeVisible();
+  const viewport = (await page.locator('.table-viewport').boundingBox())!;
+  const cardBox = (await mini.boundingBox())!;
+  await page.mouse.move(cardBox.x + cardBox.width / 2, cardBox.y + cardBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(viewport.x + viewport.width * .7, viewport.y + viewport.height * .45, { steps: 10 });
+  await page.mouse.up();
+  await expect(page.locator('.hand-card')).toHaveCount(0);
+  const piece = page.locator(`[data-piece-id="${id}"]`);
+  await expect(piece).toBeVisible();
+  const pieceBox = (await piece.boundingBox())!;
+  const seatBox = (await ownSeat.boundingBox())!;
+  await page.mouse.move(pieceBox.x + pieceBox.width / 2, pieceBox.y + pieceBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(seatBox.x + seatBox.width / 2, seatBox.y + seatBox.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect(page.locator('.hand-card')).toHaveCount(1);
+  await expect(mini).toBeVisible();
+  const otherSeat = page.locator('.seat-marker:not(.active)').first();
+  const otherBox = (await otherSeat.boundingBox())!;
+  const miniBox = (await mini.boundingBox())!;
+  await page.mouse.move(miniBox.x + miniBox.width / 2, miniBox.y + miniBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(otherBox.x + otherBox.width / 2, otherBox.y + otherBox.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect(page.locator('.hand-card')).toHaveCount(1);
+  await expect(otherSeat.locator('.other-hand > div')).toHaveCount(0);
+});

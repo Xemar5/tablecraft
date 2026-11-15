@@ -295,7 +295,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         dispatch({ type: 'transferToHand', ids: moving.map(i => i.id), playerId: destination });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
-      if ((inside(tray) || inside(seat)) && moving.length) {
+      if ((inside(tray) || inside(seat) || destination === actor) && moving.length) {
         dispatch({ type: 'drawSelection', ids: moving.map(i => i.id), playerId: actor });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
@@ -404,13 +404,14 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
             <span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
             <span>{p.instances.filter(i => i.holder === player.id).length} cards</span>
-            <div className={`other-hand ${p.settings.allowOtherHands ? 'interactive-hand' : ''}`} aria-label={`${player.name}'s hand`}>
+            <div className={`other-hand ${player.id === actor || p.settings.allowOtherHands ? 'interactive-hand' : ''}`} aria-label={`${player.name}'s hand`}>
               {p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order).map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
                 return <div key={i.id} style={{ transform: `rotate(${(index - (p.instances.filter(i => i.holder === player.id).length - 1) / 2) * 5}deg)` }}
                   onPointerDown={e => {
-                    if (!p.settings.allowOtherHands || e.button !== 0) return;
+                    if ((player.id !== actor && !p.settings.allowOtherHands) || e.button !== 0) return;
                     e.stopPropagation();
+                    setSelected([i.id]);
                     tableHandGesture.current = { pointer: e.pointerId, id: i.id, x: e.clientX, y: e.clientY };
                     e.currentTarget.setPointerCapture(e.pointerId);
                   }}
@@ -430,15 +431,24 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                     const targetSeat = seatAt(e.clientX, e.clientY);
                     const destination = tray && e.clientX >= tray.left && e.clientX <= tray.right && e.clientY >= tray.top && e.clientY <= tray.bottom ? actor : targetSeat;
                     if (destination) {
-                      if (destination !== i.holder) void dispatch({ type: 'transferToHand', ids: [i.id], playerId: destination });
+                      if (destination !== i.holder) {
+                        if (!p.settings.allowOtherHands) { notify('Moving cards between other players’ hands is disabled.', true); return; }
+                        void dispatch({ type: 'transferToHand', ids: [i.id], playerId: destination });
+                      }
                       return;
                     }
                     const rect = viewport.current?.getBoundingClientRect();
                     if (!rect || e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
                     const point = worldPoint(e.clientX, e.clientY);
                     const target = targetAt(e.clientX, e.clientY, [i.id]);
-                    void dispatch({ type: 'playVisibleHand', id: i.id, ...point,
-                      ...(!e.altKey && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
+                    if (i.holder === actor) {
+                      void dispatch(!e.altKey && target && compatible(target, [i])
+                        ? { type: 'dropFromHand', id: i.id, targetId: target.id, stackId: uid('stack') }
+                        : { type: 'release', id: i.id, ...point });
+                    } else {
+                      void dispatch({ type: 'playVisibleHand', id: i.id, ...point,
+                        ...(!e.altKey && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
+                    }
                   }}
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); }}
                   onClick={e => e.stopPropagation()}>
@@ -516,6 +526,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             const moving = selected.includes(item.id) ? held.filter(i => selected.includes(i.id)) : [item];
             const movingIds = moving.map(i => i.id);
             const destination = seatAt(e.clientX, e.clientY);
+            if (destination === actor) return;
             if (destination && destination !== actor && p.settings.allowOtherHands) {
               void dispatch({ type: 'transferToHand', ids: movingIds, playerId: destination }); return;
             }
