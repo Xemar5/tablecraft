@@ -113,7 +113,8 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 
 - Start with a card, token, board or die template, or a blank component.
 - Add text, vector shapes, images, linked components, empty elements and nested frames. The collapsible hierarchy supports drag-and-drop reordering, reparenting, and moving layers back to the component root.
-- Choose rectangles, ellipses, regular polygons, stars or pen paths from the shape-type menu. Edit fill, stroke and stroke weight in the inspector. Pen paths expose editable anchors and Bézier in/out handles; drag them on the canvas or edit their coordinates, add/delete anchors, and open or close the path.
+- Choose rectangles, ellipses, regular polygons, stars or pen paths from the shape-type icon menu. Edit fill, stroke and stroke weight in the inspector. Click a segment to split its curve exactly; Alt-click an anchor to delete it, double-click to toggle its handles, and Shift-drag a handle to mirror its opposite. Delete/Backspace removes the selected anchor (minimum three on closed paths, two on open paths). Path bounds account for curve extrema and stroke; flow-layout children retain their allocated layout space. Ancestor frames and component edges still clip their contents.
+- Starter botanical illustrations are linked components made of editable vector layers, not a shape fill. Older saved botanical shapes are upgraded to linked artwork on load/import or when joining a room; their original shape and text are retained. Upgrades that would exceed project limits are rejected rather than silently discarding data.
 - Select two or more vector layers, choose **Union**, **Subtract**, **Intersect** or **Exclude (XOR)**, then create a live compound. The source shapes stay in the layer hierarchy and update the boolean result when edited; change the operation or **Uncombine** to recover the editable sources. Compounds support holes and overlapping regions. Bézier curves are sampled for boolean calculations; the original paths remain editable and are not flattened in the project.
 - **Link component…** nests a live reference to another project component. Linked designs refresh in the Designer, component previews, playground, hands and exports. Nested data can inherit the parent row, use a selected row from the linked component, or read a row index from a parent CSV field. Parent-field row indices are zero-based integers; a missing, malformed or out-of-range value displays a visible error instead of silently choosing a row. Component export includes its nested dependency closure; imports remap linked IDs. A linked component cannot be deleted until its parent links are removed or changed.
 - Select multiple layers in the hierarchy with Ctrl/Cmd-click (or Shift-click). Drag the selection on the canvas, edit shared properties, group it under a transparent parent, or delete it together. Designer edits support undo and redo.
@@ -121,8 +122,8 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 - Use the mouse wheel over the Designer canvas to zoom around the pointer; drag with the middle mouse button or Space+left mouse button to pan.
 - Frames support absolute positioning or horizontal/vertical stacks with wrapping, gaps, alignment and separate padding on each edge. Fixed, hug-contents and fill-parent sizing make layouts adapt to their contents and parent. Assign a layer's **Parent** to nest it; flow-layout children are positioned by their parent instead of being freely draggable.
 - Use a Google Font family name in the font field. Textures support HTTP(S) URLs and raster base64 data URLs. Fonts and remote textures require internet access; external image hosts must permit embedding.
-- Open **Data bindings** to paste or import CSV. A header such as `name,cost,image` exposes `{{name}}`, `{{cost}}` and `{{image}}` in text/image layers. Mix static text and multiple bindings, e.g. `Power: {{power}}`.
-- Each CSV row defines a variant. Select a row to preview it; **Spawn all variants** creates one instance of each. CSV updates immediately refresh every existing instance, including held and stacked pieces, on all connected clients.
+- Open **Data bindings** to paste or import CSV. A header such as `name,cost,image` exposes `{{name}}`, `{{cost}}` and `{{image}}` in text/image layers. Mix static text and multiple bindings, e.g. `Power: {{power}}`. A layer can optionally be shown only when a CSV field equals a value.
+- Each CSV row defines a variant. Choose a preview row in **Data bindings** (or the dice variant editor); **Spawn all variants** creates one instance of each. CSV updates immediately refresh every existing instance, including held and stacked pieces, on all connected clients.
 - Instances reference **row indices**, not copied content. Reordering CSV rows changes which data those instances display. Removed rows resolve bindings to empty strings; existing pieces are not silently deleted.
 - **Behavior** controls flippability/back design, hands, front visibility, stacking, shuffling and stack tags. Untagged pieces stack only with instances of the same component; tagged pieces can stack with any stackable component sharing that tag.
 - **Component type** in Behavior switches between card, token, board and dice without resetting artwork, dimensions, data or behavior settings. Dice gain rolling controls; tokens use round component rendering.
@@ -146,7 +147,7 @@ Cards turn to their front face when entering a hand by default, including number
 | Action | Shortcut / control |
 |---|---|
 | Flip | Hover/focus a piece and press `F`; double-click a flippable hand card |
-| Rotate | `R` rotates 90 degrees; Shift-scroll over a card rotates 15 degrees |
+| Rotate | `Q` rotates −90 degrees, `E` rotates +90 degrees; Shift-scroll over a card rotates 15 degrees |
 | Clone selection | `Ctrl+D` / `Cmd+D`; stacks remain stacks |
 | Copy and paste | `Ctrl+C` / `Cmd+C`, then `Ctrl+V` / `Cmd+V` at the table pointer |
 | Delete selection | `Delete` / `Backspace` |
@@ -155,9 +156,9 @@ Cards turn to their front face when entering a hand by default, including number
 | Draw 1–10 pieces | Hover/focus a stack and press `1`–`9`, or `0` for 10; draws up to the number available |
 | Stack | Drag onto a compatible piece/stack, or select compatible pieces and press `G` |
 | Search/reorder | Select stack, then **Search stack**; list runs bottom to top |
-| Shuffle/roll | Hover/focus and press `S`; stack controls also offer shuffle/spread |
+| Shuffle/roll | Hover/focus and press `R`; stack controls also offer shuffle/spread |
 | Scale/lock | Selection inspector |
-| Roll a die | Press `S` or select a die and choose **Roll die** (rotation stays unchanged) |
+| Roll a die | Press `R` or select a die and choose **Roll die** (rotation stays unchanged) |
 | Play from hand | Drag a held piece onto the table |
 
 Use **Players** to add any number of hotseat seats and change names, colors, hand/seat coordinates and rotation. Switching local seats shows a pass-the-screen privacy curtain. Remote players own their own seats; each connected client can add more hotseat players. The turn tracker is optional and advisory: it does not prevent other players from manipulating pieces.
@@ -204,3 +205,8 @@ Unit tests cover bindings, hierarchy validation, stack compatibility, shuffle/re
 - `server/src/index.ts`: authoritative room reducers and private room view.
 
 The app intentionally does not enforce board-game rules or load arbitrary executable HTML. Exported components are validated JSON data, not scripts.
+# Playground undo
+
+Use the Playground toolbar's **Undo playground action** button or **Ctrl+Z / Cmd+Z** to reverse the latest tabletop action. In a live room, **any authenticated player can undo the most recent action by any player**, and everyone receives the result. Undo includes pieces, stacks, dice rolls, hands, table settings, and edits to existing seats. Shortcuts do not intercept typing, dialogs, pass-device curtains, or Component designer editing. There is no redo.
+
+The latest 50 effective actions are retained. Offline history lasts until a workspace reload, replacement/import or live-session transition; it is not included in JSON exports or snapshots. Live room history is stored server-side with the room and survives reconnects. A component design edit/removal or explicit new-seat creation clears history and displays a notice; designs and seat identities/ownership are never restored by undo. Joining an existing live room does not clear history or allow undo to remove the joined seat.

@@ -9,6 +9,7 @@ Tablecraft is a local-first, 2D board-game design and playtesting app. It uses R
 - Use a supported Node version: Node 22.23.4+, 24.22.1+, or 26.12.1+.
 - Install frontend dependencies with `npm ci`; start the app with `npm run dev`.
 - Run `npm test` and `npm run build` for routine validation.
+- CLI changes also require `npm run cli:check`; exercise the CLI through `npm run cli -- --help` and focused command tests.
 - Browser tests require Chromium (`npx playwright install chromium`), a running local SpaceTimeDB server and a published module (`npm run test:e2e`).
 - Check server types with `npx tsc -p server/tsconfig.json`. Shared command changes also require republishing the module before live clients can use them, even if the database schema and generated bindings are unchanged.
 - For multiplayer changes, run `npm run db:generate` after changing the module schema, then publish with `npm run db:publish`. Do not use anonymous publishing for a database that must be updated later.
@@ -17,9 +18,12 @@ Tablecraft is a local-first, 2D board-game design and playtesting app. It uses R
 
 - `src/domain.ts` is the authoritative shared contract: Zod schemas, project invariants, and immutable game commands are used by both the browser and server.
 - `src/Designer.tsx` and `src/ComponentView.tsx` implement component editing and rendering. `src/vectorGeometry.ts` computes SVG path and live boolean-compound geometry; keep the source shapes editable in the layer tree. Nested component nodes hold live component-ID references and render against the full project catalog on every surface.
+- Starter botanical artwork is ordinary linked vector components, with generic CSV-driven layer visibility. `upgradeLegacyArtworkProject` in `src/templates.ts` deterministically upgrades legacy shape-text artwork, preserving its original shape; run it at persistence and authoritative room boundaries before validation, and reject over-limit upgrades without overwriting the original. Template consumers must add the full dependency-first `templateBundle` closure.
 - `src/Playground.tsx` implements the table, pieces, stacks, hands and seats.
 - `src/App.tsx` coordinates projects, persistence, commands and navigation. `src/storage.ts` validates portable JSON and local saves.
+- `scripts/tablecraft.ts` exposes validated offline generation and project commands; `scripts/live.ts` uses the generated client and authenticated reducers. Keep CLI identity files outside the repository and report partial live batches explicitly.
 - `src/multiplayer.ts` and generated `src/module_bindings/` connect clients to the SpaceTimeDB module in `server/src/index.ts`.
+- `src/playgroundHistory.ts` wraps shared commands with bounded tabletop undo. Offline archive/history updates must be atomic; multiplayer history lives only in the private `playground_history` table and reducers serialize dispatch/undo. The room view exposes only undo count and invalidation notice. Never accept client history or restore saved designs, seat identities or ownership. Component edits/removal and explicit seat creation clear history; joining an existing room does not.
 - Keep offline and multiplayer behavior consistent by routing mutations through `applyCommand` and the shared command schema; put multiplayer authority checks in server reducers as well.
 
 ## Invariants and trust boundaries
