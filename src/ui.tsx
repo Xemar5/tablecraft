@@ -31,6 +31,17 @@ export function Field({ label, children }: { label: string; children: ReactNode 
     ? cloneElement(children, { 'aria-label': children.props['aria-label'] ?? label }) : children;
   return <label className="field"><span>{label}</span>{control}</label>;
 }
+export function Notice({ message, children, className = 'error-banner', role = 'alert', hidden = false }: {
+  message: string; children?: ReactNode; className?: string; role?: 'alert' | 'status'; hidden?: boolean;
+}) {
+  const [dismissed, setDismissed] = useState(false);
+  useEffect(() => setDismissed(false), [message]);
+  if (!message || dismissed) return null;
+  return <div className={`${className} dismissible-notice`} role={role} hidden={hidden}>
+    <div className="notice-content"><span>{message}</span>{children}</div>
+    <button type="button" className="icon-button notice-close" aria-label="Dismiss notification" title="Dismiss notification" onClick={() => setDismissed(true)}><X size={16} /></button>
+  </div>;
+}
 export function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   const parsed = useMemo(() => {
     if (!CSS.supports('color', value)) return null;

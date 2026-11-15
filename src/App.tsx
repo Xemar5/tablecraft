@@ -9,7 +9,7 @@ import { Designer } from './Designer';
 import { Playground } from './Playground';
 import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
-import { Field, Modal } from './ui';
+import { Field, Modal, Notice } from './ui';
 
 function boot(): { archive: Archive; error: string | null } {
   try { return { archive: loadWorkspace(), error: null }; }
@@ -306,11 +306,11 @@ export default function App() {
       {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain} onClick={undo}><Undo2 size={18} /></button>}
       <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
     </header>
-    {mode === 'playground' && undoNotice && <div className="error-banner" role="status">{undoNotice}</div>}
-    {storageError && <div className="error-banner" role="alert">{storageError}<button onClick={() => {
+    <Notice key={`${session?.code ?? 'offline'}:${project.id}`} message={undoNotice} role="status" hidden={mode !== 'playground'} />
+    <Notice message={storageError ?? ''}><button onClick={() => {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
       setStorageError(null);
-    }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></div>}
+    }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></Notice>
     <main className="main-layout" ref={panels.container}>
       <aside id="component-library-panel" className="library-panel" style={{ width: panels.sizes.library, minWidth: 0, flex: `0 0 ${panels.sizes.library}px` }} hidden={!libraryVisible}>
         <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></div>
@@ -404,16 +404,16 @@ export default function App() {
         <Field label="Database name"><input value={database} onChange={e => setDatabase(e.target.value)} /></Field>
         <Field label="Room code"><input className="room-code-input" maxLength={40} value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} /></Field>
         <p className="help-text">Host publishes this playground to the room. Join opens an existing room. A room code grants editing access; use trusted playtesters. Hidden hand faces are a UI feature, not cryptographic privacy.</p>
-        {connectionError && <div className="inline-error" role="alert">{connectionError}</div>}
+        <Notice message={connectionError} className="inline-error" />
         <div className="button-row"><button className="button full" disabled={connecting} onClick={() => void join(false)}>{connecting ? <LoaderCircle className="spin" size={15} /> : <Link size={15} />} Join room</button><button className="button primary full" disabled={connecting} onClick={() => void join(true)}>{connecting ? <LoaderCircle className="spin" size={15} /> : <Wifi size={15} />} Host this table</button></div>
       </>}</div>
     </Modal>}
     {modal === 'save' && <Modal title="Keep this moment." subtitle="Save a named playground snapshot, including designs, hands and seats." onClose={() => setModal(undefined)}>
       <div className="save-dialog"><Field label="Snapshot name"><input value={saveName} maxLength={100} onChange={e => setSaveName(e.target.value)} /></Field>
-        {snapshotError && <div className="inline-error" role="alert">{snapshotError}<button className="button" onClick={() => {
+        <Notice message={snapshotError ?? ''} className="inline-error"><button className="button" onClick={() => {
           download('tablecraft-snapshots-recovery.json', localStorage.getItem('tablecraft.snapshots') ?? '');
           setSnapshotStore({ projects: [], error: null });
-        }}>Download recovery & reset snapshots</button></div>}
+        }}>Download recovery & reset snapshots</button></Notice>
         <div className="button-row"><button className="button primary" disabled={!!snapshotError || snapshots.length >= 100} onClick={() => {
           try {
             const snapshot = { ...structuredClone(project), id: uid('snapshot'), name: saveName.trim() || project.name };
