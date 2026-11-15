@@ -70,7 +70,7 @@ function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
 }
 
 export function Designer({ component: incoming, components, onChange, onDelete, notify }: {
-  component: Component; components: Component[]; onChange: (c: Component) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
+  component: Component; components: Component[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
 }) {
   const [component, setComponent] = useState(incoming);
   const pending = useRef(0);
@@ -89,6 +89,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const [dataOpen, setDataOpen] = useState(false);
   const [csv, setCsv] = useState(component.csv);
   const [row, setRow] = useState(0);
+  useEffect(() => { setRow(current => Math.min(current, Math.max(0, component.rows.length - 1))); }, [component.rows.length]);
   const [zoom, setZoom] = useState(1.45);
   const [history, setHistory] = useState<Component[]>([]);
   const [future, setFuture] = useState<Component[]>([]);
@@ -113,18 +114,18 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
     else setSelectedPoint(0);
   }, [node?.id, node?.type === 'shape' ? node.points.length : 0]);
-  const commit = async (next: Component) => {
+  const commit = async (next: Component, removedDataRow?: number) => {
     pending.current++;
     setComponent(next);
-    const success = await onChange(next);
+    const success = await onChange(next, removedDataRow);
     pending.current--;
     if (!success && !pending.current) setComponent(latestIncoming.current);
     return success;
   };
-  const update = (patch: Partial<Component>) => {
+  const update = (patch: Partial<Component>, removedDataRow?: number) => {
     setHistory(h => [...h.slice(-39), structuredClone(component)]);
     setFuture([]);
-    return commit({ ...component, ...patch });
+    return commit({ ...component, ...patch }, removedDataRow);
   };
   const updateNode = (patch: Partial<DesignNode>) => update({
     [face]: nodes.map(item => selected.includes(item.id) ? { ...item, ...patch } : item),
@@ -385,6 +386,9 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       notify(`Updated ${result.data.length} data rows. All instances are live.`);
     }
   };
+  const variantFields = [...new Set(component.rows.flatMap(item => Object.keys(item)))];
+  if (!variantFields.length) variantFields.push('value');
+  const updateVariants = (rows: Component['rows'], removedDataRow?: number) => update({ rows, csv: Papa.unparse(rows) }, removedDataRow);
   const layers = (parent: string | null, depth = 0): ReactNode => nodes.filter(item => item.parent === parent).map(item => {
     const hasChildren = (item.type === 'frame' || item.type === 'compound') && nodes.some(child => child.parent === item.id);
     const dragClass = dropTarget?.id === item.id ? ` drop-${dropTarget.mode}` : '';
@@ -558,6 +562,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <div className="inspector-scroll">
         {tab === 'behavior' ? <>
           <div className="inspector-section"><h3>Component behavior</h3>
+            <Field label="Component type"><select value={component.kind} onChange={event => update({ kind: event.target.value as Component['kind'] })}>
+              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option>
+            </select></Field>
+            <p className="help-text">Changing type preserves artwork, dimensions, data and behavior settings.</p>
             <Toggle label="Flippable" description="Design a front and a back" checked={component.flippable} onChange={flippable => { if (!flippable) setFace('front'); update({ flippable }); }} />
             <Toggle label="Can be put in hand" checked={component.hand} onChange={hand => update({ hand })} />
             <Toggle label="Hide front in hand" description="Only the holder sees the front" checked={component.hideInHand} onChange={hideInHand => update({ hideInHand })} disabled={!component.hand} />
@@ -566,6 +574,25 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>
+          {component.kind === 'dice' && <div className="inspector-section"><h3>Dice variants</h3>
+            <p className="help-text">Each CSV row is one equally likely roll result. Edit its fields here, or use Data bindings to add columns. Bind text with {'{{value}}'} or another column name.</p>
+            {!!component.rows.length && <>
+              <Field label="Dice variant"><select value={row} onChange={event => setRow(Number(event.target.value))}>
+                {component.rows.map((variant, index) => <option key={index} value={index}>{index + 1}: {variant.name ?? variant.value ?? `Variant ${index + 1}`}</option>)}
+              </select></Field>
+              {variantFields.map(field => <Field key={`${row}-${field}`} label={`Variant ${field}`}><input maxLength={10000} value={component.rows[row]?.[field] ?? ''} onChange={event => {
+                void updateVariants(component.rows.map((variant, index) => index === row ? { ...variant, [field]: event.target.value } : variant));
+              }} /></Field>)}
+            </>}
+            <div className="button-row"><button className="button" disabled={component.rows.length >= 10000} onClick={async () => {
+              const next = Object.fromEntries(variantFields.map(field => [field, field === 'value' ? String(component.rows.length + 1) : '']));
+              if (await updateVariants([...component.rows, next])) setRow(component.rows.length);
+            }}>Add variant</button>
+              <button className="button danger" disabled={component.rows.length < 2} onClick={async () => {
+                if (await updateVariants(component.rows.filter((_, index) => index !== row), row)) setRow(Math.min(row, component.rows.length - 2));
+              }}>Remove variant</button></div>
+            <p className="help-text">Keep at least one variant. Removing a row shifts later dice and fixed nested-row references down; references to the removed result use the next result, or the last remaining result. Parent-field row bindings keep their CSV values.</p>
+          </div>}
           <div className="inspector-section"><h3>Portable by design</h3><p className="help-text">Export the full component, including both faces, behavior and CSV data.</p>
             <button className="button full" onClick={() => download(`${component.name}.component.json`, JSON.stringify(exportComponentBundle(component, components), null, 2))}><Download size={15} /> Export component</button>
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>

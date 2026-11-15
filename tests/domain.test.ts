@@ -44,6 +44,55 @@ describe('component design and bindings', () => {
 });
 
 describe('tabletop commands', () => {
+  it('changes component types without replacing artwork, data or existing instances', () => {
+    const p = starterProject();
+    const original = p.components[0];
+    for (const kind of ['card', 'token', 'board', 'dice'] as const) {
+      const next = applyCommand(p, { type: 'component', component: { ...original, kind } });
+      expect(next.components[0]).toEqual({ ...original, kind });
+      expect(next.instances).toEqual(p.instances);
+    }
+  });
+  it('removes dice variants atomically and remaps dice and fixed nested references', () => {
+    const p = starterProject();
+    const die = p.components.find(c => c.kind === 'dice')!;
+    const placed = p.instances.find(i => i.componentId === die.id)!;
+    placed.row = 5;
+    p.components[0].front.push(makeNode('component', { componentId: die.id, dataSource: 'row', dataRow: 3 }));
+    p.components[0].front.push(makeNode('component', { componentId: die.id, dataSource: 'row', dataRow: 5 }));
+    const component = { ...die, rows: die.rows.filter((_, index) => index !== 3), csv: 'value\n1\n2\n3\n5\n6' };
+    const next = applyCommand(p, { type: 'component', component, removedDataRow: 3 });
+    expect(next.instances.find(i => i.id === placed.id)?.row).toBe(4);
+    expect(next.components[0].front.slice(-2).map(node => node.dataRow)).toEqual([3, 4]);
+    expect(next.components.find(c => c.id === die.id)?.rows[3].value).toBe('5');
+    expect(p.instances.find(i => i.id === placed.id)?.row).toBe(5);
+    const lastRemoved = applyCommand(p, { type: 'component', component: { ...die, rows: die.rows.slice(0, -1) }, removedDataRow: 5 });
+    expect(lastRemoved.instances.find(i => i.id === placed.id)?.row).toBe(4);
+    expect(() => applyCommand(p, { type: 'component', component: die, removedDataRow: 3 })).toThrow('exactly one');
+    const fresh = starterProject();
+    const one = { ...fresh.components.find(c => c.kind === 'dice')!, rows: [{ value: '1' }] };
+    const single = applyCommand(fresh, { type: 'component', component: one });
+    expect(() => applyCommand(single, { type: 'component', component: { ...one, rows: [] }, removedDataRow: 0 })).toThrow('at least one');
+  });
+  it('rolls using the current dice variant count after additions and removals', () => {
+    const p = starterProject();
+    const die = p.components.find(c => c.kind === 'dice')!;
+    const placed = p.instances.find(i => i.componentId === die.id)!;
+    for (const count of [1, 4, 9]) {
+      const component = { ...die, rows: Array.from({ length: count }, (_, index) => ({ value: String(index + 1) })) };
+      const edited = applyCommand(p, { type: 'component', component });
+      const results = new Set<number>();
+      for (let seed = 0; seed < 100; seed++) {
+        const rolled = applyCommand(edited, { type: 'roll', ids: [placed.id], seed });
+        const item = rolled.instances.find(i => i.id === placed.id)!;
+        expect(item.row).toBeGreaterThanOrEqual(0);
+        expect(item.row).toBeLessThan(count);
+        expect(item.rotation).toBe(placed.rotation);
+        results.add(item.row);
+      }
+      expect(results.size).toBe(count);
+    }
+  });
   it('turns incoming cards face up by default and optionally preserves their visible face on every hand-entry path', () => {
     for (const type of ['draw', 'drawMany', 'drawSelection', 'transferToHand'] as const) {
       for (const faceUp of [undefined, false]) {

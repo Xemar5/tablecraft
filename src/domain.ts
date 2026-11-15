@@ -74,7 +74,7 @@ export const archiveSchema = z.object({
 });
 export type Archive = z.infer<typeof archiveSchema>;
 export const commandSchema = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('component'), component: componentSchema }),
+  z.object({ type: z.literal('component'), component: componentSchema, removedDataRow: z.number().int().min(0).optional() }),
   z.object({ type: z.literal('removeComponent'), id }),
   z.object({ type: z.literal('spawn'), instances: z.array(instanceSchema).min(1).max(1000) }),
   z.object({ type: z.literal('paste'), instances: z.array(instanceSchema).min(1).max(1000) }),
@@ -258,6 +258,22 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
   switch (command.type) {
     case 'component': {
       const index = p.components.findIndex(c => c.id === command.component.id);
+      if (command.removedDataRow !== undefined) {
+        const previous = p.components[index];
+        if (!previous || previous.kind !== 'dice' || command.component.kind !== 'dice' ||
+          previous.rows.length < 2 || command.removedDataRow >= previous.rows.length ||
+          JSON.stringify(previous.rows.filter((_, row) => row !== command.removedDataRow)) !== JSON.stringify(command.component.rows)) {
+          throw new Error('Remove exactly one existing dice variant and keep at least one variant.');
+        }
+        const removed = command.removedDataRow;
+        const remap = (row: number) => Math.min(row > removed ? row - 1 : row, command.component.rows.length - 1);
+        p.instances.filter(item => item.componentId === previous.id).forEach(item => { item.row = remap(item.row); });
+        for (const owner of [...p.components.filter(item => item.id !== previous.id), command.component]) {
+          for (const node of [...owner.front, ...owner.back]) {
+            if (node.type === 'component' && node.componentId === previous.id && node.dataSource === 'row') node.dataRow = remap(node.dataRow);
+          }
+        }
+      }
       if (index < 0) p.components.push(command.component);
       else p.components[index] = command.component;
       for (const i of p.instances.filter(i => i.componentId === command.component.id)) {
