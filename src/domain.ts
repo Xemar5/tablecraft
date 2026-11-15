@@ -31,6 +31,7 @@ export const nodeSchema = z.object({
   stroke: color.default('transparent'), strokeWidth: num.min(0).max(200).default(0),
   compoundOperation: z.enum(['union', 'subtract', 'intersect', 'exclude']).default('union'),
   componentId: id.optional(),
+  nestedFit: z.enum(['stretch', 'contain', 'cover']).default('stretch'),
   dataSource: z.enum(['inherit', 'row', 'field']).default('inherit'),
   dataRow: z.number().int().min(0).max(9999).default(0),
   dataField: z.string().max(100).default(''),
@@ -39,7 +40,7 @@ export const nodeSchema = z.object({
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
-  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice']),
+  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'artwork']),
   width: num.min(20).max(2000), height: num.min(20).max(2000), color,
   front: z.array(nodeSchema).max(300), back: z.array(nodeSchema).max(300),
   csv: z.string().max(1_000_000),
@@ -608,6 +609,7 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
     sides: values.sides ?? 5, innerRadius: values.innerRadius ?? 0.5, stroke: values.stroke ?? 'transparent',
     strokeWidth: values.strokeWidth ?? 0, compoundOperation: values.compoundOperation ?? 'union',
     dataSource: values.dataSource ?? 'inherit', dataRow: values.dataRow ?? 0, dataField: values.dataField ?? '',
+    nestedFit: values.nestedFit ?? 'stretch',
     visibilityField: values.visibilityField ?? '', visibilityValue: values.visibilityValue ?? '',
     widthMode: values.widthMode ?? 'fixed', heightMode: values.heightMode ?? 'fixed', wrap: values.wrap ?? false,
     paddingTop: values.paddingTop ?? values.padding ?? 0, paddingRight: values.paddingRight ?? values.padding ?? 0,

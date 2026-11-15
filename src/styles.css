@@ -36,5 +36,7 @@
 .designer-tool-menu .tool-indicator{position:absolute;right:1px;bottom:1px}
 .designer-popover{position:absolute;top:100%;left:0;min-width:145px;max-height:260px;overflow:auto;display:flex;flex-direction:column;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px #0002;padding:4px;z-index:20}
 .canvas-toolbar .designer-popover button{width:100%;height:auto;min-height:30px;text-align:left;justify-content:flex-start;padding:6px 9px;white-space:nowrap;font-size:12px}
+.boolean-actions{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.boolean-actions .icon-button{width:34px;height:34px;border:1px solid var(--line);background:#fff}
 .vector-point-editor .vector-segment{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke;cursor:crosshair;vector-effect:non-scaling-stroke}
 .vector-point-editor .vector-anchor.selected{fill:#df6c35;stroke:#71361f}

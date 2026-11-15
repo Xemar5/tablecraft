@@ -6,6 +6,7 @@ test('designer shortcuts duplicate subtrees, undo, redo, group, nudge and respec
   const layers = page.locator('.layer-row');
   const initial = await layers.count();
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
   await expect(layers).toHaveCount(initial + 1);
   await layers.last().click();
   await page.keyboard.press('Control+c');

@@ -4,13 +4,12 @@ test('designer menus, curve editing, point deletion and undo work with real poin
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
   await expect(page.getByLabel('Preview data row')).toHaveCount(0);
-  const chooser = page.getByRole('button', { name: 'Shape type to add' });
+  const chooser = page.getByRole('button', { name: 'Add shape', exact: true });
   await chooser.click();
   const menu = page.getByRole('menu');
   const buttonBox = (await chooser.boundingBox())!, menuBox = (await menu.boundingBox())!;
   expect(menuBox.y).toBeGreaterThanOrEqual(buttonBox.y + buttonBox.height - 1);
   await menu.getByRole('menuitem', { name: 'Pen path' }).click();
-  await page.getByRole('button', { name: 'Add shape', exact: true }).click();
   const editor = page.locator('.vector-point-editor');
   const anchors = editor.locator('.vector-anchor');
   await expect(anchors).toHaveCount(4);

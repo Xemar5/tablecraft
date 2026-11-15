@@ -233,11 +233,11 @@ test('designer supports hierarchy, front/back, CSV updates and component behavio
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
   await openDesigner(page);
-  await page.getByRole('button', { name: 'Add frame', exact: true }).click();
+  await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Card footer');
   await page.getByLabel('Child layout').selectOption('row');
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
-  await expect(page.getByLabel('Parent', { exact: true })).not.toHaveValue('');
+  expect((await workspace(page)).projects[0].components[0].front.find(node => node.name === 'Text')?.parent).toBeTruthy();
   await page.getByLabel('Text / binding').fill('Power: {{power}}');
   await expect(page.locator('.artboard')).toContainText('Power: 4');
   await updateCsv(page, 'Updated guardian');

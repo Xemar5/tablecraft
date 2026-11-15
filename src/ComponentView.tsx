@@ -79,12 +79,14 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
           else nestedRow = Number(value);
         }
         nested = dataError ? <div className="nested-component-error" role="alert">{dataError}</div> :
-          <div className="nested-component-content" style={{ width: '100%', height: '100%', overflow: 'hidden' }}>
-            <div style={{ transform: `scale(${node.width / linked.width},${node.height / linked.height})`, transformOrigin: 'top left' }}>
+          <svg className="nested-component-content" viewBox={`0 0 ${linked.width} ${linked.height}`}
+            preserveAspectRatio={node.nestedFit === 'contain' ? 'xMidYMid meet' : node.nestedFit === 'cover' ? 'xMidYMid slice' : 'none'}
+            style={{ display: 'block', width: '100%', height: '100%', overflow: 'hidden' }}>
+            <foreignObject width={linked.width} height={linked.height}>
               <ComponentView component={linked} components={components} row={nestedRow} back={false} inheritedData={inherited}
                 nestedPath={[...nestedPath, c.id]} />
-            </div>
-          </div>;
+            </foreignObject>
+          </svg>;
       }
     }
     let shape: React.ReactNode;
@@ -133,7 +135,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
   };
   return <div key={face} className={`component-face component-${c.kind}${reveal.changed ? ' face-flipped' : ''}`} style={{
     width: c.width, height: c.height, background: hidden && !nodes.length ? '#365d46' : c.color,
-    borderRadius: c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
+    borderRadius: c.kind === 'artwork' ? 0 : c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
   }}>{hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 }
 

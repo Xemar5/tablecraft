@@ -7,9 +7,8 @@ test('creates editable paths, live boolean compounds and linked component data',
   const initial = await layers.count();
   await expect(page.getByLabel('Botanical motif (optional)')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Shape type to add' }).click();
-  await page.getByRole('menuitem', { name: 'Ellipse' }).click();
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Ellipse' }).click();
   await expect(layers).toHaveCount(initial + 1);
   await expect(page.getByLabel('Vector shape')).toHaveValue('ellipse');
   await page.getByLabel('Stroke weight').fill('2');
@@ -17,9 +16,8 @@ test('creates editable paths, live boolean compounds and linked component data',
   await page.getByLabel('Vector shape').selectOption('path');
   await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
 
-  await page.getByRole('button', { name: 'Shape type to add' }).click();
-  await page.getByRole('menuitem', { name: 'Pen path' }).click();
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Pen path' }).click();
   await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
   await page.getByRole('button', { name: 'Add point', exact: true }).click();
   await expect(page.locator('.vector-editor-heading')).toContainText('5 points');
@@ -39,9 +37,7 @@ test('creates editable paths, live boolean compounds and linked component data',
 
   await layers.nth(initial).click();
   await layers.nth(initial + 1).click({ modifiers: ['Control'] });
-  await page.getByRole('button', { name: 'Boolean operation' }).click();
-  await page.getByRole('menuitem', { name: 'Intersect' }).click();
-  await page.getByRole('button', { name: 'Create live compound', exact: true }).click();
+  await page.getByRole('button', { name: 'Intersect', exact: true }).click();
   await expect(layers).toHaveCount(initial + 3);
   await expect(page.getByLabel('Live boolean operation')).toHaveValue('intersect');
   await layers.nth(initial + 2).click();

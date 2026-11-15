@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { ChevronDown, ChevronRight, Circle, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, SquareDashed, Trash2, Type, Undo2, Upload, Combine } from 'lucide-react';
+import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload, Combine, Minus, Ungroup } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
@@ -7,6 +7,7 @@ import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots,
 import { download, exportComponentBundle } from './storage';
 import { Field, Modal, NumberField, Toggle } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
+import { parseCsvData } from './csv';
 
 type Face = 'front' | 'back';
 type DragPosition = { x: number; y: number };
@@ -81,7 +82,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const [face, setFace] = useState<Face>('front');
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedPoint, setSelectedPoint] = useState(-1);
-  const [toolMenu, setToolMenu] = useState<'shape' | 'link' | 'boolean' | null>(null);
+  const [toolMenu, setToolMenu] = useState<'shape' | 'link' | null>(null);
   useEffect(() => {
     if (!toolMenu) return;
     const dismiss = (event: globalThis.PointerEvent) => {
@@ -90,8 +91,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     document.addEventListener('pointerdown', dismiss);
     return () => document.removeEventListener('pointerdown', dismiss);
   }, [toolMenu]);
-  const [shapeKind, setShapeKind] = useState<DesignNode['shapeKind']>('rectangle');
-  const [compoundOperation, setCompoundOperation] = useState<DesignNode['compoundOperation']>('union');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
   const [draggedLayer, setDraggedLayer] = useState<string[]>([]);
   const [dropTarget, setDropTarget] = useState<{ id: string; mode: 'inside' | 'before' | 'after' }>();
@@ -151,7 +150,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       }) });
     } catch (error) { notify(error instanceof Error ? error.message : 'Unable to edit path.', true); return Promise.resolve(false); }
   };
-  const addNode = (type: DesignNode['type'], empty = false) => {
+  const addNode = (type: DesignNode['type'], empty = false, shapeKind: DesignNode['shapeKind'] = 'rectangle') => {
     const parentCandidate = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
     const parent = parentCandidate && (parentCandidate.type === 'frame' || (type === 'shape' && parentCandidate.type === 'compound')) ? parentCandidate.id : null;
     const next = makeNode(type, empty ? { name: 'Empty element', fill: 'transparent', width: 150, height: 100, parent } : {
@@ -191,7 +190,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     update({ [face]: survivors });
     setSelected([]);
   };
-  const makeCompound = () => {
+  const makeCompound = (compoundOperation: DesignNode['compoundOperation']) => {
     try { const result = combineLayers(nodes, selected, compoundOperation); update({ [face]: result.nodes }); setSelected(result.selected); }
     catch (error) { notify(error instanceof Error ? error.message : 'Unable to create a live compound.', true); }
   };
@@ -419,12 +418,12 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     setDropTarget({ id: item.id, mode: dropModeFor(event, item) });
   };
   const saveCsv = async () => {
-    const result = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: 'greedy' });
-    if (result.errors.length) { notify(result.errors[0].message, true); return; }
-    if (!result.meta.fields?.length || result.meta.fields.some(f => !f.trim())) { notify('CSV needs a non-empty header row.', true); return; }
-    if (await update({ csv, rows: result.data })) {
+    let rows: Component['rows'];
+    try { rows = parseCsvData(csv); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Unable to parse CSV.', true); return; }
+    if (await update({ csv, rows })) {
       setRow(0); setDataOpen(false);
-      notify(`Updated ${result.data.length} data rows. All instances are live.`);
+      notify(`Updated ${rows.length} data rows. All instances are live.`);
     }
   };
   const variantFields = [...new Set(component.rows.flatMap(item => Object.keys(item)))];
@@ -494,20 +493,14 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <div className="canvas-toolbar">
         <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>
-          <button title="Add shape" aria-label="Add shape" onClick={() => addNode('shape')}><Square size={18} /></button>
-          <div className="designer-tool-menu"><button aria-label="Shape type to add" title="Shape type to add" aria-expanded={toolMenu === 'shape'} onClick={() => setToolMenu(toolMenu === 'shape' ? null : 'shape')}><Circle size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'shape' && <div className="designer-popover" role="menu">{(['rectangle', 'ellipse', 'polygon', 'star', 'path'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { setShapeKind(kind); setToolMenu(null); }}>{kind === 'path' ? 'Pen path' : kind[0].toUpperCase() + kind.slice(1)}{shapeKind === kind ? ' ✓' : ''}</button>)}</div>}</div>
+          <div className="designer-tool-menu"><button aria-label="Add shape" title="Add shape" aria-expanded={toolMenu === 'shape'} onClick={() => setToolMenu(toolMenu === 'shape' ? null : 'shape')}><Square size={18} /><ChevronDown className="tool-indicator" size={9} /></button>
+            {toolMenu === 'shape' && <div className="designer-popover" role="menu">{(['rectangle', 'ellipse', 'polygon', 'star', 'path'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', false, kind); setToolMenu(null); }}>{kind === 'path' ? 'Pen path' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>}</div>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
-          <button title="Add frame" aria-label="Add frame" onClick={() => addNode('frame')}><Frame size={18} /></button>
-          <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><SquareDashed size={17} /></button>
+          <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><Frame size={18} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
           <div className="designer-tool-menu"><button aria-label="Link nested component" title="Link nested component" aria-expanded={toolMenu === 'link'} onClick={() => setToolMenu(toolMenu === 'link' ? null : 'link')}><Link2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
             {toolMenu === 'link' && <div className="designer-popover" role="menu">{components.filter(item => item.id !== component.id).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>}</div>
         </div><span className="toolbar-divider" />
-        <div className="designer-tool-menu"><button aria-label="Boolean operation" title="Boolean operation" aria-expanded={toolMenu === 'boolean'} onClick={() => setToolMenu(toolMenu === 'boolean' ? null : 'boolean')}><Combine size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
-          {toolMenu === 'boolean' && <div className="designer-popover" role="menu">{(['union', 'subtract', 'intersect', 'exclude'] as const).map(operation => <button role="menuitem" key={operation} onClick={() => { setCompoundOperation(operation); setToolMenu(null); }}>{operation[0].toUpperCase() + operation.slice(1)}{compoundOperation === operation ? ' ✓' : ''}</button>)}</div>}</div>
-        <button title="Create editable live compound" aria-label="Create live compound" disabled={selected.length < 2} onClick={makeCompound}><Combine size={16} /></button>
-        <button title="Uncombine live compound" aria-label="Uncombine live compound" disabled={!selectedNodes.length || selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={16} /></button>
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
@@ -595,10 +588,22 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     <aside className="inspector">
       <div className="inspector-tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></div>
       <div className="inspector-scroll">
+        {tab === 'design' && <div className="inspector-section"><div className="boolean-actions" aria-label="Boolean operations">
+          {([
+            { operation: 'union', label: 'Union', Icon: Combine },
+            { operation: 'subtract', label: 'Subtract', Icon: Minus },
+            { operation: 'intersect', label: 'Intersect', Icon: Layers },
+            { operation: 'exclude', label: 'Exclude', Icon: Ungroup },
+          ] as const).map(({ operation, label, Icon }) => <button key={operation} className="icon-button" title={label} aria-label={label}
+            disabled={selectedNodes.length < 2 || selectedNodes.some(item => !['shape', 'compound'].includes(item.type))}
+            onClick={() => makeCompound(operation)}><Icon size={18} /></button>)}
+          <button className="icon-button" title="Uncombine live compound" aria-label="Uncombine live compound"
+            disabled={!selectedNodes.length || selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={18} /></button>
+        </div></div>}
         {tab === 'behavior' ? <>
           <div className="inspector-section"><h3>Component behavior</h3>
             <Field label="Component type"><select value={component.kind} onChange={event => update({ kind: event.target.value as Component['kind'] })}>
-              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option>
+              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="artwork">Artwork</option>
             </select></Field>
             <p className="help-text">Changing type preserves artwork, dimensions, data and behavior settings.</p>
             <Toggle label="Flippable" description="Design a front and a back" checked={component.flippable} onChange={flippable => { if (!flippable) setFace('front'); update({ flippable }); }} />
@@ -642,14 +647,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <NumberField label="Height" value={node.height} min={1} max={4000} onChange={height => updateNode({ height })} />
               <NumberField label="Rotation" value={node.rotation} onChange={rotation => updateNode({ rotation })} />
               {selected.length === 1 && node.type === 'frame' && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
-            {selected.length === 1 && <Field label="Parent"><select value={node.parent ?? ''} onChange={event => {
-              const parentId = event.target.value || null;
-              try { update({ [face]: movePreservingPosition(node.id, parentId) }); }
-              catch (error) { notify(error instanceof Error ? error.message : 'Unable to move layer.', true); }
-            }}><option value="">Component root</option>
-              {nodes.filter(item => (item.type === 'frame' || (['shape', 'compound'].includes(node.type) && item.type === 'compound')) &&
-                !descendantsOf(nodes, selected).has(item.id)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select></Field>}
             <Field label="Width sizing"><select value={selectedNodes.every(item => (item.widthMode ?? 'fixed') === (node.widthMode ?? 'fixed')) ? node.widthMode ?? 'fixed' : 'mixed'}
               onChange={event => { if (event.target.value !== 'mixed') updateNode({ widthMode: event.target.value as DesignNode['widthMode'] }); }}>
               {selectedNodes.some(item => (item.widthMode ?? 'fixed') !== (node.widthMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
@@ -729,6 +726,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <button className="button full" onClick={uncombine}>Uncombine source shapes</button>
             </>}
             {node.type === 'component' && selected.length === 1 && <>
+              <Field label="Nested fitting"><select value={node.nestedFit ?? 'stretch'} onChange={event => updateNode({ nestedFit: event.target.value as DesignNode['nestedFit'] })}>
+                <option value="stretch">Stretch</option><option value="contain">Fit inside</option><option value="cover">Fill / crop (envelope)</option>
+              </select></Field>
+              <p className="help-text">Stretch fills both dimensions. Fit inside preserves the full artwork; envelope fills the box and crops overflow. Aspect-preserving modes are centered.</p>
               <Field label="Linked component"><select value={node.componentId ?? ''} onChange={event => {
                 const linked = components.find(item => item.id === event.target.value);
                 if (linked) updateNode({ componentId: linked.id, name: linked.name, width: linked.width, height: linked.height, dataRow: 0 });
