@@ -1,5 +1,5 @@
 import { X, Check } from 'lucide-react';
-import { cloneElement, isValidElement, useEffect, useState, type ReactNode } from 'react';
+import { cloneElement, isValidElement, useEffect, useRef, useState, type ReactNode } from 'react';
 
 export function Modal({ title, subtitle, children, onClose, wide = false }: {
   title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean;
@@ -36,9 +36,23 @@ export function NumberField({ label, value, onChange, min, max, step = 1 }: {
 }) {
   const [draft, setDraft] = useState(String(value));
   const [editing, setEditing] = useState(false);
+  const drag = useRef<{ pointer: number; y: number; value: number }>(null);
   useEffect(() => { if (!editing) setDraft(String(value)); }, [value, editing]);
   return <Field label={label}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step}
-    onFocus={() => setEditing(true)}
+    onFocus={e => { setEditing(true); e.currentTarget.select(); }}
+    onPointerDown={e => {
+      if (e.button !== 0) return;
+      drag.current = { pointer: e.pointerId, y: e.clientY, value };
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }}
+    onPointerMove={e => {
+      const start = drag.current;
+      if (!start || start.pointer !== e.pointerId || Math.abs(start.y - e.clientY) < 4) return;
+      const next = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, Number((start.value + Math.trunc((start.y - e.clientY) / 4) * step).toFixed(10))));
+      setDraft(String(next)); onChange(next);
+    }}
+    onPointerUp={() => { drag.current = null; }}
+    onPointerCancel={() => { drag.current = null; }}
     onChange={e => {
       setDraft(e.target.value);
       const n = e.target.valueAsNumber;

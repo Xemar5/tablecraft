@@ -61,7 +61,7 @@ VITE_SPACETIMEDB_URI=https://your-spacetimedb-host
 VITE_SPACETIMEDB_DATABASE=tablecraft-studio
 ```
 
-After server schema changes, run `npm run db:generate`, then republish. Generated client bindings are included.
+After server schema changes, run `npm run db:generate`, then republish. Shared command changes also require republishing the module, even when the schema is unchanged. Generated client bindings are included.
 
 ### Trust model
 
@@ -69,7 +69,7 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 
 - Room tables are private. A sender-specific view exposes the room joined by that identity.
 - Knowing the room code grants membership and collaborative editing access.
-- Server reducers validate commands, serialize mutations, and restrict hand actions and seat changes to players owned by the sender.
+- Server reducers validate commands and serialize mutations. Seat changes and ordinary hand actions are restricted to players owned by the sender. The optional visible-hand transfer setting explicitly lets any room member move cards into or out of any hand.
 - **Hidden hands are visual privacy, not server-side secrecy.** Every room member receives the entire project state, including CSV data, stack order and hand assignments. Developer tools can inspect that information.
 - Component designs use last-write-wins replacement. Two simultaneous edits to the same design are not merged.
 - Returning players must use the same browser identity/token to recover their original seats and hands. There is no account-based cross-device identity recovery.
@@ -91,31 +91,34 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 
 ## Playing
 
-The compact top bar includes project, mode, save and session controls. Its panel icons independently toggle the component library and table inspector. Panel visibility and camera changes are local to the browser; toggling a panel preserves the camera.
+The compact top bar includes project, mode, save and session controls. Its panel icons independently toggle the component library, hand tray and table inspector. Panel visibility and camera changes are local to the browser; toggling a panel preserves the camera.
 
-Click library previews to spawn pieces. Set **Spawn quantity** for multiple copies. Drag pieces to move; Shift/Ctrl/Cmd-click toggles pieces in the selection, or drag an empty area to box-select (Shift adds to the selection). Move, rotate, flip, scale, clone, lock, delete or draw the whole selection together. Rotation and scaling preserve relative differences; flipping toggles each flippable piece. Drop compatible unlocked pieces or complete stacks onto another piece or stack to combine them, with the dragged pieces on top. A highlighted target and drop hint preview stacking; **hold Alt** to move without stacking, including when playing from hand. Dragged pieces stay above the hand tray. Middle-drag or the hand tool pans; scroll zooms; the camera buttons rotate the view; **Fit table** resets the view and camera.
+Click library previews to spawn pieces. Set **Spawn quantity** for multiple copies. Drag pieces to move; Shift/Ctrl/Cmd-click toggles pieces in the selection, or drag an empty area to box-select (Shift adds to the selection). Shift-drag the top of a stack to move just that piece. Clicking a piece brings it to the front. Move, rotate, flip, scale, clone, lock, delete or draw the whole selection together. Rotation and scaling preserve relative differences; flipping a whole stack reverses its displayed order and faces without rewriting the underlying members. Drawing or extracting from it takes the visible top face. Drop compatible unlocked pieces or complete stacks onto another piece or stack to combine them, with the dragged pieces on top. A highlighted target and drop hint preview stacking; **hold Alt** to move without stacking, including when playing from hand. Dragged pieces stay above the hand tray. Middle-drag or the hand tool pans; scroll zooms; the camera buttons rotate the view; **Fit table** resets the view and camera.
 
-Each seat's hand is shown at its table position. Your own table hand can be switched between faces and backs using the eye toggle in the icon toolbar below your hand; other players' pieces use their component's **Hide front in hand** setting. Your hand tray remains face-up. These controls are visual only and do not provide secrecy from other connected clients. Drag tabletop pieces or complete stacks to your tray or seat to take them into your hand. Drag a hand piece onto the table (or a compatible stack) to play it, or within the hand to reorder it. An insertion marker shows its destination, including after the last card. The tray scrolls horizontally, including with a mouse wheel. Clicking a hand piece does not play it; use drag and drop. Reorder arrows appear on hover or keyboard focus. The toolbar also offers **Shuffle hand**, **Reverse hand** and **Switch seat**. Hover or focus a piece to see an enlarged preview.
+Each seat's hand is shown at its table position. Your own table hand can be switched between faces and backs using the eye toggle in the icon toolbar below your hand; other players' pieces use their component's **Hide front in hand** setting. Your hand tray shows each card's current face; double-click a flippable hand card or hover and press F to flip it. These controls are visual only and do not provide secrecy from other connected clients. Drag tabletop pieces or complete stacks to your tray or seat to take them into your hand. Drag selected hand cards onto the table (or a compatible stack) to play them, or within the hand to reorder them together. An insertion marker shows the destination. The tray scrolls horizontally, including with a mouse wheel. Reorder arrows appear on hover or keyboard focus. The toolbar also offers **Shuffle hand**, **Reverse hand**, **Switch seat**, and a lock for dragging table seats (locked by default). In multiplayer only your own seats can be moved. Hover or focus a piece for a preview and shortcuts; hold Alt to hide it, or Ctrl-scroll over the preview to resize it.
+
+The table setting **Move cards between table hands** is off by default. When enabled, any player may drag tabletop pieces or their own hand cards into another visible seat, and drag cards out of visible table hands. This is a shared permission for trusted playtesters, not a secrecy control; disable it to retain the usual hand-ownership restrictions.
 
 | Action | Shortcut / control |
 |---|---|
-| Flip | Hover/focus a piece and press `F`, or double-click a flippable piece |
-| Rotate 90 degrees | Hover/focus a piece and press `R` |
-| Clone selection | `Ctrl+D` / `Cmd+D` |
+| Flip | Hover/focus a piece and press `F`; double-click a flippable hand card |
+| Rotate | `R` rotates 90 degrees; Shift-scroll over a card rotates 15 degrees |
+| Clone selection | `Ctrl+D` / `Cmd+D`; stacks remain stacks |
+| Copy and paste | `Ctrl+C` / `Cmd+C`, then `Ctrl+V` / `Cmd+V` at the table pointer |
 | Delete selection | `Delete` / `Backspace` |
 | Deselect | `Esc` |
-| Draw top of stack | Double-click a stack |
+| Draw a piece | Double-click a tabletop component or stack |
 | Draw 1–10 pieces | Hover/focus a stack and press `1`–`9`, or `0` for 10; draws up to the number available |
-| Stack | Drag onto a compatible piece/stack, or select compatible pieces and choose **Stack selected pieces** |
+| Stack | Drag onto a compatible piece/stack, or select compatible pieces and press `G` |
 | Search/reorder | Select stack, then **Search stack**; list runs bottom to top |
-| Shuffle/spread | Stack controls in the inspector |
+| Shuffle/roll | Hover/focus and press `S`; stack controls also offer shuffle/spread |
 | Scale/lock | Selection inspector |
-| Roll a die | Select a die, then **Roll die** |
+| Roll a die | Press `S` or select a die and choose **Roll die** (rotation stays unchanged) |
 | Play from hand | Drag a held piece onto the table |
 
 Use **Players** to add any number of hotseat seats and change names, colors, hand/seat coordinates and rotation. Switching local seats shows a pass-the-screen privacy curtain. Remote players own their own seats; each connected client can add more hotseat players. The turn tracker is optional and advisory: it does not prevent other players from manipulating pieces.
 
-The flip, rotate, clone and delete shortcuts apply to the selection when hovering a selected piece, otherwise to the hovered/focused piece (or stack); without a hovered piece they fall back to the selection. Number shortcuts draw from the hovered/focused stack. Shortcuts are disabled while editing form fields or while a dialog is open. Numeric controls allow intermediate edits, clamp to their allowed range on blur and support the native keyboard spin controls.
+The flip, rotate, clone and delete shortcuts apply to the selection when hovering a selected piece, otherwise to the hovered/focused piece (or stack); without a hovered piece they fall back to the selection. Number shortcuts draw from the hovered/focused stack. Shortcuts are disabled while editing form fields or while a dialog is open. Numeric controls allow intermediate edits, clamp to their allowed range on blur, support native spin controls, and can be adjusted by dragging vertically.
 
 ## Saves and portability
 

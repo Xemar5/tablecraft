@@ -28,6 +28,7 @@ export const instanceSchema = z.object({
   id, componentId: id, row: z.number().int().min(0), x: num, y: num,
   rotation: num, scale: num.min(0.1).max(5), flipped: z.boolean(),
   holder: id.nullable(), stack: id.nullable(), order: num, locked: z.boolean(),
+  stackReversed: z.boolean().optional(),
 });
 export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
@@ -42,7 +43,7 @@ export const projectSchema = z.object({
   players: z.array(playerSchema),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
-    hands: z.boolean(), turns: z.boolean(), turn: z.number().int().min(0),
+    hands: z.boolean(), allowOtherHands: z.boolean().optional(), turns: z.boolean(), turn: z.number().int().min(0),
   }),
 });
 export type Project = z.infer<typeof projectSchema>;
@@ -54,6 +55,15 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('component'), component: componentSchema }),
   z.object({ type: z.literal('removeComponent'), id }),
   z.object({ type: z.literal('spawn'), instances: z.array(instanceSchema).min(1).max(1000) }),
+  z.object({ type: z.literal('paste'), instances: z.array(instanceSchema).min(1).max(1000) }),
+  z.object({ type: z.literal('duplicate'), copies: z.array(z.object({ sourceId: id, id, stack: id.nullable() })).min(1).max(1000), dx: num, dy: num }),
+  z.object({ type: z.literal('front'), ids: z.array(id).min(1) }),
+  z.object({ type: z.literal('extractMove'), id, x: num, y: num }),
+  z.object({ type: z.literal('roll'), ids: z.array(id).min(1), seed: z.number().int() }),
+  z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num }),
+  z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
+  z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id }),
+  z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional() }),
   z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(), rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional() }),
   z.object({ type: z.literal('drawSelection'), ids: z.array(id).min(1), playerId: id }),
@@ -118,7 +128,9 @@ export function validateProject(project: Project): Project {
   for (const i of project.instances) if (i.stack) groups.set(i.stack, [...(groups.get(i.stack) ?? []), i]);
   for (const group of groups.values()) {
     if (!canStack(group.map(i => project.components.find(c => c.id === i.componentId)!))) throw new Error('Incompatible components in stack.');
+    if (group.some(i => !!i.stackReversed !== !!group[0].stackReversed)) throw new Error('Inconsistent stack orientation.');
   }
+  if (project.instances.some(i => !i.stack && i.stackReversed)) throw new Error('Only stacks can have a stack orientation.');
   return project;
 }
 
@@ -130,6 +142,13 @@ export function canStack(components: Component[]): boolean {
 
 export function stackMembers(project: Project, instance: Instance): Instance[] {
   return (instance.stack ? project.instances.filter(i => i.stack === instance.stack) : [instance]).sort((a, b) => a.order - b.order);
+}
+export function visibleStackMembers(project: Project, instance: Instance): Instance[] {
+  const members = stackMembers(project, instance);
+  return instance.stack && instance.stackReversed ? members.reverse() : members;
+}
+export function visibleBack(instance: Instance): boolean {
+  return instance.flipped !== !!(instance.stack && instance.stackReversed);
 }
 
 export function applyCommand(source: Project, raw: Command, actor?: string): Project {
@@ -147,6 +166,25 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     const c = p.components.find(c => c.id === i.componentId);
     if (!c) throw new Error('Component no longer exists.');
     return c;
+  };
+  // When a stack is dismantled or merged, materialize its visible order/faces.
+  const materialize = (items: Instance[]) => {
+    if (!items[0]?.stackReversed) return;
+    [...items].reverse().forEach((item, order) => {
+      item.order = order;
+      if (component(item).flippable) item.flipped = !item.flipped;
+      item.stackReversed = false;
+    });
+  };
+  const drawOrder = (items: Instance[]) => {
+    const seen = new Set<string>();
+    return items.flatMap(item => {
+      if (!item.stack) return [item];
+      if (seen.has(item.stack)) return [];
+      seen.add(item.stack);
+      return items.filter(other => other.stack === item.stack)
+        .sort((a, b) => item.stackReversed ? a.order - b.order : b.order - a.order);
+    });
   };
   switch (command.type) {
     case 'component': {
@@ -172,6 +210,114 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         p.instances.push(item);
       }
       break;
+    case 'paste':
+      for (const item of command.instances) {
+        if (p.instances.some(i => i.id === item.id)) throw new Error('Instance identifier already exists.');
+        if (item.holder || item.locked) throw new Error('Pasted components must be unlocked and on the table.');
+        if (item.stack && source.instances.some(existing => existing.stack === item.stack)) throw new Error('Stack identifier already exists.');
+        component(item);
+        p.instances.push(item);
+      }
+      break;
+    case 'duplicate': {
+      const originals = command.copies.map(copy => get(copy.sourceId));
+      if (new Set(command.copies.map(copy => copy.sourceId)).size !== originals.length ||
+          new Set(command.copies.map(copy => copy.id)).size !== originals.length ||
+          command.copies.some(copy => p.instances.some(i => i.id === copy.id))) throw new Error('Duplicate identifiers in copies.');
+      originals.forEach(i => {
+        editable(i);
+        if (i.stack && stackMembers(p, i).some(member => !originals.includes(member))) throw new Error('Copy the entire stack.');
+      });
+      const groups = new Map<string, string>();
+      command.copies.forEach((copy, index) => {
+        const original = originals[index];
+        if (original.stack) {
+          if (!copy.stack || (groups.has(original.stack) && groups.get(original.stack) !== copy.stack)) throw new Error('Copies must preserve their stack.');
+          groups.set(original.stack, copy.stack);
+        } else if (copy.stack) throw new Error('Cannot add a copy to a stack.');
+      });
+      if (new Set(groups.values()).size !== groups.size || [...groups.values()].some(stack => p.instances.some(i => i.stack === stack))) throw new Error('Stack identifier already exists.');
+      command.copies.forEach((copy, index) => p.instances.push({ ...originals[index], id: copy.id, stack: copy.stack, holder: null, locked: false, x: originals[index].x + command.dx, y: originals[index].y + command.dy }));
+      break;
+    }
+    case 'front': {
+      const items = [...new Set(command.ids)].map(get);
+      items.forEach(editable);
+      p.instances = [...p.instances.filter(i => !items.includes(i)), ...items];
+      break;
+    }
+    case 'extractMove': {
+      const item = get(command.id);
+      editable(item);
+      if (item.holder || item.locked) throw new Error('Only unlocked tabletop components can be moved.');
+      if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+      Object.assign(item, { stack: null, stackReversed: false, x: command.x, y: command.y });
+      break;
+    }
+    case 'roll': {
+      let seed = command.seed >>> 0;
+      for (const key of new Set(command.ids)) {
+        const item = get(key), c = component(item);
+        editable(item);
+        if (item.locked || c.kind !== 'dice') throw new Error('Only unlocked dice can be rolled.');
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        item.row = seed % Math.max(c.rows.length, 1);
+      }
+      break;
+    }
+    case 'releaseMany': {
+      const items = [...new Set(command.ids)].map(get);
+      items.forEach(item => {
+        editable(item);
+        if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
+      });
+      items.forEach((item, index) => Object.assign(item, { holder: null, x: command.x + index * 24, y: command.y + index * 24 }));
+      break;
+    }
+    case 'dropManyFromHand': {
+      const items = command.ids.map(get), target = get(command.targetId);
+      if (new Set(command.ids).size !== items.length) throw new Error('Choose each held component once.');
+      items.forEach(item => {
+        editable(item);
+        if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
+      });
+      const targetItems = stackMembers(p, target);
+      if (targetItems.some(i => i.holder || i.locked) || !canStack([...targetItems, ...items].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+      if (p.instances.some(i => i.stack === command.stackId && !targetItems.includes(i))) throw new Error('Stack identifier already exists.');
+      materialize(targetItems);
+      [...stackMembers(p, target), ...items].forEach((item, order) => Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
+      break;
+    }
+    case 'transferToHand': {
+      if (!p.settings.hands || !p.settings.allowOtherHands) throw new Error('Moving cards between visible hands is disabled.');
+      if (!actor || !p.players.some(player => player.id === actor) || !p.players.some(player => player.id === command.playerId)) throw new Error('Choose a valid active player and destination.');
+      const items = command.ids.map(get);
+      if (new Set(command.ids).size !== items.length) throw new Error('Choose each component once.');
+      items.forEach(item => {
+        if (item.locked || !component(item).hand) throw new Error('Only unlocked components that support hands can be transferred.');
+      });
+      let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId && !items.includes(i)).map(i => i.order));
+      drawOrder(items).forEach(item => {
+        if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+        Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
+      });
+      break;
+    }
+    case 'playVisibleHand': {
+      if (!p.settings.hands || !p.settings.allowOtherHands) throw new Error('Moving cards between visible hands is disabled.');
+      if (!actor || !p.players.some(player => player.id === actor)) throw new Error('Choose a valid active player.');
+      const item = get(command.id);
+      if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
+      if (command.targetId) {
+        const target = get(command.targetId), members = stackMembers(p, target);
+        if (!command.stackId || members.some(i => i.holder || i.locked) || !canStack([...members, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+        if (p.instances.some(i => i.stack === command.stackId && !members.includes(i))) throw new Error('Stack identifier already exists.');
+        materialize(members);
+        stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
+        Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order: members.length, x: target.x, y: target.y });
+      } else Object.assign(item, { holder: null, x: command.x, y: command.y });
+      break;
+    }
     case 'move':
       for (const key of command.ids) {
         const item = get(key);
@@ -181,7 +327,13 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         Object.assign(item, command.patch);
       }
       break;
-    case 'transform':
+    case 'transform': {
+      const selectedIds = new Set(command.ids);
+      const flippedStacks = new Set<string>();
+      if (command.flip) for (const key of selectedIds) {
+        const item = get(key);
+        if (item.stack && stackMembers(p, item).some(member => component(member).flippable) && stackMembers(p, item).every(member => selectedIds.has(member.id))) flippedStacks.add(item.stack);
+      }
       for (const key of new Set(command.ids)) {
         const item = get(key);
         editable(item);
@@ -190,9 +342,11 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         item.y += command.dy ?? 0;
         item.rotation = (item.rotation + (command.rotation ?? 0)) % 360;
         item.scale *= command.scaleFactor ?? 1;
-        if (command.flip && component(item).flippable) item.flipped = !item.flipped;
+        if (command.flip && item.stack && flippedStacks.has(item.stack)) item.stackReversed = !item.stackReversed;
+        else if (command.flip && component(item).flippable) item.flipped = !item.flipped;
       }
       break;
+    }
     case 'delete':
       for (const key of command.ids) editable(get(key));
       p.instances = p.instances.filter(i => !command.ids.includes(i.id));
@@ -203,7 +357,16 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (items.length < 2 || new Set(command.ids).size !== items.length || !canStack(items.map(component))) throw new Error('Select at least two compatible stackable components.');
       if (items.some(i => i.stack && p.instances.some(other => other.stack === i.stack && !command.ids.includes(other.id)))) throw new Error('Select the entire stack.');
       if (p.instances.some(i => i.stack === command.stackId && !items.includes(i))) throw new Error('Stack identifier already exists.');
-      items.forEach((i, order) => Object.assign(i, { stack: command.stackId, order, x: items[0].x, y: items[0].y }));
+      const priorStacks = new Set(items.flatMap(i => i.stack ? [i.stack] : []));
+      priorStacks.forEach(stack => materialize(stackMembers(p, items.find(i => i.stack === stack)!)));
+      const seenStacks = new Set<string>();
+      const ordered = items.flatMap(item => {
+        if (!item.stack) return [item];
+        if (seenStacks.has(item.stack)) return [];
+        seenStacks.add(item.stack);
+        return items.filter(other => other.stack === item.stack).sort((a, b) => a.order - b.order);
+      });
+      ordered.forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: items[0].x, y: items[0].y }));
       break;
     }
     case 'dropStack': {
@@ -216,11 +379,22 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       combined.forEach(i => { editable(i); if (i.locked || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
       if (!canStack(combined.map(component))) throw new Error('Select compatible stackable components.');
       if (p.instances.some(i => i.stack === command.stackId && !combined.includes(i))) throw new Error('Stack identifier already exists.');
-      combined.forEach((i, order) => Object.assign(i, { stack: command.stackId, order, x: target.x, y: target.y }));
+      const priorStacks = new Set(combined.flatMap(i => i.stack ? [i.stack] : []));
+      priorStacks.forEach(stack => materialize(stackMembers(p, combined.find(i => i.stack === stack)!)));
+      const orderedTarget = stackMembers(p, target);
+      const seenStacks = new Set<string>();
+      const orderedMoving = items.flatMap(item => {
+        if (!item.stack) return [item];
+        if (seenStacks.has(item.stack)) return [];
+        seenStacks.add(item.stack);
+        return items.filter(other => other.stack === item.stack).sort((a, b) => a.order - b.order);
+      });
+      [...orderedTarget, ...orderedMoving].forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
       break;
     }
     case 'unstack': {
       const items = stackMembers(p, get(command.id));
+      materialize(items);
       items.forEach((i, n) => { editable(i); if (i.locked) throw new Error('Unlock the stack first.'); Object.assign(i, { stack: null, x: i.x + n * 36, y: i.y + n * 12 }); });
       break;
     }
@@ -248,24 +422,28 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (!p.settings.hands) throw new Error('Enable hands before drawing.');
       if (!p.players.some(player => player.id === command.playerId)) throw new Error('Choose a player first.');
       if (actor && command.playerId !== actor) throw new Error('Draw into your active hand.');
-      const items = stackMembers(p, get(command.id));
+      const items = visibleStackMembers(p, get(command.id));
       if (items.some(i => i.holder)) throw new Error('Draw from the table.');
       const drawn = items.slice(-Math.min(command.type === 'drawMany' ? command.count : 1, items.length)).reverse();
       drawn.forEach(item => { editable(item); if (item.locked || !component(item).hand) throw new Error('This component cannot be put in hand.'); });
       let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId).map(i => i.order));
-      drawn.forEach(item => Object.assign(item, { holder: command.playerId, stack: null, order: ++order }));
+      drawn.forEach(item => {
+        if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+        Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
+      });
       break;
     }
     case 'drawSelection': {
       if (!p.settings.hands) throw new Error('Enable hands before drawing.');
       if (!p.players.some(player => player.id === command.playerId)) throw new Error('Choose a player first.');
       if (actor && command.playerId !== actor) throw new Error('Draw into your active hand.');
-      const items = [...new Set(command.ids)].map(get);
+      const items = drawOrder([...new Set(command.ids)].map(get));
       let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId).map(i => i.order));
       for (const item of items) {
         editable(item);
         if (item.holder || item.locked || !component(item).hand) throw new Error('Only unlocked tabletop components that support hands can be drawn.');
-        Object.assign(item, { holder: command.playerId, stack: null, order: ++order });
+        if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
+        Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
       }
       break;
     }
@@ -280,8 +458,9 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const items = stackMembers(p, target);
         if (!command.stackId || items.some(i => i.holder || i.locked) || !canStack([...items, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
         if (p.instances.some(i => i.stack === command.stackId && !items.includes(i))) throw new Error('Stack identifier already exists.');
-        items.forEach((i, order) => Object.assign(i, { stack: command.stackId, order, x: target.x, y: target.y }));
-        Object.assign(item, { holder: null, stack: command.stackId, order: items.length, x: target.x, y: target.y });
+        materialize(items);
+        stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
+        Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order: items.length, x: target.x, y: target.y });
         break;
       }
       Object.assign(item, { holder: null, x: command.x, y: command.y });
@@ -310,7 +489,13 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
   }
   const counts = new Map<string, number>();
   p.instances.forEach(i => { if (i.stack) counts.set(i.stack, (counts.get(i.stack) ?? 0) + 1); });
-  p.instances.forEach(i => { if (i.stack && counts.get(i.stack) === 1) i.stack = null; });
+  p.instances.forEach(i => {
+    if (i.stack && counts.get(i.stack) === 1) i.stack = null;
+    if (!i.stack && i.stackReversed) {
+      if (component(i).flippable) i.flipped = !i.flipped;
+      i.stackReversed = false;
+    }
+  });
   return validateProject(p);
 }
 

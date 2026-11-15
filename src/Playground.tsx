@@ -2,17 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
-import { canStack, makeInstance, stackMembers, uid, type Command, type Instance, type Player, type Project } from './domain';
+import { canStack, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Instance, type Player, type Project } from './domain';
 import { Field, Modal, NumberField, Toggle } from './ui';
 
 type Props = {
   project: Project; actor: string; owner: string; selected: string[]; setSelected: (ids: string[]) => void;
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
-  inspectorVisible: boolean;
+  inspectorVisible: boolean; handVisible: boolean;
   onShowInspector: () => void;
 };
-export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, onShowInspector, dispatch, onEdit, onSwitch, notify }: Props) {
+export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch, onEdit, onSwitch, notify }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -25,6 +25,14 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [query, setQuery] = useState('');
   const [seatEditor, setSeatEditor] = useState<Player>();
   const [hovered, setHovered] = useState<string>();
+  const [previewItem, setPreviewItem] = useState<string>();
+  const [previewScale, setPreviewScale] = useState(1);
+  const [seatsUnlocked, setSeatsUnlocked] = useState(false);
+  const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number }>();
+  const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number }>(null);
+  const seatMoved = useRef(false);
+  const pointer = useRef<{ x: number; y: number }>(null);
+  const clipboard = useRef<Instance[]>([]);
   const [handHidden, setHandHidden] = useState(false);
   const [handDrag, setHandDrag] = useState<{ id: string; x: number; y: number }>();
   const [insertion, setInsertion] = useState<number>();
@@ -33,14 +41,16 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number }>();
   const marqueeGesture = useRef<{ x: number; y: number; ids: string[] }>(null);
   const handGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
-  const gesture = useRef<{ pointer: number; x: number; y: number; positions: Record<string, { x: number; y: number }>; pan?: { x: number; y: number } }>(null);
+  const tableHandGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
+  const gesture = useRef<{ pointer: number; x: number; y: number; positions: Record<string, { x: number; y: number }>; front?: string[]; extract?: string; pan?: { x: number; y: number } }>(null);
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
   const held = p.instances.filter(i => i.holder === actor).sort((a, b) => a.order - b.order);
   const items = piece ? stackMembers(p, piece) : [];
   const searchedItems = p.instances.filter(i => search?.includes(i.id) && !i.holder).sort((a, b) => a.order - b.order);
-  const topPieces = p.instances.filter(i => !i.holder && (!i.stack || stackMembers(p, i).at(-1)?.id === i.id));
+  if (searchedItems[0]?.stackReversed) searchedItems.reverse();
+  const topPieces = p.instances.filter(i => !i.holder && (!i.stack || visibleStackMembers(p, i).at(-1)?.id === i.id));
   const selectedPieces = p.instances.filter(i => selected.includes(i.id));
   useEffect(() => {
     const element = handScroller.current;
@@ -52,13 +62,19 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     };
     element.addEventListener('wheel', scroll, { passive: false });
     return () => element.removeEventListener('wheel', scroll);
-  }, [p.settings.hands]);
+  }, [p.settings.hands, handVisible]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => { if (e.key === 'Alt') setAltDown(e.type === 'keydown'); };
     const blur = () => setAltDown(false);
     window.addEventListener('keydown', key); window.addEventListener('keyup', key); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); window.removeEventListener('blur', blur); };
   }, []);
+  useEffect(() => {
+    if (!pointer.current || gesture.current || handGesture.current) return;
+    const element = document.elementFromPoint(pointer.current.x, pointer.current.y);
+    const id = element?.closest<HTMLElement>('[data-piece-id]')?.dataset.pieceId;
+    if (id) { setHovered(id); setPreviewItem(id); }
+  }, [p.instances]);
 
   const fit = useCallback(() => {
     if (!viewport.current) return;
@@ -112,6 +128,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     }
     return undefined;
   };
+  const seatAt = (x: number, y: number) => document.elementsFromPoint(x, y)
+    .map(element => element.closest<HTMLElement>('[data-seat-id]')?.dataset.seatId)
+    .find(id => !!id);
   const compatible = (target: Instance, moving: Instance[]) =>
     [...stackMembers(p, target), ...moving].every(i => !i.locked) &&
     canStack([...stackMembers(p, target), ...moving].map(i => p.components.find(c => c.id === i.componentId)!));
@@ -120,26 +139,44 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     setAltDown(alt);
     setDropHint(target && moving.length && compatible(target, moving) ? { id: target.id, x, y } : undefined);
   };
-  const handInsertion = (x: number, y: number, dragged: string) => {
+  const handInsertion = (x: number, y: number, dragged: string[]) => {
     const scroller = handScroller.current;
     if (!scroller) return undefined;
     const rect = scroller.getBoundingClientRect();
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return undefined;
     if (x < rect.left + 28) scroller.scrollLeft -= 18;
     if (x > rect.right - 28) scroller.scrollLeft += 18;
-    const cards = [...scroller.querySelectorAll<HTMLElement>('[data-hand-id]')].filter(el => el.dataset.handId !== dragged);
+    const cards = [...scroller.querySelectorAll<HTMLElement>('[data-hand-id]')].filter(el => !dragged.includes(el.dataset.handId ?? ''));
     const index = cards.findIndex(el => { const r = el.getBoundingClientRect(); return x < r.left + r.width / 2; });
     return index < 0 ? cards.length : index;
   };
-  const clone = (ids = selected) => {
+  const clone = (ids = selected, destination?: { x: number; y: number }) => {
     if (!ids.length) return;
-    const originals = p.instances.filter(i => ids.includes(i.id));
+    const originals = p.instances.filter(i => ids.includes(i.id) || (i.stack && p.instances.some(other => ids.includes(other.id) && other.stack === i.stack)));
     if (originals.some(i => i.holder && i.holder !== actor)) { notify("You can't clone another player's hand.", true); return; }
-    const copies = originals.map(i => ({ ...i, id: uid('piece'), x: i.x + 45, y: i.y + 45, stack: null, holder: null, locked: false }));
-    dispatch({ type: 'spawn', instances: copies }); setSelected(copies.map(i => i.id));
+    if (!originals.length) return;
+    const stacks = new Map<string, string>();
+    const copies = originals.map(i => {
+      if (i.stack && !stacks.has(i.stack)) stacks.set(i.stack, uid('stack'));
+      return { sourceId: i.id, id: uid('piece'), stack: i.stack ? stacks.get(i.stack)! : null };
+    });
+    const dx = destination ? destination.x - originals[0].x : 45, dy = destination ? destination.y - originals[0].y : 45;
+    void dispatch({ type: 'duplicate', copies, dx, dy }).then(ok => { if (ok) setSelected(copies.map(i => i.id)); });
   };
   const flip = () => { if (piece) dispatch({ type: 'transform', ids: selected, flip: true }); };
   const rotate = () => { if (piece) dispatch({ type: 'transform', ids: selected, rotation: 90 }); };
+  const shuffleOrRoll = (ids: string[]) => {
+    const chosen = p.instances.filter(i => ids.includes(i.id) && !i.holder);
+    const dice = chosen.filter(i => p.components.find(c => c.id === i.componentId)?.kind === 'dice');
+    if (dice.length) void dispatch({ type: 'roll', ids: dice.map(i => i.id), seed: crypto.getRandomValues(new Uint32Array(1))[0] });
+    const seen = new Set<string>();
+    for (const item of chosen) {
+      const key = item.stack ?? item.id;
+      if (seen.has(key) || !stackMembers(p, item).every(i => p.components.find(c => c.id === i.componentId)?.shufflable)) continue;
+      seen.add(key);
+      if (!dice.includes(item)) void dispatch({ type: 'shuffle', id: item.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] });
+    }
+  };
   const shuffleHand = () => {
     const ids = held.map(i => i.id);
     for (let n = ids.length - 1; n > 0; n--) {
@@ -155,8 +192,14 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       const hoveredPiece = p.instances.find(i => i.id === hovered && (!i.holder || i.holder === actor));
       const shortcutIds = hoveredPiece && !selected.includes(hoveredPiece.id) ? stackMembers(p, hoveredPiece).map(i => i.id) : selected;
       const shortcutPiece = hoveredPiece ?? piece;
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f' && shortcutPiece) dispatch({ type: 'transform', ids: shortcutIds, flip: true });
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f' && shortcutPiece) {
+        // A flipped stack can replace its top DOM node. Keep the active drag on the stable viewport.
+        if (gesture.current && viewport.current && !gesture.current.pan) viewport.current.setPointerCapture(gesture.current.pointer);
+        dispatch({ type: 'transform', ids: shortcutIds, flip: true });
+      }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && shortcutPiece) dispatch({ type: 'transform', ids: shortcutIds, rotation: 90 });
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 's' && shortcutPiece) { e.preventDefault(); shuffleOrRoll(shortcutIds); }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'g' && selected.length > 1) { e.preventDefault(); dispatch({ type: 'stack', ids: selected, stackId: uid('stack') }); }
       if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && shortcutPiece && !shortcutPiece.holder) {
         e.preventDefault();
         const count = e.key === '0' ? 10 : Number(e.key);
@@ -164,6 +207,23 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); dispatch({ type: 'delete', ids: shortcutIds }); setSelected([]); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); clone(shortcutIds); }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selected.length) {
+        e.preventDefault();
+        const originals = p.instances.filter(i => selected.includes(i.id) || (i.stack && p.instances.some(other => selected.includes(other.id) && other.stack === i.stack)));
+        if (originals.some(i => i.holder && i.holder !== actor)) { notify("You can't copy another player's hand.", true); return; }
+        clipboard.current = structuredClone(originals);
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v' && clipboard.current.length && pointer.current && viewport.current) {
+        e.preventDefault();
+        const point = worldPoint(pointer.current.x, pointer.current.y), originals = clipboard.current;
+        const stacks = new Map<string, string>();
+        const copies = originals.map(i => {
+          if (i.stack && !stacks.has(i.stack)) stacks.set(i.stack, uid('stack'));
+          return { ...i, id: uid('piece'), stack: i.stack ? stacks.get(i.stack)! : null, holder: null, locked: false,
+            x: i.x + point.x - originals[0].x, y: i.y + point.y - originals[0].y };
+        });
+        void dispatch({ type: 'paste', instances: copies }).then(ok => { if (ok) setSelected(copies.map(i => i.id)); });
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -172,14 +232,15 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     if (tool === 'pan' || e.button === 1) return;
     if (e.button !== 0) return;
     e.stopPropagation();
-    const group = stackMembers(p, item).map(i => i.id);
-    const extending = e.shiftKey || e.ctrlKey || e.metaKey;
-    const ids = extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
+    const extracting = e.shiftKey && !!item.stack;
+    const group = extracting ? [item.id] : stackMembers(p, item).map(i => i.id);
+    const extending = !extracting && (e.shiftKey || e.ctrlKey || e.metaKey);
+    const ids = extracting ? group : extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
     setSelected(ids);
     if (!ids.includes(item.id)) return;
-    if (item.locked) return;
+    if (item.locked) { void dispatch({ type: 'front', ids: group }); return; }
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
-    gesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions };
+    gesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions, front: group, extract: extracting ? item.id : undefined };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
   const endGesture = (e: React.PointerEvent) => {
@@ -188,13 +249,28 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     }
     const g = gesture.current;
     if (!g || g.pointer !== e.pointerId) return;
+    const bounds = viewport.current?.getBoundingClientRect();
+    if (bounds && (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom)) {
+      pointer.current = null; setHovered(undefined); setPreviewItem(undefined);
+    }
+    if (g.front?.length) void dispatch({ type: 'front', ids: g.front });
     if (!g.pan && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) {
       const moving = Object.keys(g.positions).map(id => p.instances.find(i => i.id === id)!).sort((a, b) => a.order - b.order);
       const tray = document.querySelector('.hand-tray')?.getBoundingClientRect();
       const seat = document.querySelector(`[data-seat-id="${CSS.escape(actor)}"]`)?.getBoundingClientRect();
       const inside = (r?: DOMRect) => r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      const destination = seatAt(e.clientX, e.clientY);
+      if (destination && destination !== actor && p.settings.allowOtherHands && moving.length) {
+        dispatch({ type: 'transferToHand', ids: moving.map(i => i.id), playerId: destination });
+        gesture.current = null; setPreview({}); setDropHint(undefined); return;
+      }
       if ((inside(tray) || inside(seat)) && moving.length) {
         dispatch({ type: 'drawSelection', ids: moving.map(i => i.id), playerId: actor });
+        gesture.current = null; setPreview({}); setDropHint(undefined); return;
+      }
+      if (g.extract) {
+        const delta = worldDelta(e.clientX - g.x, e.clientY - g.y), start = g.positions[g.extract];
+        void dispatch({ type: 'extractMove', id: g.extract, x: start.x + delta.x, y: start.y + delta.y });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
       const target = targetAt(e.clientX, e.clientY, Object.keys(g.positions));
@@ -217,8 +293,15 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   return <div className="playground-layout">
     <section className="table-section">
       <div ref={viewport} className={`table-viewport ${tool === 'pan' ? 'pan-mode' : ''}`}
+        onPointerLeave={() => { if (!gesture.current) { pointer.current = null; setHovered(undefined); setPreviewItem(undefined); } }}
         onContextMenu={e => e.preventDefault()}
-        onWheel={e => { if (e.ctrlKey) e.preventDefault(); changeZoom(zoom * (e.deltaY > 0 ? .92 : 1.08)); }}
+        onWheel={e => {
+          const item = p.instances.find(i => i.id === hovered && !i.holder);
+          if (e.shiftKey && item && p.components.find(c => c.id === item.componentId)?.kind === 'card') {
+            e.preventDefault();
+            void dispatch({ type: 'transform', ids: stackMembers(p, item).map(i => i.id), rotation: e.deltaY > 0 ? 15 : -15 });
+          } else { if (e.ctrlKey) e.preventDefault(); changeZoom(zoom * (e.deltaY > 0 ? .92 : 1.08)); }
+        }}
         onPointerDown={e => {
           if (e.button === 1 || tool === 'pan') {
             gesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions: {}, pan };
@@ -230,6 +313,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           }
         }}
         onPointerMove={e => {
+          pointer.current = { x: e.clientX, y: e.clientY };
           const box = marqueeGesture.current;
           if (box) {
             const rect = { x: Math.min(box.x, e.clientX), y: Math.min(box.y, e.clientY), width: Math.abs(e.clientX - box.x), height: Math.abs(e.clientY - box.y) };
@@ -259,16 +343,73 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`,
         }}>
           <div className="table-watermark"><span>W</span><p>THE WILDWOOD</p><small>A PLACE FOR YOUR NEXT GREAT IDEA</small></div>
-          {p.settings.hands && p.players.map(player => <button key={player.id} data-seat-id={player.id} title={`Switch to ${player.name}`} className={`seat-marker ${player.id === actor ? 'active' : ''}`}
-            onPointerDown={e => e.stopPropagation()} onClick={() => onSwitch(player)}
-            style={{ left: player.x, top: player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
+          {p.settings.hands && p.players.map(player => <button key={player.id} data-seat-id={player.id} title={seatsUnlocked ? `Drag ${player.name}'s seat` : `Switch to ${player.name}`} className={`seat-marker ${player.id === actor ? 'active' : ''}`}
+            onPointerDown={e => {
+              e.stopPropagation(); seatMoved.current = false;
+              if (!seatsUnlocked || e.button !== 0 || (owner !== 'local' && player.owner !== owner)) return;
+              seatGesture.current = { id: player.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, startX: player.x, startY: player.y };
+              e.currentTarget.setPointerCapture(e.pointerId);
+            }}
+            onPointerMove={e => {
+              const g = seatGesture.current;
+              if (!g || g.id !== player.id || g.pointer !== e.pointerId) return;
+              if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) seatMoved.current = true;
+              const delta = worldDelta(e.clientX - g.x, e.clientY - g.y);
+              setSeatPosition({ id: player.id, x: g.startX + delta.x, y: g.startY + delta.y });
+            }}
+            onPointerUp={e => {
+              const g = seatGesture.current;
+              if (!g || g.id !== player.id || g.pointer !== e.pointerId) return;
+              if (seatMoved.current) {
+                const delta = worldDelta(e.clientX - g.x, e.clientY - g.y);
+                void dispatch({ type: 'player', player: { ...player, x: g.startX + delta.x, y: g.startY + delta.y } });
+              }
+              seatGesture.current = null; setSeatPosition(undefined);
+            }}
+            onPointerCancel={() => { seatGesture.current = null; setSeatPosition(undefined); }}
+            onClick={() => { if (!seatMoved.current) onSwitch(player); seatMoved.current = false; }}
+            style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
             <span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
             <span>{p.instances.filter(i => i.holder === player.id).length} cards</span>
-            <div className="other-hand" aria-label={`${player.name}'s hand`}>
+            <div className={`other-hand ${p.settings.allowOtherHands ? 'interactive-hand' : ''}`} aria-label={`${player.name}'s hand`}>
               {p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order).map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
-                return <div key={i.id} style={{ transform: `rotate(${(index - (p.instances.filter(i => i.holder === player.id).length - 1) / 2) * 5}deg)` }}>
-                  <ComponentThumbnail component={comp} row={i.row} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
+                return <div key={i.id} style={{ transform: `rotate(${(index - (p.instances.filter(i => i.holder === player.id).length - 1) / 2) * 5}deg)` }}
+                  onPointerDown={e => {
+                    if (!p.settings.allowOtherHands || e.button !== 0) return;
+                    e.stopPropagation();
+                    tableHandGesture.current = { pointer: e.pointerId, id: i.id, x: e.clientX, y: e.clientY };
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  }}
+                  onPointerMove={e => {
+                    const g = tableHandGesture.current;
+                    if (!g || g.id !== i.id || g.pointer !== e.pointerId || Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
+                    e.stopPropagation();
+                    setHandDrag({ id: i.id, x: e.clientX, y: e.clientY });
+                    showDropHint(e.clientX, e.clientY, [i], e.altKey);
+                  }}
+                  onPointerUp={e => {
+                    const g = tableHandGesture.current;
+                    if (!g || g.id !== i.id || g.pointer !== e.pointerId) return;
+                    e.stopPropagation(); tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined);
+                    if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
+                    const tray = handScroller.current?.getBoundingClientRect();
+                    const targetSeat = seatAt(e.clientX, e.clientY);
+                    const destination = tray && e.clientX >= tray.left && e.clientX <= tray.right && e.clientY >= tray.top && e.clientY <= tray.bottom ? actor : targetSeat;
+                    if (destination) {
+                      if (destination !== i.holder) void dispatch({ type: 'transferToHand', ids: [i.id], playerId: destination });
+                      return;
+                    }
+                    const rect = viewport.current?.getBoundingClientRect();
+                    if (!rect || e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
+                    const point = worldPoint(e.clientX, e.clientY);
+                    const target = targetAt(e.clientX, e.clientY, [i.id]);
+                    void dispatch({ type: 'playVisibleHand', id: i.id, ...point,
+                      ...(!e.altKey && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
+                  }}
+                  onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); }}
+                  onClick={e => e.stopPropagation()}>
+                  <ComponentThumbnail component={comp} row={i.row} back={i.flipped} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
                 </div>;
               })}
             </div>
@@ -279,15 +420,15 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             const position = preview[item.id] ?? item;
             return <div key={item.id} className={`table-piece ${selected.includes(item.id) ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${preview[item.id] ? 'dragging drag-source' : ''} ${dropHint?.id === item.id && !altDown ? 'stack-drop-target' : ''}`}
               data-testid="table-piece" data-piece-id={item.id}
-              style={{ left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : selected.includes(item.id) ? 100 : 2,
+              style={{ left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : p.instances.indexOf(item) + 2,
                 transform: `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})` }}
               onPointerDown={e => startPiece(e, item)}
-              onPointerEnter={() => setHovered(item.id)} onPointerLeave={() => setHovered(undefined)}
-              onFocus={() => setHovered(item.id)} onBlur={() => setHovered(undefined)} tabIndex={0} role="button" aria-label={`${comp.name}${members.length > 1 ? `, stack of ${members.length}` : ''}`}
+              onPointerEnter={e => { pointer.current = { x: e.clientX, y: e.clientY }; setHovered(item.id); setPreviewItem(item.id); }} onPointerLeave={() => setHovered(undefined)}
+              onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => setHovered(undefined)} tabIndex={0} role="button" aria-label={`${comp.name}${members.length > 1 ? `, stack of ${members.length}` : ''}`}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const ids = members.map(i => i.id); setSelected(e.shiftKey ? [...new Set([...selected, ...ids])] : ids); } }}
-              onDoubleClick={e => { e.stopPropagation(); if (members.length > 1) dispatch({ type: 'draw', id: item.id, playerId: actor }); else if (comp.flippable) dispatch({ type: 'move', ids: [item.id], patch: { flipped: !item.flipped } }); }}>
+              onDoubleClick={e => { e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
               {members.length > 1 && <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>}
-              <ComponentView component={comp} row={item.row} back={item.flipped} />
+              <ComponentView component={comp} row={item.row} back={visibleBack(item)} />
               {members.length > 1 && <span className="stack-count"><Layers size={13} /> {members.length}</span>}
               {item.locked && <span className="piece-lock"><LockKeyhole size={15} /></span>}
               {selected.includes(item.id) && <><i className="selection-corner tl" /><i className="selection-corner tr" /><i className="selection-corner bl" /><i className="selection-corner br" /></>}
@@ -302,20 +443,23 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           <button className={p.settings.snap ? 'active-subtle' : ''} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
         </div>
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
-        {hovered && !gesture.current && (() => {
-          const item = p.instances.find(i => i.id === hovered && (!i.holder || i.holder === actor));
+        {previewItem && !gesture.current && !altDown && (() => {
+          const item = p.instances.find(i => i.id === previewItem && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
-          return item && comp ? <div className="hover-preview" aria-label={`Preview ${comp.name}`}><ComponentThumbnail component={comp} row={item.row} back={item.flipped} width={160} /><strong>{comp.name}</strong></div> : null;
+          return item && comp ? <div className="hover-preview" aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()} onWheel={e => {
+            if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
+          }}><ComponentThumbnail component={comp} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong><small>F flip · R rotate · S shuffle/roll · G stack<br />1–0 draw · Alt hide preview</small></div> : null;
         })()}
-        <div className="table-hint">Drag to move <span /> Shift + click to select multiple <span /> Double-click to flip or draw</div>
+        <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
       </div>
-      {p.settings.hands && <><div className="hand-tray" aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
+      {p.settings.hands && handVisible && <><div className="hand-tray" aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
         <div ref={handScroller} className="hand-cards" aria-label="Hand cards">{held.length ? held.map(item => {
          const comp = p.components.find(c => c.id === item.componentId)!;
-          const remaining = held.filter(i => i.id !== handDrag?.id);
-          return <div key={item.id} className={`hand-entry ${handDrag?.id === item.id ? 'hand-drag-source' : ''} ${insertion !== undefined && remaining[insertion]?.id === item.id ? 'hand-insert-before' : ''}`}><button data-hand-id={item.id} className={`hand-card ${selected.includes(item.id) ? 'hand-selected' : ''}`} title="Drag onto the table to play or onto another card to reorder" aria-label={`Drag ${comp.name} to the table or reorder it in hand`} onClick={e => {
+          const draggingIds = handDrag ? selected.includes(handDrag.id) ? selected : [handDrag.id] : [];
+          const remaining = held.filter(i => !draggingIds.includes(i.id));
+          return <div key={item.id} className={`hand-entry ${draggingIds.includes(item.id) ? 'hand-drag-source' : ''} ${insertion !== undefined && remaining[insertion]?.id === item.id ? 'hand-insert-before' : ''}`}><button data-hand-id={item.id} className={`hand-card ${selected.includes(item.id) ? 'hand-selected' : ''}`} title="Drag onto the table to play or onto another card to reorder" aria-label={`Drag ${comp.name} to the table or reorder it in hand`} onClick={e => {
             if (e.shiftKey || e.ctrlKey || e.metaKey) setSelected(selected.includes(item.id) ? selected.filter(id => id !== item.id) : [...selected, item.id]);
-          }} onPointerEnter={() => setHovered(item.id)} onPointerLeave={() => setHovered(undefined)} onFocus={() => setHovered(item.id)} onBlur={() => setHovered(undefined)} onPointerDown={e => {
+          }} onPointerEnter={() => { setHovered(item.id); setPreviewItem(item.id); }} onPointerLeave={() => setHovered(undefined)} onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => setHovered(undefined)} onPointerDown={e => {
             if (e.button !== 0) return;
             handGesture.current = { pointer: e.pointerId, id: item.id, x: e.clientX, y: e.clientY };
             e.currentTarget.setPointerCapture(e.pointerId);
@@ -323,18 +467,24 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             const g = handGesture.current;
             if (g && g.pointer === e.pointerId && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) {
               setHandDrag({ id: item.id, x: e.clientX, y: e.clientY });
-              setInsertion(handInsertion(e.clientX, e.clientY, item.id));
-              showDropHint(e.clientX, e.clientY, [item], e.altKey);
+              setInsertion(handInsertion(e.clientX, e.clientY, selected.includes(item.id) ? held.filter(i => selected.includes(i.id)).map(i => i.id) : [item.id]));
+              showDropHint(e.clientX, e.clientY, selected.includes(item.id) ? held.filter(i => selected.includes(i.id)) : [item], e.altKey);
             }
           }} onPointerCancel={() => { handGesture.current = null; setHandDrag(undefined); setInsertion(undefined); setDropHint(undefined); }} onPointerUp={e => {
             const g = handGesture.current;
             if (!g || g.pointer !== e.pointerId) return;
             handGesture.current = null; setHandDrag(undefined); setInsertion(undefined); setDropHint(undefined);
             if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
-            const index = handInsertion(e.clientX, e.clientY, item.id);
+            const moving = selected.includes(item.id) ? held.filter(i => selected.includes(i.id)) : [item];
+            const movingIds = moving.map(i => i.id);
+            const destination = seatAt(e.clientX, e.clientY);
+            if (destination && destination !== actor && p.settings.allowOtherHands) {
+              void dispatch({ type: 'transferToHand', ids: movingIds, playerId: destination }); return;
+            }
+            const index = handInsertion(e.clientX, e.clientY, movingIds);
             if (index !== undefined) {
-              const ids = held.filter(i => i.id !== item.id).map(i => i.id);
-              ids.splice(index, 0, item.id);
+              const ids = held.filter(i => !movingIds.includes(i.id)).map(i => i.id);
+              ids.splice(index, 0, ...movingIds);
               dispatch({ type: 'reorderHand', ids, playerId: actor });
             } else {
               const rect = viewport.current?.getBoundingClientRect();
@@ -342,10 +492,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               let { x, y } = worldPoint(e.clientX, e.clientY);
               if (p.settings.snap) { x = Math.round(x / p.settings.gridSize) * p.settings.gridSize; y = Math.round(y / p.settings.gridSize) * p.settings.gridSize; }
               const target = targetAt(e.clientX, e.clientY, []);
-              dispatch(!e.altKey && target && compatible(target, [item]) ? { type: 'dropFromHand', id: item.id, targetId: target.id, stackId: uid('stack') } : { type: 'release', id: item.id, x, y });
+              if (!e.altKey && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
+              else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y });
             }
-          }}>
-            <ComponentThumbnail component={comp} row={item.row} width={66} /><span>Drag to play</span></button>
+          }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}>
+            <ComponentThumbnail component={comp} row={item.row} back={item.flipped} width={66} /><span>Drag to play</span></button>
             <div className="hand-order">
               {[-1, 1].map(offset => <button key={offset} type="button" aria-label={`Move ${comp.name} ${offset < 0 ? 'left' : 'right'} in hand`} disabled={held.indexOf(item) + offset < 0 || held.indexOf(item) + offset >= held.length} onClick={() => {
                 const ids = held.map(i => i.id), index = ids.indexOf(item.id);
@@ -354,18 +505,19 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               }}>{offset < 0 ? '←' : '→'}</button>)}
             </div></div>;
         }) : <div className="empty-hand"><Copy size={20} /><span>Drag pieces here to take them into your hand.</span></div>}
-        {insertion !== undefined && insertion === held.filter(i => i.id !== handDrag?.id).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
+        {insertion !== undefined && insertion === held.filter(i => !(handDrag && (selected.includes(handDrag.id) ? selected.includes(i.id) : i.id === handDrag.id))).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
         </div>
       </div><div className="hand-toolbar" aria-label="Hand actions">
         <button className="icon-button" aria-label={handHidden ? 'Show my table hand' : 'Hide my table hand'} title={handHidden ? 'Show my table hand' : 'Hide my table hand'} aria-pressed={handHidden} onClick={() => setHandHidden(!handHidden)}>{handHidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
         <button className="icon-button" aria-label="Shuffle hand" title="Shuffle hand" disabled={held.length < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
         <button className="icon-button" aria-label="Reverse hand" title="Reverse hand" disabled={held.length < 2} onClick={() => dispatch({ type: 'reorderHand', ids: held.map(i => i.id).reverse(), playerId: actor })}><FlipHorizontal2 size={16} /></button>
+        <button className="icon-button" aria-label={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} title={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} aria-pressed={seatsUnlocked} onClick={() => setSeatsUnlocked(!seatsUnlocked)}>{seatsUnlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
         <button className="icon-button" aria-label="Switch seat" title="Switch seat" onClick={() => { setPanel('players'); onShowInspector(); }}><Users size={16} /></button>
       </div></>}
       {handDrag && (() => {
-        const item = held.find(i => i.id === handDrag.id);
+        const item = p.instances.find(i => i.id === handDrag.id);
         const comp = p.components.find(c => c.id === item?.componentId);
-        return item && comp ? <div className="hand-drag-preview" style={{ left: handDrag.x, top: handDrag.y }} aria-hidden="true"><ComponentThumbnail component={comp} row={item.row} width={66} /></div> : null;
+        return item && comp ? <div className="hand-drag-preview" style={{ left: handDrag.x, top: handDrag.y }} aria-hidden="true"><ComponentThumbnail component={comp} row={item.row} back={item.flipped} hidden={!!item.holder && item.holder !== actor && comp.hideInHand} width={66} /></div> : null;
       })()}
       <footer className="table-status"><span>{p.instances.length} pieces on the table</span><span>{p.settings.snap ? `Snapping to ${p.settings.gridSize}px` : 'Free movement'}<span className="status-divider">/</span>{p.players.length} players<span className="status-divider">/</span>2D playground</span></footer>
     </section>
@@ -379,7 +531,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           top: rect.top + pan.y + zoom * (position.x * Math.sin(angle) + position.y * Math.cos(angle)),
           width: comp.width, height: comp.height,
           transform: `translate(-50%, -50%) rotate(${camera + item.rotation}deg) scale(${zoom * item.scale})`,
-        }}><ComponentView component={comp} row={item.row} back={item.flipped} /></div>;
+        }}><ComponentView component={comp} row={item.row} back={visibleBack(item)} /></div>;
       })}
       {marquee && <div className="selection-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
       {dropHint && <div className={`stack-drop-hint ${altDown ? 'stack-bypassed' : ''}`} role="status" style={{ left: Math.min(dropHint.x + 18, window.innerWidth - 285), top: Math.max(12, dropHint.y - 62) }}>
@@ -414,16 +566,14 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           {items.length > 1 && <div className="stack-actions"><button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>
             <button className="button" disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={14} /> Shuffle</button>
             <button className="button full" onClick={() => dispatch({ type: 'unstack', id: piece.id })}><Layers size={14} /> Spread stack</button></div>}
-          {c.kind === 'dice' && <button className="button full" onClick={() => {
-            const next = { ...makeInstance(c.id, Math.floor(Math.random() * Math.max(c.rows.length, 1)), piece.x, piece.y), rotation: Math.floor(Math.random() * 4) * 90, scale: piece.scale };
-            dispatch({ type: 'spawn', instances: [next] }); dispatch({ type: 'delete', ids: [piece.id] }); setSelected([next.id]);
-          }}><Dices size={16} /> Roll die</button>}
+          {c.kind === 'dice' && <button className="button full" onClick={() => dispatch({ type: 'roll', ids: [piece.id], seed: crypto.getRandomValues(new Uint32Array(1))[0] })}><Dices size={16} /> Roll die</button>}
         </div> : <div className="inspector-section table-intro"><div className="intro-icon"><MousePointer2 size={23} /></div><h3>A space to play.</h3><p>Select a piece to flip, clone, stack or make it your own.</p></div>}
         <div className="inspector-section"><div className="section-title"><h3>Table settings</h3><Settings2 size={14} /></div>
           <Toggle label="Show grid" checked={p.settings.grid} onChange={grid => dispatch({ type: 'settings', patch: { grid } })} />
           <Toggle label="Snap to grid" checked={p.settings.snap} onChange={snap => dispatch({ type: 'settings', patch: { snap } })} />
           {p.settings.snap && <NumberField label="Grid size (px)" value={p.settings.gridSize} min={5} max={200} onChange={gridSize => dispatch({ type: 'settings', patch: { gridSize } })} />}
           <Toggle label="Player hands" description="Keep a little mystery" checked={p.settings.hands} onChange={hands => dispatch({ type: 'settings', patch: { hands } })} />
+          {p.settings.hands && <Toggle label="Move cards between table hands" description="Allow everyone at this trusted table to move cards into or out of any visible hand" checked={!!p.settings.allowOtherHands} onChange={allowOtherHands => dispatch({ type: 'settings', patch: { allowOtherHands } })} />}
           <Toggle label="Turn tracker" checked={p.settings.turns} onChange={turns => dispatch({ type: 'settings', patch: { turns } })} />
           {p.settings.turns && <div className="turn-tracker"><span>UP NEXT</span><strong>{p.players[p.settings.turn % Math.max(p.players.length, 1)]?.name ?? 'Add a player'}</strong><button className="button full primary" onClick={() => dispatch({ type: 'settings', patch: { turn: (p.settings.turn + 1) % Math.max(p.players.length, 1) } })}>End turn <ChevronRight size={15} /></button></div>}
         </div>
@@ -440,13 +590,13 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           const comp = p.components.find(c => c.id === i.componentId)!;
           const name = comp.rows[i.row]?.name ?? comp.name;
           if (!`${name} ${comp.name}`.toLowerCase().includes(query.toLowerCase())) return null;
-          const reorder = (offset: number) => { const ids = all.map(i => i.id); [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; dispatch({ type: 'reorder', ids }); };
-          return <div className="stack-search-row" key={i.id}><ComponentThumbnail component={comp} row={i.row} width={43} /><div><strong>{name}</strong><small>{index === all.length - 1 ? 'Top of stack' : `Position ${index + 1}`} · {comp.name}</small></div>
+          const reorder = (offset: number) => { const ids = all.map(i => i.id); [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }); };
+          return <div className="stack-search-row" key={i.id}><ComponentThumbnail component={comp} row={i.row} back={visibleBack(i)} width={43} /><div><strong>{name}</strong><small>{index === all.length - 1 ? 'Top of stack' : `Position ${index + 1}`} · {comp.name}</small></div>
             <button className="icon-button" aria-label={`Move ${name} down`} disabled={!index || !i.stack} onClick={() => reorder(-1)}><ArrowDown size={16} /></button><button className="icon-button" aria-label={`Move ${name} up`} disabled={index === all.length - 1 || !i.stack} onClick={() => reorder(1)}><ArrowUp size={16} /></button>
             <button className="button" disabled={!comp.hand || !p.settings.hands} onClick={() => {
               const ids = all.map(item => item.id).filter(id => id !== i.id); ids.push(i.id);
-              if (i.stack) dispatch({ type: 'reorder', ids });
-              dispatch({ type: 'draw', id: i.id, playerId: actor });
+              if (i.stack) void dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }).then(ok => { if (ok) void dispatch({ type: 'draw', id: i.id, playerId: actor }); });
+              else void dispatch({ type: 'draw', id: i.id, playerId: actor });
             }}>Draw</button>
           </div>;
         })}</div></div>

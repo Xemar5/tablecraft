@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelLeft, PanelRight, Plus, Search, Settings2, Sparkles, Square, Table2, Trash2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Sparkles, Square, Table2, Trash2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { applyCommand, archiveSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { starterProject, template } from './templates';
 import { download, exportProject, loadWorkspace, parseArchive, parseComponent, saveWorkspace } from './storage';
@@ -35,6 +35,7 @@ export default function App() {
   const [selected, setSelected] = useState<string[]>([]);
   const [libraryVisible, setLibraryVisible] = useState(true);
   const [inspectorVisible, setInspectorVisible] = useState(true);
+  const [handVisible, setHandVisible] = useState(true);
   const [actor, setActor] = useState(initial.archive.projects[0].players[0]?.id ?? '');
   const [curtain, setCurtain] = useState<Player>();
   const [search, setSearch] = useState('');
@@ -74,6 +75,15 @@ export default function App() {
     return () => link.remove();
   }, [fontFamilies]);
   useEffect(() => () => sessionRef.current?.disconnect(), []);
+  useEffect(() => {
+    const selectInput = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLTextAreaElement) && !(target instanceof HTMLInputElement && ['text', 'number', 'search', 'url'].includes(target.type))) return;
+      requestAnimationFrame(() => { if (document.activeElement === target) target.select(); });
+    };
+    document.addEventListener('focusin', selectInput);
+    return () => document.removeEventListener('focusin', selectInput);
+  }, []);
   const setProject = useCallback((next: Project) => {
     setArchive(current => ({
       ...current, projects: current.projects.some(p => p.id === next.id) ? current.projects.map(p => p.id === next.id ? next : p) : [...current.projects, next],
@@ -172,7 +182,7 @@ export default function App() {
       <a className="brand" href="#" onClick={e => { e.preventDefault(); setMode('playground'); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
       <div className="project-heading compact-project"><h1>{project.name}</h1><button className="icon-button" aria-label="Project settings" onClick={() => { setProjectName(project.name); setModal('projects'); }}><ChevronDown size={16} /></button></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
-      <div className="header-actions">{mode === 'playground' && <><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><PanelLeft size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
+      <div className="header-actions">{mode === 'playground' && <><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><PanelLeft size={17} /></button><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
     </header>
     {storageError && <div className="error-banner" role="alert">{storageError}<button onClick={() => {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
@@ -201,7 +211,7 @@ export default function App() {
         </div>
         <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<div className="library-tip"><Sparkles size={16} /><p>{mode === 'playground' ? 'Click a component to spawn it.' : 'Design once. Update everywhere.'}<small>{mode === 'playground' ? 'Your ideas belong on the table.' : 'Every instance stays connected.'}</small></p></div><div className="library-footer-actions"><button onClick={() => fileInput.current?.click()}><Upload size={13} /> Import</button><button onClick={() => exportProject(project)}><Download size={13} /> Export</button></div></div>
       </aside>
-      <div className="workspace-content">{mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} /> :
+      <div className="workspace-content">{mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} /> :
         activeComponent ? <Designer key={activeComponent.id} component={activeComponent} onChange={component => dispatch({ type: 'component', component })} onDelete={() => { dispatch({ type: 'removeComponent', id: activeComponent.id }); setComponentId(undefined); setSelected([]); }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>}</div>
     </main>
     <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
@@ -272,7 +282,7 @@ export default function App() {
     </Modal>}
     {modal === 'help' && <Modal title="Welcome to your workshop." subtitle="Less setup. More 'what if?'" wide onClose={() => setModal(undefined)}>
       <div className="help-grid"><div><span>01</span><h3>Make your pieces</h3><p>Start from a template or a blank component. Add layers and nested frames, style them, and connect text or images to CSV columns with {'{{bindings}}'}.</p></div><div><span>02</span><h3>Bring them to the table</h3><p>Click a library component to spawn it. Shift-click to select multiple pieces, then stack compatible pieces. Double-click to flip a card or draw from a stack.</p></div><div><span>03</span><h3>Find the fun</h3><p>Add hotseat players, switch seats and play. Connect a SpaceTimeDB room for online play. Design changes stay live for everyone.</p></div></div>
-      <div className="keyboard-shortcuts"><span><kbd>F</kbd> Flip</span><span><kbd>R</kbd> Rotate</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
+      <div className="keyboard-shortcuts"><span><kbd>F</kbd> Flip</span><span><kbd>R</kbd> Rotate</span><span><kbd>S</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
       <div className="help-footer"><Leaf size={18} /><p>Your work stays in this browser. Export JSON to back it up or move it to another device. External textures and Google Fonts need internet access.</p></div>
     </Modal>}
     {curtain && <div className="privacy-curtain"><span className="brand-mark"><Layers size={32} /></span><p>PASS THE SCREEN TO</p><h1>{curtain.name}</h1><span className="curtain-avatar" style={{ background: curtain.color }}>{curtain.name[0]}</span><p className="curtain-description">A little privacy for your next big move.</p><button className="button primary" onClick={() => { setActor(curtain.id); setCurtain(undefined); }}>I'm {curtain.name}. Let's play. <ArrowRight size={17} /></button><button className="text-button" onClick={() => setCurtain(undefined)}>Back to the current player</button></div>}

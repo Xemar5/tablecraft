@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCommand, bind, canStack, makeInstance, makeNode, safeImage, stackMembers, validateProject } from '../src/domain';
+import { applyCommand, bind, canStack, makeInstance, makeNode, safeImage, stackMembers, validateProject, visibleBack, visibleStackMembers } from '../src/domain';
 import { starterProject, template } from '../src/templates';
 import { parseArchive, parseComponent } from '../src/storage';
 
@@ -44,6 +44,120 @@ describe('component design and bindings', () => {
 });
 
 describe('tabletop commands', () => {
+  it('only allows cross-hand transfers and plays when explicitly enabled for an authenticated actor', () => {
+    let p = starterProject();
+    const card = p.instances.find(i => i.componentId === p.components[0].id && !i.stack)!;
+    p = applyCommand(p, { type: 'drawSelection', ids: [card.id], playerId: 'player-1' }, 'player-1');
+    expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1')).toThrow('disabled');
+    expect(() => applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-2')).toThrow('disabled');
+    p = applyCommand(p, { type: 'settings', patch: { allowOtherHands: true } }, 'player-1');
+    expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' })).toThrow('active player');
+    p = applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1');
+    expect(p.instances.find(i => i.id === card.id)?.holder).toBe('player-2');
+    expect(() => applyCommand(p, { type: 'release', id: card.id, x: 1, y: 2 }, 'player-1')).toThrow('Switch');
+    p = applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1');
+    expect(p.instances.find(i => i.id === card.id)).toMatchObject({ holder: null, x: 1, y: 2 });
+  });
+  it('flips a stack as a view without mutating member order or faces, and draws from its visible top', () => {
+    let p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const original = stackMembers(p, deck);
+    original[1].flipped = true;
+    const before = original.map(i => ({ id: i.id, order: i.order, flipped: i.flipped }));
+    p = applyCommand(p, { type: 'transform', ids: original.map(i => i.id), flip: true }, 'player-1');
+    const flipped = stackMembers(p, p.instances.find(i => i.id === deck.id)!);
+    expect(flipped.map(i => ({ id: i.id, order: i.order, flipped: i.flipped }))).toEqual(before);
+    expect(visibleStackMembers(p, flipped[0]).map(i => i.id)).toEqual(before.map(i => i.id).reverse());
+    expect(visibleBack(flipped[0])).toBe(!before[0].flipped);
+    p = applyCommand(p, { type: 'drawMany', id: flipped[0].id, playerId: 'player-1', count: 2 }, 'player-1');
+    const held = p.instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order);
+    expect(held.map(i => i.id)).toEqual(before.slice(0, 2).map(i => i.id));
+    expect(held.map(i => i.flipped)).toEqual(before.slice(0, 2).map(i => !i.flipped));
+    const remaining = p.instances.find(i => i.stack)!;
+    p = applyCommand(p, { type: 'transform', ids: stackMembers(p, remaining).map(i => i.id), flip: true }, 'player-1');
+    expect(stackMembers(p, p.instances.find(i => i.id === remaining.id)!).map(i => i.flipped)).toEqual(before.slice(2).map(i => i.flipped));
+  });
+  it('materializes a reversed stack when merging or extracting its visible top', () => {
+    let p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const members = stackMembers(p, deck), ids = members.map(i => i.id);
+    p = applyCommand(p, { type: 'transform', ids, flip: true }, 'player-1');
+    const selected = p.instances.find(i => i.id === ids[0])!;
+    p = applyCommand(p, { type: 'extractMove', id: selected.id, x: 5, y: 6 }, 'player-1');
+    expect(p.instances.find(i => i.id === selected.id)).toMatchObject({ flipped: !members[0].flipped, stack: null });
+    const target = p.instances.find(i => i.id === ids[1])!;
+    p = applyCommand(p, { type: 'dropStack', ids: [selected.id], targetId: target.id, stackId: 'merged' }, 'player-1');
+    const merged = stackMembers(p, p.instances.find(i => i.id === selected.id)!);
+    expect(merged.map(i => i.id)).toEqual([...ids.slice(1).reverse(), selected.id]);
+    expect(merged.every(i => !i.stackReversed)).toBe(true);
+    for (const item of merged) expect(item.flipped).toBe(!members.find(original => original.id === item.id)!.flipped);
+  });
+  it('draws a complete flipped stack in visible top-first order', () => {
+    let p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const members = stackMembers(p, deck), ids = members.map(i => i.id);
+    p = applyCommand(p, { type: 'transform', ids, flip: true }, 'player-1');
+    p = applyCommand(p, { type: 'drawSelection', ids: [...ids].reverse(), playerId: 'player-1' }, 'player-1');
+    const held = p.instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order);
+    expect(held.map(i => i.id)).toEqual(ids);
+    expect(held.map(i => i.flipped)).toEqual(members.map(i => !i.flipped));
+  });
+  it('duplicates complete stacks without joining the original or changing their order', () => {
+    const p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const original = stackMembers(p, deck);
+    const copies = original.map((item, index) => ({ sourceId: item.id, id: `copy-${index}`, stack: 'copied-stack' }));
+    const next = applyCommand(p, { type: 'duplicate', copies, dx: 50, dy: 60 }, 'player-1');
+    const copied = stackMembers(next, next.instances.find(i => i.id === copies[0].id)!);
+    expect(copied.map(i => i.id)).toEqual(copies.map(i => i.id));
+    expect(copied.map(i => i.flipped)).toEqual(original.map(i => i.flipped));
+    expect(copied[0].x).toBe(original[0].x + 50);
+    expect(stackMembers(next, next.instances.find(i => i.id === deck.id)!)).toHaveLength(original.length);
+    expect(() => applyCommand(p, { type: 'duplicate', copies: copies.slice(0, 1), dx: 0, dy: 0 }, 'player-1')).toThrow('entire stack');
+  });
+  it('pastes validated snapshots as new independent stacks', () => {
+    let p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const copies = stackMembers(p, deck).map((i, index) => ({ ...i, id: `pasted-${index}`, stack: 'pasted-stack' }));
+    p = applyCommand(p, { type: 'delete', ids: stackMembers(p, deck).map(i => i.id) }, 'player-1');
+    const pasted = applyCommand(p, { type: 'paste', instances: copies }, 'player-1');
+    expect(stackMembers(pasted, pasted.instances.find(i => i.id === copies[0].id)!).map(i => i.id)).toEqual(copies.map(i => i.id));
+    expect(() => applyCommand(pasted, { type: 'paste', instances: copies }, 'player-1')).toThrow('identifier');
+    expect(() => applyCommand(p, { type: 'paste', instances: [{ ...copies[0], holder: 'player-2' }] }, 'player-1')).toThrow('unlocked');
+  });
+  it('raises pieces, extracts one from a stack and rolls dice without rotating them', () => {
+    let p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const original = stackMembers(p, deck);
+    const top = original.at(-1)!;
+    p = applyCommand(p, { type: 'front', ids: original.map(i => i.id) }, 'player-1');
+    expect(p.instances.at(-1)?.id).toBe(top.id);
+    p = applyCommand(p, { type: 'extractMove', id: top.id, x: 100, y: 200 }, 'player-1');
+    expect(p.instances.find(i => i.id === top.id)).toMatchObject({ stack: null, x: 100, y: 200 });
+    expect(stackMembers(p, p.instances.find(i => i.id === deck.id)!).length).toBe(original.length - 1);
+    const die = template('dice');
+    p.components.push(die);
+    const piece = { ...makeInstance(die.id), rotation: 37 };
+    p.instances.push(piece);
+    p = applyCommand(p, { type: 'roll', ids: [piece.id], seed: 42 }, 'player-1');
+    expect(p.instances.find(i => i.id === piece.id)?.rotation).toBe(37);
+    expect(p.instances.find(i => i.id === piece.id)?.id).toBe(piece.id);
+  });
+  it('releases multiple held pieces atomically and enforces hand ownership', () => {
+    let p = starterProject();
+    const cards = p.instances.filter(i => i.componentId === p.components[0].id && !i.stack).slice(0, 2);
+    const ids = cards.map(i => i.id);
+    p = applyCommand(p, { type: 'drawSelection', ids, playerId: 'player-1' }, 'player-1');
+    expect(() => applyCommand(p, { type: 'releaseMany', ids, x: 10, y: 20 }, 'player-2')).toThrow('Switch');
+    expect(p.instances.filter(i => ids.includes(i.id) && i.holder === 'player-1')).toHaveLength(2);
+    const next = applyCommand(p, { type: 'releaseMany', ids, x: 10, y: 20 }, 'player-1');
+    expect(next.instances.find(i => i.id === ids[0])).toMatchObject({ holder: null, x: 10, y: 20 });
+    expect(next.instances.find(i => i.id === ids[1])).toMatchObject({ holder: null, x: 34, y: 44 });
+    const target = p.instances.find(i => i.stack)!;
+    expect(() => applyCommand(p, { type: 'dropManyFromHand', ids, targetId: target.id, stackId: 'new-stack' }, 'player-2')).toThrow('Switch');
+    const stacked = applyCommand(p, { type: 'dropManyFromHand', ids, targetId: target.id, stackId: 'new-stack' }, 'player-1');
+    expect(stackMembers(stacked, stacked.instances.find(i => i.id === target.id)!).slice(-2).map(i => i.id)).toEqual(ids);
+  });
   it('transforms a selection atomically, preserving relative rotation, scale and individual faces', () => {
     const p = starterProject();
     const cards = p.instances.filter(i => i.componentId === p.components[0].id && !i.stack).slice(0, 2);

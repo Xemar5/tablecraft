@@ -14,6 +14,166 @@ async function updateCsv(page: Page, name: string) {
   await page.getByRole('button', { name: 'Apply data & refresh instances' }).click();
 }
 
+test('playground draws repeatedly, flips hands, duplicates stacks and toggles the hand panel', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.hover();
+  await page.keyboard.press('1');
+  await expect(page.locator('.hand-card')).toHaveCount(1);
+  await page.keyboard.press('1');
+  await expect(page.locator('.hand-card')).toHaveCount(2);
+  const card = page.locator('.hand-card').first();
+  const cardId = await card.getAttribute('data-hand-id');
+  const before = (await workspace(page)).projects[0].instances.find(i => i.id === cardId)!;
+  await card.dblclick();
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === before.id)?.flipped).toBe(!before.flipped);
+  await page.getByRole('button', { name: 'Toggle hand panel' }).click();
+  await expect(page.locator('.hand-tray')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Toggle hand panel' }).click();
+  await expect(page.locator('.hand-card')).toHaveCount(2);
+  await stack.click();
+  await page.keyboard.press('Control+d');
+  await expect(page.locator('.stack-count')).toHaveCount(2);
+  const state = (await workspace(page)).projects[0];
+  const sizes = [...new Set(state.instances.map(i => i.stack).filter(Boolean))].map(id => state.instances.filter(i => i.stack === id).length);
+  expect(sizes.sort((a, b) => a - b)).toEqual([10, 10]);
+});
+
+test('flipped stacks draw from the visible top without rewriting their underlying faces', async ({ page }) => {
+  await page.goto('/');
+  const before = (await workspace(page)).projects[0];
+  const deck = before.instances.find(i => i.stack)!;
+  const members = before.instances.filter(i => i.stack === deck.stack).sort((a, b) => a.order - b.order);
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.hover();
+  await page.keyboard.press('f');
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.stackReversed).toBe(true);
+  const flipped = (await workspace(page)).projects[0];
+  expect(flipped.instances.filter(i => i.stack === deck.stack).sort((a, b) => a.order - b.order).map(i => i.flipped)).toEqual(members.map(i => i.flipped));
+  await page.keyboard.press('1');
+  await expect(page.locator('.hand-card')).toHaveCount(1);
+  const drawn = (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)!;
+  expect(drawn.holder).toBe('player-1');
+  expect(drawn.flipped).toBe(!members[0].flipped);
+});
+
+test('repeated double-clicks draw fresh stack tops and shift-drag extracts only one', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.dblclick();
+  await stack.dblclick();
+  await expect(page.locator('.hand-card')).toHaveCount(2);
+  const state = (await workspace(page)).projects[0];
+  const remaining = state.instances.filter(i => i.stack);
+  const top = remaining.sort((a, b) => a.order - b.order).at(-1)!;
+  const from = (await stack.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.keyboard.down('Shift');
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 + 100, from.y + from.height / 2 + 50, { steps: 8 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === top.id)?.stack).toBeNull();
+  expect((await workspace(page)).projects[0].instances.filter(i => i.stack).length).toBe(remaining.length - 1);
+});
+
+test('card wheel rotation, preview controls and numeric dragging work', async ({ page }) => {
+  await page.goto('/');
+  const state = (await workspace(page)).projects[0];
+  const card = state.instances.find(i => i.componentId === state.components[0].id && !i.stack)!;
+  const piece = page.locator(`[data-piece-id="${card.id}"]`);
+  await piece.hover();
+  await page.keyboard.down('Shift'); await page.mouse.wheel(0, 100); await page.keyboard.up('Shift');
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBe(card.rotation + 15);
+  const preview = page.getByLabel('Preview Spirit cards');
+  await expect(preview).toBeVisible();
+  const thumbnail = preview.locator('.component-thumbnail');
+  const width = (await thumbnail.boundingBox())!.width;
+  await preview.hover(); await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.keyboard.up('Control');
+  await expect.poll(async () => (await thumbnail.boundingBox())!.width).toBeGreaterThan(width);
+  await page.keyboard.down('Alt'); await expect(preview).toHaveCount(0); await page.keyboard.up('Alt');
+  await piece.click();
+  const input = page.getByLabel('Rotation', { exact: true });
+  const box = (await input.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2);
+  await page.mouse.down(); await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 - 20, { steps: 5 }); await page.mouse.up();
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBeGreaterThan(card.rotation + 15);
+});
+
+test('flipping a stack while dragging retains the drag and displays the newly visible top', async ({ page }) => {
+  await page.goto('/');
+  const before = (await workspace(page)).projects[0];
+  const deck = before.instances.find(i => i.stack)!;
+  const members = before.instances.filter(i => i.stack === deck.stack).sort((a, b) => a.order - b.order);
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  const from = (await stack.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 + 30, from.y + from.height / 2, { steps: 4 });
+  await expect(page.locator('.board-drag-preview .component-face')).toBeVisible();
+  await page.keyboard.press('f');
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.stackReversed).toBe(true);
+  await page.mouse.move(from.x + from.width / 2 + 90, from.y + from.height / 2 + 40, { steps: 4 });
+  await page.mouse.up();
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === members[0].id)?.x).not.toBe(members[0].x);
+});
+
+test('visible hands can exchange cards only after the table setting is enabled', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
+  await expect(page.locator('.hand-card')).toHaveCount(1);
+  await page.getByLabel('Move cards between table hands').check();
+  const held = await page.locator('.hand-card').first().boundingBox();
+  const seat = page.locator('[data-seat-id="player-2"]');
+  const seatBox = await seat.boundingBox();
+  expect(held && seatBox).toBeTruthy();
+  await page.mouse.move(held!.x + held!.width / 2, held!.y + held!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(seatBox!.x + seatBox!.width / 2, seatBox!.y + seatBox!.height / 2, { steps: 10 });
+  await page.mouse.up();
+  await expect(page.locator('.hand-card')).toHaveCount(0);
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.filter(i => i.holder === 'player-2').length).toBe(1);
+  const otherCard = seat.locator('.other-hand > div').first();
+  const cardBox = await otherCard.boundingBox();
+  const table = await page.locator('.table-viewport').boundingBox();
+  await page.mouse.move(cardBox!.x + cardBox!.width / 2, cardBox!.y + cardBox!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(table!.x + table!.width * .75, table!.y + table!.height * .5, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.filter(i => i.holder === 'player-2').length).toBe(0);
+});
+
+test('selected hand cards move and stack as a group', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.hover(); await page.keyboard.press('2');
+  const cards = page.locator('.hand-card');
+  await expect(cards).toHaveCount(2);
+  await cards.nth(0).click({ modifiers: ['Control'] });
+  await cards.nth(1).click({ modifiers: ['Control'] });
+  const from = (await cards.first().boundingBox())!, to = (await stack.boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down(); await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 10 }); await page.mouse.up();
+  await expect(cards).toHaveCount(0);
+  await expect(stack.locator('.stack-count')).toContainText('12');
+});
+
+test('copy and paste creates a separate stack at the table pointer', async ({ page }) => {
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.click(); await page.keyboard.press('Control+c');
+  const viewport = (await page.locator('.table-viewport').boundingBox())!;
+  await page.mouse.move(viewport.x + viewport.width * .7, viewport.y + viewport.height * .6);
+  await page.keyboard.press('Control+v');
+  await expect(page.locator('.stack-count')).toHaveCount(2);
+  const state = (await workspace(page)).projects[0];
+  const stacks = [...new Set(state.instances.map(i => i.stack).filter(Boolean))];
+  expect(stacks.map(id => state.instances.filter(i => i.stack === id).length)).toEqual([12, 12]);
+  const originals = state.instances.filter(i => i.stack === stacks[0]);
+  const copies = state.instances.filter(i => i.stack === stacks[1]);
+  expect(copies[0].x).not.toBe(originals[0].x);
+});
+
 test('designer supports hierarchy, front/back, CSV updates and component behavior', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -501,7 +661,8 @@ test('multi-selection transforms, moves, clones, draws and deletes all selected 
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2); await page.mouse.down();
   await page.keyboard.down('Alt'); await page.mouse.move(from.x + from.width / 2 + 60, from.y + from.height / 2 - 70, { steps: 8 });
   await page.mouse.up(); await page.keyboard.up('Alt');
-  const moved = (await workspace(page)).projects[0].instances.filter(i => cards.some(c => c.id === i.id));
+  const afterMove = (await workspace(page)).projects[0].instances;
+  const moved = cards.map(card => afterMove.find(i => i.id === card.id)!);
   expect(moved[0].x - cards[0].x).toBeCloseTo(moved[1].x - cards[1].x);
   expect(moved[0].x).not.toBe(cards[0].x);
   await first.hover(); await page.keyboard.press('Control+d');
