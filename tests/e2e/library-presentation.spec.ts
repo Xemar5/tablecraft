@@ -174,9 +174,16 @@ test('hovering a library name or preview explains editing and dragging', async (
   const row = page.locator('.library-item').filter({ has: page.getByRole('button', { name: 'Edit Spirit cards', exact: true }) });
   const name = row.getByRole('button', { name: 'Edit Spirit cards', exact: true });
   const hint = row.locator('.library-name-hint');
+  const dims = row.locator('.library-item-name small');
   await expect(hint).toBeHidden();
+  const nameHeight = (await name.boundingBox())!.height;
   await name.hover();
   await expect(hint).toBeVisible();
+  expect((await name.boundingBox())!.height).toBeCloseTo(nameHeight, 0);
+  const [hintBox, dimsBox] = await Promise.all([hint, dims].map(el => el.evaluate(e => e.getBoundingClientRect().toJSON())));
+  expect(hintBox.y).toBeCloseTo(dimsBox.y, 0);
+  expect(hintBox.height).toBeCloseTo(dimsBox.height, 0);
+  await expect(hint).toHaveCSS('font-size', await dims.evaluate(el => getComputedStyle(el).fontSize));
   await expect(hint).toHaveText('Click to edit in the designer');
   await expect(row.locator('.library-item-name small')).toBeHidden();
   await expect(name.locator('strong svg')).toHaveCSS('opacity', '1');
