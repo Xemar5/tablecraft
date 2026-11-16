@@ -440,7 +440,7 @@ export default function App() {
             <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : comp.kind === 'artwork' ? <Palette size={10} /> : <Square size={10} />}{comp.kind}</span>
             {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
             {mode === 'playground' && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
-            <span className="preview-add"><Plus size={17} /></span>
+            {mode === 'playground' && <span className="preview-add"><Plus size={17} /></span>}
           </button>
           {mode === 'playground' && hasVariants(comp) && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
             title={`Spawn all ${comp.rows.length} variants${comp.stackable ? ' as a stack' : ''}`} onClick={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)}><CopyPlus size={15} /></button>}
