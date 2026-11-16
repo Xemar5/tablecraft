@@ -195,7 +195,7 @@ The hand toolbar below the tray controls permissions for your active hand only: 
 
 Cards turn to their front face when entering a hand by default, including number-key draws, double-clicks and transfers. Disable **Turn cards face up when entering my hand** in the bottom hand toolbar to preserve their current visible face instead. This is a per-seat setting saved with the playground: it applies to cards entering that seat's hand, whoever moves them. Dragging alone does not animate a flip; changing faces during a drag does.
 
-Locked pieces do not show previews. Previews switch to the left when hovering in the right third of the playground, and disappear when the pointer leaves a piece or its preview. Holding Alt temporarily hides the currently hovered piece's preview; releasing Alt restores it while that piece is still hovered.
+Locked pieces do not show previews. Previews switch to the left when hovering in the right third of the playground, or earlier on narrow tables (from the middle onward) wherever the right-side preview would cover the pointer, and disappear when the pointer leaves a piece or its preview. Holding Alt temporarily hides the currently hovered piece's preview; releasing Alt restores it while that piece is still hovered.
 
 | Action | Shortcut / control |
 |---|---|

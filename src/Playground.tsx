@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, Undo2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, handPermissions, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
@@ -25,12 +25,17 @@ type Props = {
   onShowInspector: () => void;
   panel: 'selection' | 'table' | 'players'; setPanel: (panel: 'selection' | 'table' | 'players') => void;
   panels: ReturnType<typeof usePanelLayout>;
+  /** A transient table message (such as why undo history was cleared), shown as a dismissible toast. */
+  notice?: string; onDismissNotice?: () => void;
 };
 const ROLL_MS = 650;
 const VIEWER_NOTICE = 'You are watching as a viewer. Take a seat in Players to play.';
+const CLEARED = 'Undo history cleared because ';
+const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo history cleared' : 'Undo';
+const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: p, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
+export function Playground({ project: p, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, notice, onDismissNotice }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -774,8 +779,14 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           <span /><button className={p.settings.grid ? 'active-subtle' : ''} title="Toggle grid" aria-label="Toggle grid" onClick={() => dispatch({ type: 'settings', patch: { grid: !p.settings.grid } })}><Grid2X2 size={18} /></button>
           <button className={p.settings.snap ? 'active-subtle' : ''} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
         </div>
-        {plan?.error && <div className="stack-order-warning" role="status" onPointerDown={e => e.stopPropagation()}>
-          <StackSlotIcon blocked /><span><strong>Pieces can't be stacked</strong><small>{plan.error}</small></span>
+        {(plan?.error || notice) && <div className="table-warnings" onPointerDown={e => e.stopPropagation()}>
+          {notice && <div className="warning-card undo-toast" role="status" title="Click to dismiss" onClick={onDismissNotice}>
+            <Undo2 size={18} /><span><strong>{noticeTitle(notice)}</strong><small>{noticeDetail(notice)}</small></span>
+            <button type="button" className="icon-button notice-close" aria-label="Dismiss notification" onClick={e => { e.stopPropagation(); onDismissNotice?.(); }}><X size={14} /></button>
+          </div>}
+          {plan?.error && <div className="warning-card stack-order-warning" role="status">
+            <StackSlotIcon blocked /><span><strong>Pieces can't be stacked</strong><small>{plan.error}</small></span>
+          </div>}
         </div>}
         {p.settings.turns && turnPlayer && <div className="turn-pill" role="status" aria-label="Turn" onPointerDown={e => e.stopPropagation()}>
           <span className="turn-pill-avatar" style={{ background: turnPlayer.color }}>{turnPlayer.name.slice(0, 1).toUpperCase()}</span>

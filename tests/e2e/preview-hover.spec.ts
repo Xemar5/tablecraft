@@ -26,6 +26,30 @@ test('previews switch sides when hovering near the right edge of the playground'
   }
 });
 
+test('previews switch sides before they would cover the hovered piece on a narrow table', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await page.goto('/');
+  const tokenId = await page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first().getAttribute('data-piece-id');
+  const token = page.locator(`[data-piece-id="${tokenId}"]`);
+  const preview = page.locator('.hover-preview');
+  const viewport = (await page.locator('.table-viewport').boundingBox())!;
+  const x = viewport.x + viewport.width * .58;
+  const y = await page.evaluate(([x, top, height]) => {
+    for (let f = .15; f < .85; f += .05) {
+      const y = top + height * f;
+      if ([-30, 0, 30].every(dx => [-30, 0, 30].every(dy => !document.elementFromPoint(x + dx, y + dy)?.closest('.table-piece, [data-seat-id], .table-hand')))) return y;
+    }
+    return top + height * .3;
+  }, [x, viewport.y, viewport.height]);
+  await token.hover();
+  await page.mouse.down();
+  await page.mouse.move(x, y, { steps: 10 });
+  await page.mouse.up();
+  await token.hover();
+  await expect(preview).toBeVisible();
+  await expect.poll(async () => Math.abs((await preview.boundingBox())!.x - viewport.x - 16)).toBeLessThan(2);
+});
+
 test('scaled previews have no empty horizontal overflow and locked pieces have no preview', async ({ page }) => {
   await page.goto('/');
   const tokenId = await page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first().getAttribute('data-piece-id');
