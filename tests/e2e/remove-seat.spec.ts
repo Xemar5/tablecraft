@@ -1,4 +1,4 @@
-﻿import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import type { Archive } from '../../src/domain';
 
 const project = async (page: Page) => (await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!)) as Archive).projects[0];
@@ -26,6 +26,9 @@ test('removing a seat spreads its hand where the seat was', async ({ page }) => 
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Remove Player 2?');
   await expect(dialog).toContainText('Its 3 held pieces are spread on the table where the seat was.');
+  const [modalBox, actionsBox] = [(await dialog.boundingBox())!, (await dialog.locator('.modal-actions .button').last().boundingBox())!];
+  expect(modalBox.x + modalBox.width - (actionsBox.x + actionsBox.width)).toBeGreaterThanOrEqual(20);
+  expect(modalBox.y + modalBox.height - (actionsBox.y + actionsBox.height)).toBeGreaterThanOrEqual(20);
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('[data-seat-id="player-2"]')).toHaveCount(1);
   await remove.click();
