@@ -13,9 +13,6 @@
 .layer-tree-row .layer-row.active {border-left-color:transparent}
 .tree-disclosure {display:flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:24px;color:#8a9b79;border-radius:4px}
 .tree-disclosure:hover {background:#e8efdf}
-.layer-root-drop {position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:6px;padding:8px 10px;background:#f9fbf5;color:#829272;font-size:9px;border-bottom:1px solid #e8eee1}
-.layer-root-drop span {margin-left:auto;color:#a6b397}
-.layer-root-drop.active,.layer-root-drop:hover {background:#eaf1de;color:#577440}
 .layer-tree-item.drop-inside>.layer-tree-row {background:#e6f0dc;box-shadow:inset 0 0 0 1px #91ad70}
 .layer-tree-item.drop-before>.layer-tree-row {border-top:2px solid #819f61}
 .layer-tree-item.drop-after>.layer-tree-row {border-bottom:2px solid #819f61}

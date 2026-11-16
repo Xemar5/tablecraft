@@ -439,17 +439,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     const relativeY = (event.clientY - bounds.top) / Math.max(1, bounds.height);
     return (item.type === 'frame' || item.type === 'compound') && relativeY > .28 && relativeY < .72 ? 'inside' : relativeY < .5 ? 'before' : 'after';
   };
-  const dropAtRoot = (sourceIds: string[]) => {
-    const selectedIds = new Set(sourceIds);
-    const sources = nodes.filter(item => selectedIds.has(item.id) && !nodes.some(other =>
-      selectedIds.has(other.id) && other.id !== item.id && descendantsOf(nodes, [other.id]).has(item.id)));
-    const firstRoot = nodes.find(item => item.parent === null && !selectedIds.has(item.id));
-    let next = nodes;
-    try {
-      sources.forEach(source => { next = movePreservingPosition(source.id, null, firstRoot?.id, next); });
-      update({ [face]: next });
-    } catch (error) { notify(error instanceof Error ? error.message : 'Unable to move layer.', true); }
-  };
   const layerDragOver = (event: DragEvent<HTMLDivElement>, item: DesignNode) => {
     event.preventDefault();
     setDropTarget({ id: item.id, mode: dropModeFor(event, item) });
@@ -512,17 +501,12 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     dragging.current = { ids: activeIds, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, positions, angles };
     artboard.current?.setPointerCapture(event.pointerId);
   };
-  const rootIds = nodes.filter(item => item.parent === null).map(item => item.id);
   return <div ref={designer} className="designer-layout">
     <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
       <HorizontalScroll contentClassName="face-tabs" label="Component faces"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
         <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></HorizontalScroll>
       <div className="layer-list">
-        <div className={`layer-root-drop${dropTarget?.id === '__root' ? ' active' : ''}`} onDragOver={event => { event.preventDefault(); setDropTarget({ id: '__root', mode: 'inside' }); }}
-          onDrop={event => { event.preventDefault(); if (draggedLayer.length) dropAtRoot(draggedLayer); setDraggedLayer([]); setDropTarget(undefined); }}>
-          <ChevronRight size={12} /> Component root <span>{rootIds.length}</span>
-        </div>
         {layers(null)}{!nodes.length && <p className="empty-note">A blank canvas.<br />Add your first layer above.</p>}
       </div>
       <div className="layer-footer"><button onClick={() => { setCsv(component.csv); setDataOpen(true); }}><Database size={16} /><span>Data bindings<small>{component.rows.length} rows connected</small></span><ChevronRight size={14} /></button></div>

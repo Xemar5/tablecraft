@@ -67,6 +67,7 @@ test('toolbar preview row switches artwork variants and stays synced with data b
 test('shape menu inserts directly, boolean controls are contextual and parenting uses the tree', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  await expect(page.locator('.layer-root-drop')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add frame', exact: true })).toHaveCount(0);
   const union = page.getByRole('button', { name: 'Union', exact: true });
   await expect(union).toBeDisabled();
@@ -85,6 +86,20 @@ test('shape menu inserts directly, boolean controls are contextual and parenting
   }).toBe(true);
   await layers.filter({ hasText: /^Shape$/ }).last().click();
   await expect(page.getByLabel('Parent', { exact: true })).toHaveCount(0);
+  const rootTargetName = await page.evaluate(() => {
+    const archive = JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!);
+    return archive.projects[0].components[0].front.find((node: { parent: string | null; name: string }) => node.parent === null && node.name !== 'Container')?.name;
+  });
+  expect(rootTargetName).toBeTruthy();
+  const rootTarget = page.locator('.layer-list > .layer-tree-item').filter({
+    has: page.getByRole('button', { name: rootTargetName!, exact: true }),
+  }).locator('.layer-tree-row');
+  await layers.filter({ hasText: /^Shape$/ }).last().dragTo(rootTarget, { targetPosition: { x: 12, y: 1 } });
+  await expect.poll(async () => {
+    const archive = await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!)) as Archive;
+    const nodes = archive.projects[0].components[0].front;
+    return nodes.find(n => n.name === 'Shape')?.parent;
+  }).toBeNull();
 });
 
 test('nested fitting renders stretch, contain and cover and offers Artwork type', async ({ page }) => {
