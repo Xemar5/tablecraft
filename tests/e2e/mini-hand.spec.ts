@@ -149,7 +149,7 @@ for (const origin of ['table', 'tray', 'mini'] as const) {
   });
 }
 
-for (const [index, rotation] of [[0, 0], [1, 90], [3, 180]]) {
+for (const [index, rotation] of [[0, 0], [1, 90], [3, 0], [3, 90], [3, 180]]) {
   test(`table hand previews and inserts at position ${index} with seat rotation ${rotation}`, async ({ page }) => {
     const { source, held } = await seedHand(page, rotation);
     const mini = page.locator('.seat-marker.active .other-hand');
@@ -178,6 +178,17 @@ for (const [index, rotation] of [[0, 0], [1, 90], [3, 180]]) {
     const ghostWidth = (await page.locator('.mini-drop-preview').boundingBox())!.width;
     expect(ghostWidth).toBeLessThan(box.width / 2);
     await expect(mini.locator(index === 3 ? '.mini-insert-end' : '.mini-insert-before')).toHaveCount(1);
+    if (index === 3) {
+      const marker = mini.locator('.mini-insert-end');
+      const geometry = await marker.evaluate(element => {
+        const card = element.parentElement!;
+        return { parentId: card.dataset.miniId, left: (element as HTMLElement).offsetLeft,
+          width: card.offsetWidth, rotation: new DOMMatrix(getComputedStyle(card).transform).b };
+      });
+      expect(geometry.parentId).toBe(held.at(-1));
+      expect(geometry.left).toBe(geometry.width);
+      expect(geometry.rotation).toBeCloseTo(Math.sin(5 * Math.PI / 180), 5);
+    }
     const targetBounds = (await mini.boundingBox())!;
     for (const key of ['x', 'y', 'width', 'height'] as const) {
       expect(targetBounds[key]).toBeCloseTo(handBounds[key], 2);

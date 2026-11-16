@@ -550,9 +550,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined); }}
                   onClick={e => { e.stopPropagation(); if (player.id === actor) selectHandCard(i.id, e); }}>
                   <ComponentThumbnail component={comp} components={p.components} row={i.row} back={i.flipped} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
+                  {handDrop?.playerId === player.id && handDrop.index === remaining.length && remaining.at(-1)?.id === i.id && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
                 </div>;
               })}
-              {handDrop?.playerId === player.id && handDrop.index === remaining.length && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
+              {handDrop?.playerId === player.id && !remaining.length && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
             </div>
           </button>; })}
           {topPieces.map(item => {
