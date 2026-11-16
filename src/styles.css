@@ -67,6 +67,8 @@
 .library-drop-after::after{bottom:0}
 .library-item-label .library-reorder{flex:none;cursor:grab}
 .library-item-label .library-reorder:active{cursor:grabbing}
+.library-item-label>.library-reorder:first-child{align-items:center;flex-direction:row;text-align:center}
+.library-item-label>.library-item-name{display:flex;align-items:flex-start;flex-direction:column;padding:0;gap:3px;text-align:left}
 .color-field{min-width:0}
 .color-alpha{display:flex;align-items:center;gap:6px;min-width:0;font-size:10px;color:var(--muted)}
 .color-alpha input[type=range]{flex:1;min-width:0;width:0;height:20px;padding:0;accent-color:var(--green)}

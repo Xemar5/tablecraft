@@ -2,20 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
-import { canStack, handPermissions, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Instance, type Player, type Project } from './domain';
+import { canStack, handPermissions, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
+import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
 type Props = {
   project: Project; actor: string; owner: string; selected: string[]; setSelected: (ids: string[]) => void;
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
+  onSpawn: (component: Component, rows: number[], point: { x: number; y: number }) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
   inspectorVisible: boolean; handVisible: boolean;
   onShowInspector: () => void;
   panel: 'selection' | 'table' | 'players'; setPanel: (panel: 'selection' | 'table' | 'players') => void;
   panels: ReturnType<typeof usePanelLayout>;
 };
-export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
+export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -408,6 +410,17 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id]')) positionPreview(e.clientX);
     }}>
       <div ref={viewport} className={`table-viewport ${tool === 'pan' ? 'pan-mode' : ''}`}
+        onDragOver={e => {
+          if (Array.from(e.dataTransfer.types).includes(LIBRARY_DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+        }}
+        onDrop={e => {
+          if (!Array.from(e.dataTransfer.types).includes(LIBRARY_DRAG_TYPE)) return;
+          e.preventDefault();
+          const data = readLibraryDrag(e.dataTransfer);
+          const component = data?.projectId === p.id ? p.components.find(c => c.id === data.componentId) : undefined;
+          if (!data || !component) { notify('Unable to spawn these library variants.', true); return; }
+          onSpawn(component, data.rows, worldPoint(e.clientX, e.clientY));
+        }}
         onPointerLeave={() => { if (!gesture.current) { pointer.current = null; setHovered(undefined); setPreviewItem(undefined); } }}
         onContextMenu={e => e.preventDefault()}
         onWheel={e => {

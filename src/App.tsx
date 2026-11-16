@@ -13,6 +13,8 @@ import { Field, Modal, Notice, ScrollArrows, useSmoothHorizontalWheel } from './
 import { Home } from './Home';
 import { LinkedComponent } from './LinkedComponent';
 import { linkComponent, localComponentCopy, refreshProjectLinks } from './projectLinks';
+import { LibraryVariants } from './LibraryVariants';
+import { startLibraryDrag } from './libraryDrag';
 
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
 function boot(): { archive: Archive; error: string | null; lastProjectId: string | null } {
@@ -89,7 +91,6 @@ export default function App() {
   const [roomCode, setRoomCode] = useState(() => `PLAY-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
   const [playerName, setPlayerName] = useState('You');
   const [projectName, setProjectName] = useState('');
-  const [spawnCount, setSpawnCount] = useState(1);
   const [saveName, setSaveName] = useState('');
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
@@ -243,10 +244,12 @@ export default function App() {
     if (session && player.owner !== session.identity) { notify('This seat belongs to another connected player.', true); return; }
     if (player.id !== actor) { setCurtain(player); setSelected([]); }
   };
-  const spawn = (component: Component, allRows = false) => {
-    const count = allRows ? Math.max(component.rows.length, 1) : spawnCount;
-    const instances = Array.from({ length: Math.min(count, 1000) }, (_, i) => ({
-      ...makeInstance(component.id, allRows ? i : 0, 820 + (i % 5) * 24, 450 + Math.floor(i / 5) * 24),
+  const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }) => {
+    if (!rows.length || rows.length > 1000 || rows.some(row => !Number.isSafeInteger(row) || row < 0 || row >= Math.max(component.rows.length, 1))) {
+      notify('Choose up to 1,000 valid variants to spawn at once.', true); return;
+    }
+    const instances = rows.map((row, i) => ({
+      ...makeInstance(component.id, row, point.x + (i % 5) * 24, point.y + Math.floor(i / 5) * 24),
       scale: component.kind === 'card' ? .72 : component.kind === 'board' ? .8 : .8,
     }));
     void dispatch({ type: 'spawn', instances }).then(success => {
@@ -403,7 +406,9 @@ export default function App() {
             if (libraryDrag !== comp.id) void dispatch({ type: 'reorderComponent', id: libraryDrag, targetId: comp.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
             setLibraryDrag(undefined); setLibraryDrop(undefined);
           }}>
-          <button className={`library-preview library-preview-${comp.kind}`} onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
+          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'playground'}
+            onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, [0])}
+            onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
             {comp.rows.length > 1 && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
@@ -411,8 +416,7 @@ export default function App() {
             {comp.rows.length > 1 && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
             <span className="preview-add"><Plus size={17} /></span>
           </button>
-          <div className="library-item-label"><button onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{comp.rows.length > 1 ? `${comp.rows.length} variants` : `${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <span className="data-dot" />}</small></button>
-            <button className="icon-button library-reorder" draggable aria-label={`Reorder ${comp.name}`} title="Drag to reorder; use Up/Down arrows when focused"
+          <div className="library-item-label"><button className="icon-button library-reorder" draggable aria-label={`Reorder ${comp.name}`} title="Drag to reorder; use Up/Down arrows when focused"
               onDragStart={e => { e.dataTransfer.setData('text/plain', comp.id); e.dataTransfer.effectAllowed = 'move'; setLibraryDrag(comp.id); }}
               onDragEnd={() => { setLibraryDrag(undefined); setLibraryDrop(undefined); }}
               onKeyDown={e => {
@@ -421,18 +425,22 @@ export default function App() {
                 const target = visible[index + (e.key === 'ArrowUp' ? -1 : 1)];
                 if (target) void dispatch({ type: 'reorderComponent', id: comp.id, targetId: target.id, position: e.key === 'ArrowUp' ? 'before' : 'after' });
               }}><GripVertical size={14} /></button>
+            <button className="library-item-name" onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{comp.rows.length > 1 ? `${comp.rows.length} variants` : `${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <span className="data-dot" />}</small></button>
             <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
           {comp.source && <div className="library-link-note"><small><Link size={11} /> Read-only · {comp.source.projectName}</small><button className="text-button" aria-label={`Make local copy of ${comp.name}`} onClick={() => void copyLinked(comp)}>Make local copy</button></div>}
-          {mode === 'playground' && <div className="library-item-options"><button onClick={() => spawn(comp, true)}><Plus size={11} /> {comp.rows.length > 1 ? 'Spawn all variants' : 'Spawn piece'}</button></div>}
+          {mode === 'playground' && <>
+            {comp.rows.length > 1 && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} />}
+            <div className="library-item-options"><button onClick={() => spawn(comp, Array.from({ length: Math.max(comp.rows.length, 1) }, (_, i) => i))}><Plus size={11} /> {comp.rows.length > 1 ? 'Spawn all variants' : 'Spawn piece'}</button></div>
+          </>}
         </div>)}
           {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
         </div>
-        <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<button className="new-component-button" onClick={() => setModal('templates')}><Plus size={16} /> Create component</button>
+        <div className="library-footer"><button className="new-component-button" onClick={() => setModal('templates')}><Plus size={16} /> Create component</button>
           <button className="new-component-button" onClick={() => setModal('link')}><Link size={14} /> Link from another project</button>
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :

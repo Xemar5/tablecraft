@@ -29,6 +29,11 @@ test('library drag ordering persists across modes, filters and reloads without s
   const initial = await names.allTextContents();
   const pieceCount = await page.locator('.table-piece').count();
   const source = page.getByRole('button', { name: `Reorder ${initial[0]}`, exact: true });
+  const firstRow = entries.filter({ has: source }).locator('.library-item-label');
+  await expect(firstRow.getByRole('button').first()).toHaveAccessibleName(`Reorder ${initial[0]}`);
+  const handleBounds = await source.boundingBox();
+  const nameBounds = await firstRow.locator('.library-item-name').boundingBox();
+  expect(handleBounds!.x).toBeLessThan(nameBounds!.x);
   const target = entries.filter({ has: page.getByRole('button', { name: `Reorder ${initial[1]}`, exact: true }) });
   const bounds = (await target.boundingBox())!;
   await source.dragTo(target, { targetPosition: { x: bounds.width / 2, y: bounds.height - 2 } });

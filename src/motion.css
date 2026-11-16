@@ -57,21 +57,13 @@
   border: 1px solid #b5c39155;
   border-radius: 6px;
 }
-.spawn-quantity {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 9px;
-  color: #9aab88;
-  margin-bottom: 12px;
-}
-.spawn-quantity input {
-  width: 49px;
-  padding: 4px 5px;
-  font-size: 9px;
-  background: #f7faf1;
-  border-color: #e1e9d8;
-}
+.library-variants { padding: 0 8px; }
+.library-variants-toggle { display: flex; align-items: center; gap: 3px; width: 100%; padding: 5px 0; border: 0; background: transparent; color: #526a4d; font-size: 11px; cursor: pointer; }
+.library-variant-list { display: grid; gap: 3px; max-height: 240px; overflow-y: auto; }
+.library-variant { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px; border: 1px solid transparent; border-radius: 5px; background: #f5f8f0; text-align: left; cursor: grab; }
+.library-variant.selected { border-color: #6b8c4f; background: #e6efdc; }
+.library-variant span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.library-variant small { color: #718268; }
 .table-piece:not(.dragging) {
   transition: left .16s ease, top .16s ease, transform .2s cubic-bezier(.2, .8, .2, 1), filter .2s, outline .2s;
 }
