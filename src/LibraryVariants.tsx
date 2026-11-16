@@ -1,11 +1,10 @@
 import { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { ComponentThumbnail } from './ComponentView';
 import type { Component } from './domain';
 import { startLibraryDrag } from './libraryDrag';
 
-export function LibraryVariants({ component, components, projectId, onSpawnAll }: { component: Component; components: Component[]; projectId: string; onSpawnAll: () => void }) {
-  const [open, setOpen] = useState(false);
+export function LibraryVariants({ component, components, projectId, open, onSpawnAll }: { component: Component; components: Component[]; projectId: string; open: boolean; onSpawnAll: () => void }) {
   const [selection, setSelection] = useState<number[]>([]);
   const anchor = useRef<number | undefined>(undefined);
   const select = (index: number, event: React.MouseEvent) => {
@@ -21,11 +20,9 @@ export function LibraryVariants({ component, components, projectId, onSpawnAll }
         : [index]);
     }
   };
+  if (!open) return null;
   return <div className="library-variants">
-    <button className="library-variants-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
-      {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />} Variants ({component.rows.length})
-    </button>
-    {open && <div className="library-variant-list" role="group" aria-label={`${component.name} variants`}>
+    <div className="library-variant-list" role="group" aria-label={`${component.name} variants`}>
       {component.rows.map((row, index) => {
         const label = row.name || row.id || row.value || Object.values(row).find(Boolean) || `Row ${index + 1}`;
         return <button key={index} className={`library-variant${selection.includes(index) ? ' selected' : ''}`}
@@ -39,7 +36,7 @@ export function LibraryVariants({ component, components, projectId, onSpawnAll }
           <span>{index + 1}. {label}</span>
         </button>;
       })}
-    </div>}
-    {open && <div className="library-item-options"><button onClick={onSpawnAll}><Plus size={11} /> Spawn all variants</button></div>}
+    </div>
+    <div className="library-item-options"><button onClick={onSpawnAll}><Plus size={11} /> Spawn all variants</button></div>
   </div>;
 }

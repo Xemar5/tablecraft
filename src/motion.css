@@ -58,7 +58,7 @@
   border-radius: 6px;
 }
 .library-variants { padding: 0 8px; }
-.library-variants-toggle { display: flex; align-items: center; justify-content: flex-start; gap: 3px; width: 100%; padding: 5px 0; border: 0; background: transparent; color: #526a4d; font-size: 11px; text-align: left; cursor: pointer; }
+.library-variants-toggle { flex-shrink: 0; margin-left: auto; color: #526a4d; }
 .library-variant-list { display: grid; gap: 3px; max-height: 240px; overflow-y: auto; }
 .library-variant .component-thumbnail { flex: none; }
 .library-variant { display: flex; align-items: center; justify-content: flex-start; gap: 8px; min-width: 0; padding: 4px; border: 1px solid transparent; border-radius: 5px; background: #f5f8f0; text-align: left; cursor: grab; }

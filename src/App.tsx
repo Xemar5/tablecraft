@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, Link, LoaderCircle, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Search, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { archiveSchema, canStack, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
@@ -64,6 +64,7 @@ export default function App() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [libraryDrag, setLibraryDrag] = useState<string>();
+  const [openVariants, setOpenVariants] = useState<string[]>([]);
   const [libraryDrop, setLibraryDrop] = useState<{ id: string; position: 'before' | 'after' }>();
   const filterStrip = useRef<HTMLDivElement>(null);
   const [filterEdges, setFilterEdges] = useState({ left: false, right: false });
@@ -428,6 +429,7 @@ export default function App() {
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
             <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : comp.kind === 'artwork' ? <Palette size={10} /> : <Square size={10} />}{comp.kind}</span>
             {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
+            {mode === 'playground' && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
             <span className="preview-add"><Plus size={17} /></span>
           </button>
           {mode === 'playground' && hasVariants(comp) && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
@@ -442,11 +444,17 @@ export default function App() {
                 const target = visible[index + (e.key === 'ArrowUp' ? -1 : 1)];
                 if (target) void dispatch({ type: 'reorderComponent', id: comp.id, targetId: target.id, position: e.key === 'ArrowUp' ? 'before' : 'after' });
               }}><GripVertical size={14} /></button>
-            <button className="library-item-name" onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{`${comp.width} × ${comp.height} px`}</small></button>
-            <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
+            <button className="library-item-name" aria-label={`Edit ${comp.name}`} title="Click to edit in the designer" onClick={() => edit(comp.id)}>
+              <strong>{comp.name}<PencilLine size={10} aria-hidden="true" /></strong><small>{`${comp.width} × ${comp.height} px`}</small>
+              <span className="library-name-hint" aria-hidden="true"><PencilLine size={9} /> Click to edit in the designer</span></button>
+            {mode === 'playground' && hasVariants(comp) && <button className="icon-button library-variants-toggle" aria-expanded={openVariants.includes(comp.id)}
+              aria-label={`${openVariants.includes(comp.id) ? 'Hide' : 'Show'} ${comp.name} variants (${comp.rows.length})`}
+              title={`${openVariants.includes(comp.id) ? 'Hide' : 'Show'} ${comp.rows.length} variants`}
+              onClick={() => setOpenVariants(ids => ids.includes(comp.id) ? ids.filter(id => id !== comp.id) : [...ids, comp.id])}>
+              {openVariants.includes(comp.id) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button>}</div>
           {comp.source && <div className="library-link-note"><small><Link size={11} /> Read-only · {comp.source.projectName}</small><button className="text-button" aria-label={`Make local copy of ${comp.name}`} onClick={() => void copyLinked(comp)}>Make local copy</button></div>}
           {mode === 'playground' && <>
-            {hasVariants(comp) && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)} />}
+            {hasVariants(comp) && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} open={openVariants.includes(comp.id)} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)} />}
           </>}
         </div>)}
           {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}

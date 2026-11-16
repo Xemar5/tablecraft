@@ -39,14 +39,12 @@ test('library drag ordering persists across modes, filters and reloads without s
   const metadataBounds = (await firstRow.locator('small').boundingBox())!;
   expect(Math.abs(titleBounds.x - nameBounds!.x)).toBeLessThan(1);
   expect(Math.abs(metadataBounds.x - nameBounds!.x)).toBeLessThan(1);
-  const editBounds = (await firstRow.getByRole('button', { name: `Edit ${initial[0]}`, exact: true }).boundingBox())!;
+  await expect(firstRow.getByRole('button', { name: `Edit ${initial[0]}`, exact: true })).toHaveClass(/library-item-name/);
   const rowBounds = (await firstRow.boundingBox())!;
-  expect(Math.abs(editBounds.x + editBounds.width - rowBounds.x - rowBounds.width)).toBeLessThan(2);
-  const variants = entries.locator('.library-variants-toggle').first();
+  const variants = firstRow.locator('.library-variants-toggle');
   const toggleBounds = (await variants.boundingBox())!;
-  const chevronBounds = (await variants.locator('svg').boundingBox())!;
-  expect(Math.abs(chevronBounds.x - toggleBounds.x)).toBeLessThan(1);
-  await expect(variants).toHaveCSS('text-align', 'left');
+  expect(Math.abs(toggleBounds.x + toggleBounds.width - rowBounds.x - rowBounds.width)).toBeLessThan(2);
+  await expect(entries.locator('.library-item-label .icon-button[aria-label^="Edit "]')).toHaveCount(0);
   const target = entries.filter({ has: page.getByRole('button', { name: `Reorder ${initial[1]}`, exact: true }) });
   const bounds = (await target.boundingBox())!;
   await source.dragTo(target, { targetPosition: { x: bounds.width / 2, y: bounds.height - 2 } });
@@ -169,4 +167,24 @@ test('transparent botanical artwork has no synthetic top-edge highlight', async 
     await expect(artwork).toHaveCSS('border-radius', '0px');
   }
   await expect(page.locator('.component-card').first()).not.toHaveCSS('box-shadow', 'none');
+});
+
+test('hovering a library name or preview explains editing and dragging', async ({ page }) => {
+  await page.goto('/');
+  const row = page.locator('.library-item').filter({ has: page.getByRole('button', { name: 'Edit Spirit cards', exact: true }) });
+  const name = row.getByRole('button', { name: 'Edit Spirit cards', exact: true });
+  const hint = row.locator('.library-name-hint');
+  await expect(hint).toBeHidden();
+  await name.hover();
+  await expect(hint).toBeVisible();
+  await expect(hint).toHaveText('Click to edit in the designer');
+  await expect(row.locator('.library-item-name small')).toBeHidden();
+  await expect(name.locator('strong svg')).toHaveCSS('opacity', '1');
+  const preview = row.locator('.library-preview');
+  await expect(preview.locator('.preview-hint')).toHaveCSS('opacity', '0');
+  await preview.hover();
+  await expect(preview.locator('.preview-hint')).toHaveCSS('opacity', '1');
+  await expect(preview.locator('.preview-hint')).toHaveText('Drag all onto table');
+  await name.click();
+  await expect(page.getByRole('button', { name: 'Component designer', exact: true })).toHaveClass(/active/);
 });

@@ -39,7 +39,8 @@ test('variant selection, ranges, and drag spawn an atomic set without reordering
   await page.goto('/');
   const before = await state(page);
   const card = page.locator('.library-item').filter({ has: page.getByRole('button', { name: 'Spawn Spirit cards', exact: true }) });
-  await card.getByRole('button', { name: 'Variants (6)' }).click();
+  await card.getByRole('button', { name: 'Show Spirit cards variants (6)', exact: true }).click();
+  await expect(card.getByRole('button', { name: 'Hide Spirit cards variants (6)', exact: true })).toHaveAttribute('aria-expanded', 'true');
   const variants = card.getByRole('group', { name: 'Spirit cards variants' }).getByRole('button');
   await expect(card.locator('.library-item-name small')).toHaveText(/^\d+ × \d+ px$/);
   await expect(variants.first().locator('span')).toHaveText(/^1\. \S/);
@@ -90,7 +91,7 @@ test('cancelled and invalid drags do not spawn, and all variants can still be cl
   expect((await state(page)).instances).toEqual(before.instances);
   await expect(page.getByText('Choose up to 1,000 valid variants to spawn at once.')).toBeVisible();
   await expect(card.getByRole('button', { name: 'Spawn all variants' })).toHaveCount(0);
-  await card.getByRole('button', { name: /^Variants/ }).click();
+  await card.getByRole('button', { name: /^Show .* variants \(/ }).click();
   await card.getByRole('button', { name: 'Spawn all variants' }).click();
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 6);
   expect((await state(page)).instances.slice(-6).map(i => i.row)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -135,7 +136,7 @@ test('dragging a component or using its spawn-all button spawns every variant, s
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 
   const die = item('Spirit die');
-  await expect(die.getByRole('button', { name: /^Variants/ })).toHaveCount(0);
+  await expect(die.locator('.library-variants-toggle')).toHaveCount(0);
   await expect(die.getByRole('button', { name: /^Spawn all/ })).toHaveCount(0);
   await expect(die.locator('.preview-variants, .preview-ghost')).toHaveCount(0);
   await die.getByRole('button', { name: 'Spawn Spirit die', exact: true }).dragTo(viewport);
