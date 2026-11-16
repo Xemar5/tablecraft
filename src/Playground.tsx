@@ -54,7 +54,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const marqueeGesture = useRef<{ x: number; y: number; ids: string[] }>(null);
   const handGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
   const tableHandGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
-  const gesture = useRef<{ pointer: number; x: number; y: number; positions: Record<string, { x: number; y: number }>; front?: string[]; extract?: string; pan?: { x: number; y: number } }>(null);
+  const gesture = useRef<{ pointer: number; x: number; y: number; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number } }>(null);
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
@@ -327,8 +327,16 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     if (!ids.includes(item.id)) return;
     if (item.locked) { void dispatch({ type: 'front', ids: group }); return; }
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
-    gesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions, front: group, extract: extracting ? item.id : undefined };
-    e.currentTarget.setPointerCapture(e.pointerId);
+    const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions, front: group };
+    gesture.current = active;
+    if (extracting) {
+      viewport.current?.setPointerCapture(e.pointerId);
+      void dispatch({ type: 'extractMove', id: item.id, x: item.x, y: item.y }).then(ok => {
+        if (!ok && gesture.current === active) {
+          gesture.current = null; setPreview({}); setDropHint(undefined); setHandDrop(undefined);
+        }
+      });
+    } else e.currentTarget.setPointerCapture(e.pointerId);
   };
   const endGesture = (e: React.PointerEvent) => {
     setHandDrop(undefined);
@@ -355,11 +363,6 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       }
       if (inside(tray) && moving.length) {
         dispatch({ type: 'drawSelection', ids: moving.map(i => i.id), playerId: actor });
-        gesture.current = null; setPreview({}); setDropHint(undefined); return;
-      }
-      if (g.extract) {
-        const delta = worldDelta(e.clientX - g.x, e.clientY - g.y), start = g.positions[g.extract];
-        void dispatch({ type: 'extractMove', id: g.extract, x: start.x + delta.x, y: start.y + delta.y });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
       const target = targetAt(e.clientX, e.clientY, Object.keys(g.positions));

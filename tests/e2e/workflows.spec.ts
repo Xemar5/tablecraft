@@ -71,8 +71,15 @@ test('repeated double-clicks draw fresh stack tops and shift-drag extracts only 
   await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
   await page.keyboard.down('Shift');
   await page.mouse.down();
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === top.id)?.stack).toBeNull();
+  await expect(stack.locator('.stack-count')).toContainText(String(remaining.length - 1));
   await page.mouse.move(from.x + from.width / 2 + 100, from.y + from.height / 2 + 50, { steps: 8 });
+  await expect(stack).toBeVisible();
+  await expect(stack).not.toHaveClass(/drag-source/);
+  await expect(page.locator('.board-drag-preview')).toHaveCount(1);
+  await page.keyboard.down('Alt');
   await page.mouse.up();
+  await page.keyboard.up('Alt');
   await page.keyboard.up('Shift');
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === top.id)?.stack).toBeNull();
   expect((await workspace(page)).projects[0].instances.filter(i => i.stack).length).toBe(remaining.length - 1);
