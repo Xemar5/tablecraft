@@ -261,9 +261,11 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     previewSeat(at.x, at.y);
     return true;
   };
-  // The room host may edit every seat; changes to another player's seat are flagged as host overrides in the UI.
+  // The room host may edit every seat, and the active player may edit the other hotseat seats on this device (offline or owned by
+  // this client online). Changes to any seat other than the active one are flagged as overrides in the UI.
   const hostOverride = (player: Player) => host && owner !== 'local' && player.owner !== owner;
   const canEditSeat = (player: Player) => owner === 'local' || player.owner === owner || hostOverride(player);
+  const seatOverride = (player: Player): SeatOverride | undefined => player.id === actor || !canEditSeat(player) ? undefined : hostOverride(player) ? 'host' : 'hotseat';
   const rotateSeat = (player: Player, degrees: number) => {
     if (canEditSeat(player) && player.tableHandUnlocked) void dispatch({ type: 'player', player: { ...player, rotation: ((player.rotation + degrees) % 360 + 360) % 360 } });
   };
@@ -381,17 +383,17 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     void dispatch({ type: 'reorderHand', ids, playerId: actor });
   };
   /** Hand actions for the active seat's toolbar, or for a seat selected in the inspector. Every toggle is that seat's own setting:
-   * its active player may change it, and the room host may override it for other players' seats (marked as a host override). */
+   * its active player may change it, and the room host or a hotseat seat's active player may override it (marked as an override). */
   const handActions = (seat?: Player) => {
     const target = seat ?? currentPlayer;
     const own = !seat || seat.id === actor;
-    const override = !own && !!seat && hostOverride(seat);
+    const override = !own && !!seat && !!seatOverride(seat);
     const hand = !seat ? 'my hand' : `${seat.name}'s hand`;
     const tableHand = !seat ? 'my table hand' : `${seat.name}'s table hand`;
     const inactive = own ? undefined : `Switch to ${seat!.name}'s seat to manage this hand`;
     const label = (text: string) => ({ 'aria-label': text, title: inactive ? `${text} (${inactive})` : text });
     const setting = (text: string) => override
-      ? { 'aria-label': text, title: `${text} (host override: this is ${seat!.name}'s setting)`, className: 'icon-button host-override' }
+      ? { 'aria-label': text, title: `${text} (${seatOverride(seat!) === 'host' ? 'host' : 'hotseat'} override: this is ${seat!.name}'s setting)`, className: 'icon-button host-override' }
       : { ...label(text), className: 'icon-button' };
     const seatPermissions = seat ? handPermissions(p, seat.id) : permissions;
     const seatHeld = seat ? p.instances.filter(i => i.holder === seat.id).length : held.length;
@@ -875,12 +877,12 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
                 if (target) movePlayer(player.id, target.id, e.key === 'ArrowUp' ? 'before' : 'after');
               }}><GripVertical size={14} /></button>
             <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{p.settings.turns && turnPlayer?.id === player.id ? 'Current turn · ' : ''}{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
-            {canEditSeat(player) && <button className={`icon-button${hostOverride(player) ? ' host-override' : ''}`} title={hostOverride(player) ? `Edit ${player.name} (host override)` : `Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
+            {canEditSeat(player) && <button className={`icon-button${seatOverride(player) ? ' host-override' : ''}`} title={seatOverride(player) ? `Edit ${player.name} (${seatOverride(player)} override)` : `Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
           <button className="button full" onClick={() => setSeatEditor({ id: uid('player'), owner, name: `Player ${p.players.length + 1}`, color: ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], ...nextSeatPlacement(p.players) })}><Plus size={15} /> Add hotseat player</button>
         </div>
       </> : panel === 'selection' ? <>
-        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={canEditSeat(selectedSeat)} override={hostOverride(selectedSeat)}
+        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={canEditSeat(selectedSeat)} override={seatOverride(selectedSeat)}
           held={p.instances.filter(i => i.holder === selectedSeat.id).length}
           onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
           onClose={() => setSelectedSeatId(undefined)}
@@ -940,7 +942,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
           </div>;
         })}</div></div>
     </Modal>}
-    {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}${hostOverride(removingSeat) ? 'Host override: this seat belongs to another player. ' : ''}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
+    {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}${seatOverride(removingSeat) ? `${overrideLabel(seatOverride(removingSeat)!)}: ${overrideNote(seatOverride(removingSeat)!, removingSeat.name)} ` : ''}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setRemovingSeat(undefined)}>Cancel</button><button className="button danger" onClick={() => { const id = removingSeat.id; void dispatch({ type: 'removePlayer', playerId: id }).then(ok => { if (ok) { setSelectedSeatId(seat => seat === id ? undefined : seat); setRemovingSeat(undefined); } }); }}>Remove seat</button></div>
     </Modal>}
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
@@ -956,8 +958,13 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
   </div>;
 }
 
+type SeatOverride = 'host' | 'hotseat';
+const overrideLabel = (kind: SeatOverride) => kind === 'host' ? 'Host override' : 'Hotseat override';
+const overrideNote = (kind: SeatOverride, name: string) => kind === 'host'
+  ? `this seat belongs to another player. As the host, only you can change its settings or remove it.`
+  : `you are changing ${name}'s seat from your active seat. Switch to ${name} to play with their hand.`;
 function SeatInspector({ player, active, editable, override, held, actions, lastSeat, onChange, onClose, onRemove }: {
-  player: Player; active: boolean; editable: boolean; override: boolean; held: number; actions: React.ReactNode; lastSeat: boolean;
+  player: Player; active: boolean; editable: boolean; override?: SeatOverride; held: number; actions: React.ReactNode; lastSeat: boolean;
   onChange: (patch: Partial<Player>) => void; onClose: () => void; onRemove: () => void;
 }) {
   const removeBlocked = lastSeat ? 'Keep at least one seat at the table.' : active ? 'Switch to another seat before removing this one.' : undefined;
@@ -971,9 +978,9 @@ function SeatInspector({ player, active, editable, override, held, actions, last
   };
   return <div className="inspector-section selected-inspector seat-inspector">
     <div className="section-title"><h3>Seat selected</h3><button className="icon-button" title="Deselect" aria-label="Deselect seat" onClick={onClose}><X size={14} /></button></div>
-    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}{active && <YouTag />}</strong><small>{active ? 'Active seat' : editable && !override ? `${held} in hand` : 'Remote player'}</small></div></div>
+    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}{active && <YouTag />}</strong><small>{active ? 'Active seat' : editable && override !== 'host' ? `${held} in hand` : 'Remote player'}</small></div></div>
         {actions}
-    {override && <p className="host-override-note" role="note">Host override: this seat belongs to another player. As the host, only you can change its settings or remove it.</p>}
+    {override && <p className="host-override-note" role="note">{overrideLabel(override)}: {overrideNote(override, player.name)}</p>}
     <fieldset className={`seat-fields${override ? ' host-override' : ''}`} disabled={!editable}>
       <Field label="Player name"><input required maxLength={50} value={name} onChange={e => setName(e.target.value)} onBlur={commitName}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { cancelName.current = true; e.currentTarget.blur(); } }} /></Field>

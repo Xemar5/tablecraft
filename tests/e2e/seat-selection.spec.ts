@@ -21,8 +21,17 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   expect((await page.getByRole('toolbar', { name: "Player 1's hand actions", exact: true }).boundingBox())!.y).toBeCloseTo(inactiveTop, 0);
   await expect(page.locator('.hand-toolbar').getByRole('button', { name: 'Allow others to insert into my hand', exact: true })).toBeVisible();
   await page.locator('[data-seat-id="player-2"]').click();
-  for (const name of ["Turn cards face up when entering Player 2's hand", "Hide Player 2's table hand", "Shuffle Player 2's hand", "Reverse Player 2's hand", "Allow others to insert into Player 2's hand", "Allow others to take from Player 2's hand", "Unlock Player 2's table hand"])
+  for (const name of ["Shuffle Player 2's hand", "Reverse Player 2's hand"])
     await expect(otherActions.getByRole('button', { name, exact: true })).toBeDisabled();
+  await expect(page.locator('.seat-inspector .host-override-note')).toContainText('Hotseat override');
+  await expect(page.locator('.seat-inspector fieldset.seat-fields')).toHaveClass(/host-override/);
+  const otherTake = otherActions.getByRole('button', { name: "Allow others to take from Player 2's hand", exact: true });
+  await expect(otherTake).toHaveClass(/host-override/);
+  await otherTake.click();
+  await expect.poll(async () => (await seat(page, 'player-2')).allowHandTake).toBe(true);
+  expect((await seat(page, 'player-1')).allowHandTake).toBeUndefined();
+  await otherTake.click();
+  await expect.poll(async () => (await seat(page, 'player-2')).allowHandTake).toBe(false);
   await expect(otherActions.getByRole('button', { name: 'Switch to this seat', exact: true })).toBeEnabled();
 
   const name = page.getByLabel('Player name', { exact: true });
