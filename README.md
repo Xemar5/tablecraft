@@ -95,7 +95,7 @@ Treat that token as a secret. Do not put it in source control or shared logs.
 
 On this Windows setup, the equivalent launch helpers are `.\Start-Tablecraft.ps1 -Database` and `.\Start-Tablecraft.ps1 -Publish`.
 
-In the app, choose **Invite players**, enter a name and a room code, then **Host this table**. In another browser profile/device, choose **Join room** with the same server, database (`tablecraft-studio`) and code. Separate browser profiles provide distinct identities; tabs in the same profile share an identity. A browser identity has one active live room at a time.
+In the app, choose **Invite players**, enter a name and a room code, then **Host this table**. In another browser profile/device, choose **Join room** with the same server, database (`tablecraft-studio`) and code. Guests can also join straight from Home with **Join a table**; the room opens as a project in their workshop, and a local copy stays there after they leave. Separate browser profiles provide distinct identities; tabs in the same profile share an identity. A browser identity has one active live room at a time.
 
 For other computers, use a reachable SpaceTimeDB server and a reachable frontend. The default development listeners are deliberately loopback-only. For example, start Vite with `npm run dev -- --host 0.0.0.0`, bind SpaceTimeDB to a LAN interface, allow the chosen ports through your firewall, and enter that machine's LAN address in the connection dialog. Use HTTPS/WSS behind a reverse proxy for internet deployment.
 

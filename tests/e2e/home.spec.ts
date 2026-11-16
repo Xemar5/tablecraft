@@ -9,7 +9,7 @@ test('Home actions retain aligned spacing and icons, and New project has a padde
   for (const width of [1280, 800, 620]) {
     await page.setViewportSize({ width, height: 800 });
     const buttons = page.locator('.home-actions > button');
-    await expect(buttons).toHaveCount(3);
+    await expect(buttons).toHaveCount(4);
     const measurements = await buttons.evaluateAll(elements => elements.map(element => {
       const style = getComputedStyle(element);
       const bounds = element.getBoundingClientRect();

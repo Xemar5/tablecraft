@@ -317,6 +317,7 @@ export default function App() {
     } catch (error) { notify(`Import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
   };
   const join = async (host: boolean) => {
+    const fromHome = home;
     setConnecting(true); setConnectionError('');
     try {
       if (!/^https?:\/\//.test(uri) && !/^wss?:\/\//.test(uri)) throw new Error('Use an http(s) or ws(s) SpaceTimeDB address.');
@@ -334,6 +335,7 @@ export default function App() {
         const ownPlayer = liveProject.players.find(p => p.owner === live.identity);
         if (ownPlayer) setActor(ownPlayer.id);
       }
+      if (fromHome) { setMode('playground'); setSelected([]); setCurtain(undefined); }
       setModal(undefined); notify(`Connected to ${roomCode}. Welcome to the table.`);
     } catch (error) { setConnectionError(error instanceof Error ? error.message : String(error)); }
     finally { setConnecting(false); }
@@ -375,7 +377,7 @@ export default function App() {
       setStorageError(null);
     }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></Notice>
     {home && <Home projects={archive.projects} onLoad={openProject} onCreate={createProject}
-      onImport={() => fileInput.current?.click()} onExport={exportProject}
+      onImport={() => fileInput.current?.click()} onExport={exportProject} onJoin={() => { setConnectionError(''); setModal('session'); }}
       onExportAll={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}
       onDelete={id => {
         try {
@@ -519,7 +521,7 @@ export default function App() {
         }}><Plus size={15} /> New project</button><button className="button" disabled={!!session} onClick={() => fileInput.current?.click()}><Upload size={15} /> Import JSON</button><button className="button" onClick={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}><Download size={15} /> Export all projects</button></div>
       </div>
     </Modal>}
-    {modal === 'session' && <Modal title={session ? 'Your table is live.' : 'Good games bring people together.'} subtitle={session ? 'Share this room code with your playtesters.' : 'Play together over SpaceTimeDB, or pass the screen with hotseat.'} onClose={() => { if (!connecting) setModal(undefined); }}>
+    {modal === 'session' && <Modal title={session ? 'Your table is live.' : home ? 'Join a table.' : 'Good games bring people together.'} subtitle={session ? 'Share this room code with your playtesters.' : home ? 'Enter the room code your host shared to play along.' : 'Play together over SpaceTimeDB, or pass the screen with hotseat.'} onClose={() => { if (!connecting) setModal(undefined); }}>
       <div className="session-dialog">{session ? <>
         <div className="room-code"><span>ROOM CODE</span><strong>{session.code}</strong><button className="button" onClick={() => {
           void navigator.clipboard.writeText(`${session.code}\n${uri}\n${database}`).then(() => notify('Room details copied.')).catch(error => notify(String(error), true));
@@ -527,14 +529,14 @@ export default function App() {
         <p className="help-text">You're connected to {database}. Open the component designer without leaving the session. Everyone sees edits live.</p>
         <button className="button full" onClick={leave}><WifiOff size={15} /> Leave session & keep local copy</button>
       </> : <>
-        <div className="session-note"><Users size={22} /><div><strong>Already sharing a screen?</strong><p>Hotseat works offline. Add players in the Players tab and switch seats to keep hands hidden.</p></div></div>
+        {!home && <div className="session-note"><Users size={22} /><div><strong>Already sharing a screen?</strong><p>Hotseat works offline. Add players in the Players tab and switch seats to keep hands hidden.</p></div></div>}
         <Field label="Your name"><input maxLength={50} placeholder="Optional" value={playerName} onChange={e => setPlayerName(e.target.value)} /></Field>
         <Field label="SpaceTimeDB server"><input value={uri} onChange={e => setUri(e.target.value)} placeholder="http://127.0.0.1:3000" /></Field>
         <Field label="Database name"><input value={database} onChange={e => setDatabase(e.target.value)} /></Field>
         <Field label="Room code"><input className="room-code-input" maxLength={40} value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} /></Field>
-        <p className="help-text">Host publishes this playground to the room. Join opens an existing room. A room code grants editing access; use trusted playtesters. Hidden hand faces are a UI feature, not cryptographic privacy.</p>
+        <p className="help-text">{home ? 'The room opens as a project in your workshop, and you keep a local copy when you leave.' : 'Host publishes this playground to the room. Join opens an existing room.'} A room code grants editing access; use trusted playtesters. Hidden hand faces are a UI feature, not cryptographic privacy.</p>
         <Notice message={connectionError} className="inline-error" />
-        <div className="button-row"><button className="button full" disabled={connecting} onClick={() => void join(false)}>{connecting ? <LoaderCircle className="spin" size={15} /> : <Link size={15} />} Join room</button><button className="button primary full" disabled={connecting} onClick={() => void join(true)}>{connecting ? <LoaderCircle className="spin" size={15} /> : <Wifi size={15} />} Host this table</button></div>
+        <div className="button-row"><button className={`button ${home ? 'primary ' : ''}full`} disabled={connecting} onClick={() => void join(false)}>{connecting ? <LoaderCircle className="spin" size={15} /> : <Link size={15} />} Join room</button>{!home && <button className="button primary full" disabled={connecting} onClick={() => void join(true)}>{connecting ? <LoaderCircle className="spin" size={15} /> : <Wifi size={15} />} Host this table</button>}</div>
       </>}</div>
     </Modal>}
     {modal === 'save' && <Modal title="Keep this moment." subtitle="Save a named playground snapshot, including designs, hands and seats." onClose={() => setModal(undefined)}>

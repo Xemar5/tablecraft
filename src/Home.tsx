@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { Download, FolderPlus, GripVertical, Link2, Plus, Trash2, Upload } from 'lucide-react';
+import { Download, FolderPlus, GripVertical, Link2, Plus, Trash2, Upload, Users } from 'lucide-react';
 import { ComponentThumbnail } from './ComponentView';
 import { type Project } from './domain';
 import { Field, Modal } from './ui';
 
-export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onImport, onExport, onExportAll }: {
+export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onImport, onExport, onExportAll, onJoin }: {
   projects: Project[]; onLoad: (id: string) => void; onDelete: (id: string) => void;
   onReorder: (id: string, targetId: string, after: boolean) => void; onCreate: (name: string) => void;
-  onImport: () => void; onExport: (project: Project) => void; onExportAll: () => void;
+  onImport: () => void; onExport: (project: Project) => void; onExportAll: () => void; onJoin: () => void;
 }) {
   const [dragged, setDragged] = useState<string>();
   const [drop, setDrop] = useState<{ id: string; after: boolean }>();
@@ -18,6 +18,7 @@ export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onImport
     <div className="home-heading"><div><p>YOUR WORKSHOP</p><h1>Projects</h1><p>Design, collect, and play.</p></div>
       <div className="home-actions"><button className="button" onClick={onImport}><Upload size={16} /> Import projects</button>
         <button className="button" onClick={onExportAll} disabled={!projects.length}><Download size={16} /> Export all projects</button>
+        <button className="button" onClick={onJoin}><Users size={16} /> Join a table</button>
         <button className="button primary" onClick={() => { setName(`Untitled project ${projects.length + 1}`); setCreating(true); }}><Plus size={16} /> New project</button></div>
     </div>
     {!projects.length && <p className="empty-note">No projects yet. Create a project or import a Tablecraft export.</p>}
