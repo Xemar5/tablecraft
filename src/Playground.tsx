@@ -568,7 +568,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           transform: `translate(${pan.x}px, ${pan.y}px) rotate(${camera}deg) scale(${zoom})`,
           backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`,
         }}>
-          <div className="table-watermark"><span>W</span><p>THE WILDWOOD</p><small>A PLACE FOR YOUR NEXT GREAT IDEA</small></div>
+          <div className="table-watermark" aria-hidden="true"><span><Layers size={34} strokeWidth={1.4} /></span><p>TABLECRAFT</p><small>MAKE SOMETHING WORTH PLAYING</small></div>
           {p.settings.hands && p.players.map(player => {
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);
             const remaining = playerHeld.filter(i => !handDrop?.ids.includes(i.id));
