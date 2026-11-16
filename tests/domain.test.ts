@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCommand, bind, canStack, makeInstance, makeNode, safeImage, stackMembers, validateProject, visibleBack, visibleStackMembers } from '../src/domain';
+import { applyCommand, bind, canStack, makeInstance, makeNode, nextSeatPlacement, safeImage, stackMembers, validateProject, visibleBack, visibleStackMembers } from '../src/domain';
 import { starterProject, template } from '../src/templates';
 import { parseArchive, parseComponent } from '../src/storage';
 
@@ -511,5 +511,26 @@ describe('seat order and turns', () => {
     expect(p.settings.turn).toBe(1);
     p = applyCommand(p, { type: 'endTurn' });
     expect(p.settings.turn).toBe(0);
+  });
+});
+
+describe('seat placement', () => {
+  it('fills the table bottom, opposite, left, right, then the spaces between', () => {
+    const seats: { x: number; y: number; rotation: number }[] = [];
+    for (let n = 0; n < 8; n++) seats.push(nextSeatPlacement(seats));
+    expect(seats.slice(0, 4)).toEqual([
+      { x: 980, y: 1000, rotation: 0 }, { x: 980, y: 100, rotation: 180 },
+      { x: 220, y: 550, rotation: 90 }, { x: 1740, y: 550, rotation: -90 },
+    ]);
+    expect(seats.slice(4).map(seat => seat.rotation)).toEqual([45, -135, 135, -45]);
+    expect(seats[4].x).toBeLessThan(980); expect(seats[4].y).toBeGreaterThan(550);
+  });
+
+  it('matches the starter seats and reuses the widest gap after seats move or leave', () => {
+    const starter = starterProject().players;
+    expect(nextSeatPlacement(starter.slice(0, 1))).toEqual({ x: starter[1].x, y: starter[1].y, rotation: starter[1].rotation });
+    expect(nextSeatPlacement(starter).rotation).toBe(90);
+    expect(nextSeatPlacement([{ x: 980, y: 100 }])).toEqual({ x: 980, y: 1000, rotation: 0 });
+    expect(nextSeatPlacement([{ x: 980, y: 1000 }, { x: 220, y: 550 }, { x: 1740, y: 550 }]).rotation).toBe(180);
   });
 });

@@ -349,8 +349,8 @@ export default function App() {
   };
   const createProject = (name: string) => {
     if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
-    const next = { ...starterProject(), name, components: [], instances: [] };
-    setProject(next); setActor(next.players[0]?.id ?? ''); setComponentId(undefined); setSelected([]);
+    const next: Project = { ...starterProject(), name, components: [], instances: [], players: [] };
+    setProject(next); setActor(''); setComponentId(undefined); setSelected([]);
     setSearch(''); setFilter('all'); setMode('playground'); setModal('templates');
   };
   const copyLinked = async (component: Component) => {

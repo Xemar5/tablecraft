@@ -714,6 +714,30 @@ export function makeInstance(componentId: string, row = 0, x = 700, y = 450): In
   return { id: uid('piece'), componentId, row, x, y, rotation: 0, scale: 1, flipped: false, holder: null, stack: null, order: 0, locked: false };
 }
 
+// Seats sit on an ellipse around the table. Angle 0 is the bottom edge, 90 the left, 180 the top and 270 the right;
+// a seat's rotation equals its angle, so every seat faces the table centre.
+const SEAT_RING = { x: 980, y: 550, rx: 760, ry: 450 };
+const SEAT_ANGLES = (() => {
+  const angles = [0, 180, 90, 270];
+  for (let step = 45; angles.length < 128; step /= 2) {
+    for (let angle = step; angle < 360; angle += step * 2) for (const offset of [0, 180]) {
+      const candidate = (angle + offset) % 360;
+      if (!angles.includes(candidate)) angles.push(candidate);
+    }
+  }
+  return angles;
+})();
+
+export function nextSeatPlacement(players: Pick<Player, 'x' | 'y'>[]): Pick<Player, 'x' | 'y' | 'rotation'> {
+  const taken = players.map(seat => (Math.atan2(-(seat.x - SEAT_RING.x) / SEAT_RING.rx, (seat.y - SEAT_RING.y) / SEAT_RING.ry) * 180 / Math.PI + 360) % 360);
+  const gap = (angle: number) => Math.min(360, ...taken.map(other => { const d = Math.abs(angle - other) % 360; return Math.min(d, 360 - d); }));
+  // Take the first spot in "opposite, left, right, then in between" order that is furthest from every existing seat.
+  const angle = SEAT_ANGLES.reduce((best, candidate) => gap(candidate) > gap(best) + 0.01 ? candidate : best);
+  const radians = angle * Math.PI / 180;
+  return { x: Math.round(SEAT_RING.x - SEAT_RING.rx * Math.sin(radians)), y: Math.round(SEAT_RING.y + SEAT_RING.ry * Math.cos(radians)),
+    rotation: angle > 180 ? angle - 360 : angle };
+}
+
 export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> = {}): DesignNode {
   return {
     id: values.id ?? uid('layer'), parent: null, name: type[0].toUpperCase() + type.slice(1), type,
