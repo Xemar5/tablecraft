@@ -179,3 +179,5 @@
 .you-tag{display:inline-flex;align-items:center;flex:none;height:15px;margin-left:6px;padding:0 6px;border-radius:999px;background:#2f4a3f;color:#fff;font-size:8px;font-weight:700;letter-spacing:.06em;line-height:1;text-transform:uppercase;vertical-align:middle}
 .seat-badge>.you-tag{margin-left:-4px}
 .player-row-name{display:flex;align-items:center}
+
+.preview-stack-count{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:2px 6px;border-radius:999px;background:#365b42;color:#edf2df;font-size:10px;font-weight:600;vertical-align:middle}

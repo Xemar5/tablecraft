@@ -676,10 +676,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         {activePreviewId && !altDown && (() => {
           const item = p.instances.find(i => i.id === activePreviewId && !i.locked && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
+          const count = item && !item.holder ? stackMembers(p, item).length : 1;
           return item && comp ? <div className="hover-preview" style={previewOnLeft ? { left: 16, right: 'auto' } : undefined} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
-          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong>
+          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}{count > 1 && <span className="preview-stack-count" aria-label={`Stack of ${count}`}><Layers size={11} /> {count}</span>}</strong>
             <table className="preview-shortcuts" aria-label="Piece shortcuts"><tbody>
               <tr><th scope="row">Flip</th><td><kbd>F</kbd></td></tr>
               <tr><th scope="row">Rotate −90° / +90°</th><td><kbd>Q / E</kbd></td></tr>
