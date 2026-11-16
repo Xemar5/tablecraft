@@ -972,7 +972,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             : onWatch && <button className="button full" onClick={onWatch}><Eye size={15} /> Leave seat and watch</button>)}
         </div>
       </> : panel === 'selection' ? <>
-        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={canEditSeat(selectedSeat)} override={seatOverride(selectedSeat)}
+        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} nameLocked={online && !!selectedSeat.owner} editable={canEditSeat(selectedSeat)} override={seatOverride(selectedSeat)}
           held={p.instances.filter(i => i.holder === selectedSeat.id).length}
           onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
           onClose={() => setSelectedSeatId(undefined)}
@@ -1060,8 +1060,10 @@ const overrideLabel = (kind: SeatOverride) => kind === 'host' ? 'Host override' 
 const overrideNote = (kind: SeatOverride, name: string) => kind === 'host'
   ? `this seat belongs to another player. As the host, only you can change its settings or remove it.`
   : `you are changing ${name}'s seat from your active seat. Switch to ${name} to play with their hand.`;
-function SeatInspector({ player, active, editable, override, held, actions, lastSeat, onChange, onClose, onRemove }: {
-  player: Player; active: boolean; editable: boolean; override?: SeatOverride; held: number; actions: React.ReactNode; lastSeat: boolean;
+function SeatInspector({ player, active, nameLocked = false, editable, override, held, actions, lastSeat, onChange, onClose, onRemove }: {
+  player: Player; active: boolean; editable: boolean;
+  /** Online, a claimed seat shows its player's profile name, which only that player can change (in Settings). */
+  nameLocked?: boolean; override?: SeatOverride; held: number; actions: React.ReactNode; lastSeat: boolean;
   onChange: (patch: Partial<Player>) => void; onClose: () => void; onRemove: () => void;
 }) {
   const removeBlocked = lastSeat ? 'Keep at least one seat at the table.' : active ? 'Switch to another seat before removing this one.' : undefined;
@@ -1070,7 +1072,7 @@ function SeatInspector({ player, active, editable, override, held, actions, last
   useEffect(() => setName(player.name), [player.name]);
   const commitName = () => {
     const next = name.trim();
-    if (!cancelName.current && next && next !== player.name) onChange({ name: next }); else setName(player.name);
+    if (!nameLocked && !cancelName.current && next && next !== player.name) onChange({ name: next }); else setName(player.name);
     cancelName.current = false;
   };
   return <div className="inspector-section selected-inspector seat-inspector">
@@ -1079,8 +1081,10 @@ function SeatInspector({ player, active, editable, override, held, actions, last
         {actions}
     {override && <p className="host-override-note" role="note">{overrideLabel(override)}: {overrideNote(override, player.name)}</p>}
     <fieldset className={`seat-fields${override ? ' host-override' : ''}`} disabled={!editable}>
-      <Field label="Player name"><input required maxLength={50} value={name} onChange={e => setName(e.target.value)} onBlur={commitName}
+      <Field label="Player name"><input required maxLength={50} value={name} readOnly={nameLocked} title={nameLocked ? (active ? 'Change your name in Settings.' : 'Each player sets their own name in Settings.') : undefined}
+        onChange={e => setName(e.target.value)} onBlur={commitName}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { cancelName.current = true; e.currentTarget.blur(); } }} /></Field>
+      {nameLocked && editable && <p className="help-text">{active ? 'Your seat uses your profile name. Change it in Settings.' : "This seat uses its player's profile name."}</p>}
       <ColorField deferred label="Player color" value={player.color} onChange={color => onChange({ color })} />
       <div className="field-grid"><NumberField deferred label="Seat X" value={player.x} onChange={x => onChange({ x })} /><NumberField deferred label="Seat Y" value={player.y} onChange={y => onChange({ y })} /></div>
       <NumberField deferred label="Seat rotation" value={player.rotation} onChange={rotation => onChange({ rotation })} />

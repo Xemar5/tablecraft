@@ -15,7 +15,7 @@ import { LinkedComponent } from './LinkedComponent';
 import { linkComponent, localComponentCopy, refreshProjectLinks } from './projectLinks';
 import { LibraryVariants } from './LibraryVariants';
 import { startLibraryDrag } from './libraryDrag';
-import { DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, saveSettings, watchTheme, type UserSettings } from './settings';
+import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, saveSettings, validName, watchTheme, type UserSettings } from './settings';
 
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} /> : <Square size={size} />;
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
@@ -97,7 +97,7 @@ export default function App() {
   const [uri, setUri] = useState(settings.server);
   const [database, setDatabase] = useState(settings.database);
   const [roomCode, setRoomCode] = useState(() => `PLAY-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
-  const [playerName, setPlayerName] = useState(settings.name);
+  const [nameRequired, setNameRequired] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
@@ -145,11 +145,20 @@ export default function App() {
   const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, layersVisible, notify);
   useEffect(() => watchTheme(settings.theme), [settings.theme]);
   // Defaults prefill the session form; an open live session keeps the address it connected with.
-  useEffect(() => { if (!sessionRef.current) { setUri(settings.server); setDatabase(settings.database); setPlayerName(settings.name); } }, [settings.server, settings.database, settings.name]);
+  useEffect(() => { if (!sessionRef.current) { setUri(settings.server); setDatabase(settings.database); } }, [settings.server, settings.database]);
   const updateSettings = (patch: Partial<UserSettings>) => {
     const next = { ...settings, ...patch };
     setSettings(next);
     if (!saveSettings(next)) notify('Unable to save settings in this browser. They apply until you reload.', true);
+  };
+  // Settings open by themselves on first launch and only close once the profile has a name.
+  const settingsOpen = modal === 'settings' || !settings.onboarded;
+  const closeSettings = () => {
+    if (!validName(settings.name)) { setNameRequired(true); document.getElementById('settings-name')?.focus(); return; }
+    const name = settings.name.trim();
+    if (name !== settings.name || !settings.onboarded) updateSettings({ name, onboarded: true });
+    setNameRequired(false);
+    if (modal === 'settings') setModal(undefined);
   };
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
   // Online, the acting seat is whichever seat this identity occupies; without one the player watches as a viewer.
@@ -294,7 +303,7 @@ export default function App() {
   const takeSeat = async (playerId: string) => {
     const live = sessionRef.current;
     if (!live) return false;
-    const name = playerName.trim() || settings.name.trim();
+    const name = settings.name.trim();
     // Mirrors the take_seat reducer: leave any current seat, then claim the empty (or new) one under this player's name.
     const claim = (p: Project): Project => {
       const seat = p.players.find(player => player.id === playerId);
@@ -395,7 +404,7 @@ export default function App() {
       if (!/^[A-Z0-9-]{4,40}$/.test(roomCode)) throw new Error('Use 4-40 uppercase letters, digits or hyphens for the room code.');
       const { connectRoom } = await import('./multiplayer');
       const live = await connectRoom({
-        uri, database, code: roomCode, host, project, playerId: host ? actor : '', name: playerName.trim(), color: settings.color,
+        uri, database, code: roomCode, host, project, playerId: host ? actor : '', name: settings.name.trim(), color: settings.color,
       }, (next, history) => { setProject(next); setLiveUndo(history); }, message => notify(message, true), () => {
         sessionRef.current = undefined; setSession(undefined); notify('Disconnected. Your latest table is saved locally.', true);
       });
@@ -599,8 +608,22 @@ export default function App() {
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
     </Modal>}
-    {modal === 'settings' && <Modal title="Make it yours." subtitle="Preferences for you on this device. They stay in this browser and are never shared with other players." wide onClose={() => setModal(undefined)}>
+    {settingsOpen && <Modal title={settings.onboarded ? 'Make it yours.' : 'Welcome to Tablecraft.'} subtitle={settings.onboarded ? 'Preferences for you on this device. They stay in this browser and are never shared with other players.' : 'Before you start, tell the table who you are. Everything here stays in this browser, and you can change it any time in Settings.'} wide onClose={closeSettings}>
       <div className="settings-dialog">
+        <section className="settings-section" aria-labelledby="settings-profile">
+          <header><span className="settings-section-icon"><Users size={18} /></span><div><h3 id="settings-profile">Player profile</h3><p>Your name and color at every table: on your seat when you host or join, and on your first hotseat seat.</p></div></header>
+          <div className="field-grid">
+            <label className={`field settings-name${nameRequired && !validName(settings.name) ? ' invalid' : ''}`}><span>Your name</span>
+              <input id="settings-name" aria-label="Your name" required autoFocus={!settings.onboarded} maxLength={NAME_LIMIT} autoComplete="nickname" spellCheck={false} value={settings.name}
+                aria-invalid={nameRequired && !validName(settings.name)} aria-describedby="settings-name-hint"
+                onChange={e => updateSettings({ name: cleanName(e.target.value) })} onKeyDown={e => { if (e.key === 'Enter') closeSettings(); }} />
+              <small id="settings-name-hint" role={nameRequired && !validName(settings.name) ? 'alert' : undefined}>{nameRequired && !validName(settings.name) ? 'Choose a name to continue.' : 'Required. Up to 32 basic Latin (ASCII) characters.'}<em>{settings.name.length}/{NAME_LIMIT}</em></small>
+            </label>
+            <ColorField deferred alpha={false} label="Default color" value={settings.color} onChange={color => {
+              if (/^#[0-9a-f]{6}$/i.test(color)) updateSettings({ color: color.toLowerCase() }); else notify('Use a hex color such as #b7cc91 for your default color.', true);
+            }} />
+          </div>
+        </section>
         <section className="settings-section" aria-labelledby="settings-appearance">
           <header><span className="settings-section-icon"><Sun size={18} /></span><div><h3 id="settings-appearance">Appearance</h3><p>Choose how Tablecraft looks. System follows your device.</p></div></header>
           <div className="theme-options" role="radiogroup" aria-label="Theme">{([
@@ -608,15 +631,6 @@ export default function App() {
           ] as const).map(([value, label, Icon, hint]) => <button key={value} role="radio" aria-checked={settings.theme === value} className={`theme-option theme-option-${value} ${settings.theme === value ? 'active' : ''}`} onClick={() => updateSettings({ theme: value })}>
             <span className="theme-swatch" data-theme-fixed="" aria-hidden="true"><span /><span /><span /></span><strong><Icon size={14} /> {label}{settings.theme === value && <Check size={14} className="theme-check" />}</strong><small>{hint}</small>
           </button>)}</div>
-        </section>
-        <section className="settings-section" aria-labelledby="settings-profile">
-          <header><span className="settings-section-icon"><Users size={18} /></span><div><h3 id="settings-profile">Player profile</h3><p>Used for your seat when you host or join a table, and for your first hotseat seat.</p></div></header>
-          <div className="field-grid">
-            <Field label="Default name"><input maxLength={50} placeholder="Optional" value={settings.name} onChange={e => updateSettings({ name: e.target.value })} /></Field>
-            <ColorField deferred label="Default color" value={settings.color} onChange={color => {
-              if (/^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) updateSettings({ color }); else notify('Use a hex color such as #b7cc91 for your default color.', true);
-            }} />
-          </div>
         </section>
         <section className="settings-section" aria-labelledby="settings-multiplayer">
           <header><span className="settings-section-icon"><Wifi size={18} /></span><div><h3 id="settings-multiplayer">Multiplayer</h3><p>Prefilled when you invite players or join a table. You can still change them for a single session.</p></div></header>
@@ -626,7 +640,7 @@ export default function App() {
           </div>
           <button className="button settings-reset" disabled={settings.server === DEFAULT_SERVER && settings.database === DEFAULT_DATABASE} onClick={() => updateSettings({ server: DEFAULT_SERVER, database: DEFAULT_DATABASE })}><Undo2 size={14} /> Restore default server</button>
         </section>
-        <p className="settings-footer"><Check size={13} /> Changes are saved automatically.</p>
+        {settings.onboarded ? <p className="settings-footer"><Check size={13} /> Changes are saved automatically.</p> : <div className="settings-start"><button className="button primary" onClick={closeSettings}>Start making <ArrowRight size={15} /></button></div>}
       </div>
     </Modal>}
     {modal === 'session' && <Modal title={session ? 'Your table is live.' : home ? 'Join a table.' : 'Good games bring people together.'} subtitle={session ? 'Share this room code with your playtesters.' : home ? 'Enter the room code your host shared to play along.' : 'Play together over SpaceTimeDB, or pass the screen with hotseat.'} onClose={() => { if (!connecting) setModal(undefined); }}>
@@ -638,7 +652,7 @@ export default function App() {
         <button className="button full" onClick={leave}><WifiOff size={15} /> Leave session & keep local copy</button>
       </> : <>
         {!home && <div className="session-note"><Users size={22} /><div><strong>Already sharing a screen?</strong><p>Hotseat works offline. Add players in the Players tab and switch seats to keep hands hidden.</p></div></div>}
-        <Field label="Your name"><input maxLength={50} placeholder="Optional" value={playerName} onChange={e => setPlayerName(e.target.value)} /></Field>
+        <div className="session-identity"><span className="mini-avatar" style={{ background: settings.color }}>{settings.name.trim()[0]?.toUpperCase()}</span><div><small>Playing as</small><strong>{settings.name.trim()}</strong></div><span>Change your name in Settings.</span></div>
         <Field label="SpaceTimeDB server"><input value={uri} onChange={e => setUri(e.target.value)} placeholder="http://127.0.0.1:3000" /></Field>
         <Field label="Database name"><input value={database} onChange={e => setDatabase(e.target.value)} /></Field>
         <Field label="Room code"><input className="room-code-input" maxLength={40} value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} /></Field>

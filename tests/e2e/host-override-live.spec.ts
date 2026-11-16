@@ -25,7 +25,8 @@ test('the room host can change other seats with host-override marking while gues
     const inspector = host.locator('.seat-inspector');
     await expect(inspector.locator('.host-override-note')).toBeVisible();
     await expect(inspector.locator('fieldset.seat-fields.host-override')).toBeVisible();
-    await expect(host.getByLabel('Player name', { exact: true })).toBeEnabled();
+    // A claimed seat's name is its player's profile name, so even the host can't rename it.
+    await expect(host.getByLabel('Player name', { exact: true })).toHaveAttribute('readonly', '');
     await expect(inspector.getByRole('button', { name: 'Remove seat', exact: true })).toHaveClass(/host-override/);
     const take = host.getByRole('toolbar', { name: `${guestName}'s hand actions`, exact: true }).getByRole('button', { name: `Allow others to take from ${guestName}'s hand`, exact: true });
     await expect(take).toBeEnabled();
@@ -38,9 +39,8 @@ test('the room host can change other seats with host-override marking while gues
     expect(await background()).not.toBe(off);
     await expect(guest.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
-    await host.getByLabel('Player name', { exact: true }).fill('Renamed by host');
-    await host.getByLabel('Player name', { exact: true }).press('Enter');
-    await expect(guest.locator(`[data-seat-id="${guestId}"] .seat-badge strong`)).toHaveText('Renamed by host');
+    await host.getByLabel('Player name', { exact: true }).press('Backspace');
+    await expect(host.getByLabel('Player name', { exact: true })).toHaveValue(guestName);
 
     // Online, any seated player may add and edit empty seats without an override.
     const seatIds = () => guest.locator('.seat-marker').evaluateAll(markers => markers.map(marker => marker.getAttribute('data-seat-id')!));

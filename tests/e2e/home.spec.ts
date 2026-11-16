@@ -2,7 +2,8 @@ import { expect, test } from '@playwright/test';
 import { starterProject } from '../../src/templates';
 import { linkComponent } from '../../src/projectLinks';
 
-test.use({ storageState: { cookies: [], origins: [] } });
+// No saved projects, but a completed profile so the first-launch settings stay closed.
+test.use({ storageState: { cookies: [], origins: [{ origin: 'http://127.0.0.1:5173', localStorage: [{ name: 'tablecraft.settings.v1', value: JSON.stringify({ name: 'Tester', onboarded: true }) }] }] } });
 
 test('Home actions retain aligned spacing and icons, and New project has a padded form', async ({ page }) => {
   await page.goto('/');

@@ -23,3 +23,10 @@ export async function fillServer(page: Page) {
   await page.getByLabel('SpaceTimeDB server', { exact: true }).fill(process.env.TABLECRAFT_TEST_SERVER ?? 'http://127.0.0.1:3000');
   await page.getByLabel('Database name', { exact: true }).fill(process.env.TABLECRAFT_TEST_DATABASE ?? 'tablecraft-studio');
 }
+/** Players name themselves in Settings; set the saved profile name before the page loads. */
+export async function setProfileName(page: Page, name: string) {
+  await page.addInitScript(value => {
+    const key = 'tablecraft.settings.v1';
+    localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key) ?? '{}'), name: value, onboarded: true }));
+  }, name);
+}

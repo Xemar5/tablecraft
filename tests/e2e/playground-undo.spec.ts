@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Project } from '../../src/domain';
-import { settleJoin } from './liveSeat';
+import { setProfileName, settleJoin } from './liveSeat';
 
 async function state(page: Page): Promise<Project> {
   // Joining appends the remote project alongside this browser's original local workspace.
@@ -12,10 +12,10 @@ const server = process.env.TABLECRAFT_TEST_SERVER ?? 'http://127.0.0.1:3000';
 const database = process.env.TABLECRAFT_TEST_DATABASE ?? 'tablecraft-studio';
 
 async function connect(page: Page, code: string, host: boolean, name: string, seat: 'new' | { seat: string } = 'new') {
+  await setProfileName(page, name);
   await page.goto('/');
   if (await page.getByRole('region', { name: 'Project home' }).count()) await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
   await page.getByRole('button', { name: /Invite players/ }).click();
-  await page.getByLabel('Your name', { exact: true }).fill(name);
   await page.getByLabel('SpaceTimeDB server', { exact: true }).fill(server);
   await page.getByLabel('Database name', { exact: true }).fill(database);
   await page.getByLabel('Room code', { exact: true }).fill(code);

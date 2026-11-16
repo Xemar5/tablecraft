@@ -12,6 +12,8 @@ export default defineConfig({
     storageState: { cookies: [], origins: [{ origin: 'http://127.0.0.1:5173', localStorage: [
       { name: 'tablecraft.workspace.v1', value: JSON.stringify({ format: 'tablecraft', version: 1, projects: [project] }) },
       { name: 'tablecraft.last-project', value: project.id },
+      // Skip the first-launch profile prompt; tests that need a name set one with setProfileName.
+      { name: 'tablecraft.settings.v1', value: JSON.stringify({ name: '', color: '#b7cc91', onboarded: true }) },
     ] }] },
   },
   webServer: { command: 'npm run dev -- --no-open --port 5173 --strictPort', url: 'http://127.0.0.1:5173', reuseExistingServer: true },

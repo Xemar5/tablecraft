@@ -1,5 +1,5 @@
 import { X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
-import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 
 export function useSmoothHorizontalWheel(target: RefObject<HTMLDivElement | null>) {
   useEffect(() => {
@@ -144,8 +144,10 @@ export function Notice({ message, children, className = 'error-banner', role = '
     <button type="button" className="icon-button notice-close" aria-label="Dismiss notification" title="Dismiss notification" onClick={() => setDismissed(true)}><X size={16} /></button>
   </div>;
 }
-export function ColorField({ label, value: committed, onChange, deferred = false }: {
+export function ColorField({ label, value: committed, onChange, deferred = false, alpha = true }: {
   label: string; value: string; onChange: (value: string) => void;
+  /** Offer an alpha slider; without it the color is always opaque. */
+  alpha?: boolean;
   /** Report the color only when an edit finishes (slider release, picker close, text blur or Enter). */
   deferred?: boolean;
 }) {
@@ -176,18 +178,19 @@ export function ColorField({ label, value: committed, onChange, deferred = false
       alpha: Math.round(Number(rgba[4] ?? 1) * 255),
     };
   }, [value]);
-  const withAlpha = (rgb: string, alpha: number) => alpha === 255 ? rgb : `${rgb}${alpha.toString(16).padStart(2, '0')}`;
+  const withAlpha = (rgb: string, opacity: number) => !alpha || opacity === 255 ? rgb : `${rgb}${opacity.toString(16).padStart(2, '0')}`;
   return <div ref={container} className="field color-field"><span>{label}</span>
     <div className="color-input">
       <input type="color" aria-label={label} value={parsed?.rgb ?? '#000000'} disabled={!parsed}
+        style={parsed ? { '--swatch': value } as CSSProperties : undefined}
         onChange={event => { if (parsed) report(withAlpha(event.target.value, parsed.alpha)); }} />
       <input aria-label={`${label} value`} value={value} onChange={event => report(event.target.value)}
         onKeyDown={event => { if (deferred && event.key === 'Enter') event.currentTarget.blur(); }} />
     </div>
-    <div className="color-alpha"><span>Alpha</span><input type="range" aria-label={`${label} alpha`} min={0} max={255} step={1} value={parsed?.alpha ?? 255} disabled={!parsed}
+    {alpha && <div className="color-alpha"><span>Alpha</span><input type="range" aria-label={`${label} alpha`} min={0} max={255} step={1} value={parsed?.alpha ?? 255} disabled={!parsed}
       onChange={event => { if (parsed) report(withAlpha(parsed.rgb, event.target.valueAsNumber)); }} />
       <output>{parsed ? `${Math.round(parsed.alpha / 255 * 100)}%` : 'N/A'}</output>
-    </div>
+    </div>}
   </div>;
 }
 export function NumberField({ label, value, onChange, min, max, step = 1, icon, deferred = false, disabled = false, title }: {
