@@ -527,7 +527,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             onPointerCancel={() => { seatGesture.current = null; setSeatPosition(undefined); }}
             onClick={() => { if (!seatMoved.current) selectSeat(player); seatMoved.current = false; }}
             style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
-            <div className="seat-badge"><span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
+            <div className="seat-badge"><span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>{player.id === actor && <YouTag />}
             <span>{playerHeld.length} cards</span></div>
             <div className={`other-hand ${canTake ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} style={{ outlineOffset: 20 / zoom }} aria-label={`${player.name}'s hand`}>
               {playerHeld.map((i, index) => {
@@ -734,7 +734,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">Hotseat</span></div>
           <p className="help-text">No fixed player limit. Add seats for everyone sharing this screen.</p>
           <div className="player-list">{p.players.map(player => <div key={player.id} className={`player-row ${actor === player.id ? 'active' : ''}`}>
-            <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span>{player.name}<small>{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
+            <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
             {(owner === 'local' || owner === player.owner) && <button className="icon-button" title={`Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
           <button className="button full" onClick={() => setSeatEditor({ id: uid('player'), owner, name: `Player ${p.players.length + 1}`, color: ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], x: 600 + p.players.length * 120, y: 1000, rotation: 0 })}><Plus size={15} /> Add hotseat player</button>
@@ -823,7 +823,7 @@ function SeatInspector({ player, active, editable, held, actions, onChange, onCl
   };
   return <div className="inspector-section selected-inspector seat-inspector">
     <div className="section-title"><h3>Seat selected</h3><button className="icon-button" title="Deselect" aria-label="Deselect seat" onClick={onClose}><X size={14} /></button></div>
-    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}</strong>    <small>{active ? 'Active seat' : editable ? `${held} in hand` : 'Remote player'}</small></div></div>
+    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}{active && <YouTag />}</strong><small>{active ? 'Active seat' : editable ? `${held} in hand` : 'Remote player'}</small></div></div>
         {actions}
     <fieldset className="seat-fields" disabled={!editable}>
       <Field label="Player name"><input required maxLength={50} value={name} onChange={e => setName(e.target.value)} onBlur={commitName}
@@ -834,4 +834,8 @@ function SeatInspector({ player, active, editable, held, actions, onChange, onCl
     </fieldset>
     {!editable && <p className="help-text">Only this seat's owner can change its settings.</p>}
   </div>;
+}
+
+function YouTag() {
+  return <span className="you-tag" title="This is your seat">You</span>;
 }

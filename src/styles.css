@@ -175,3 +175,7 @@
 .seat-hand-actions .icon-button[aria-pressed="true"]{background:#e7eedc;color:#365d46}
 .seat-hand-actions .icon-button:disabled{opacity:.4;cursor:not-allowed}
 .seat-inspector .selected-component small{text-transform:none}
+
+.you-tag{display:inline-flex;align-items:center;flex:none;height:15px;margin-left:6px;padding:0 6px;border-radius:999px;background:#2f4a3f;color:#fff;font-size:8px;font-weight:700;letter-spacing:.06em;line-height:1;text-transform:uppercase;vertical-align:middle}
+.seat-badge>.you-tag{margin-left:-4px}
+.player-row-name{display:flex;align-items:center}

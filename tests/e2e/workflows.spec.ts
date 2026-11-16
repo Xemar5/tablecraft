@@ -210,7 +210,7 @@ test('visible hands accept cards by default and allow taking only when enabled',
   await page.getByRole('button', { name: 'Allow others to take from my hand', exact: true }).click();
   await page.locator('[data-seat-id="player-1"]').click();
   await page.getByRole('button', { name: 'Switch to this seat', exact: true }).click();
-  await page.getByRole('button', { name: "I'm You. Let's play.", exact: false }).click();
+  await page.getByRole('button', { name: "I'm Player 1. Let's play.", exact: false }).click();
   await expect(page.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await otherCard.hover();
   await expect(otherCard).toHaveCSS('outline-width', '3px');
@@ -320,10 +320,10 @@ test('stack search, draw, hotseat privacy, hand release and manipulation', async
   await expect(page.locator('.privacy-curtain')).toBeVisible();
   await page.getByRole('button', { name: "I'm Player 2. Let's play." }).click();
   await expect(page.locator('.hand-card')).toHaveCount(0);
-  await expect(page.getByLabel("You's hand", { exact: true })).toContainText('W I L D W O O D');
-  await expect(page.getByLabel("You's hand", { exact: true })).not.toContainText('Forest guardian');
-  await page.locator('.player-row').filter({ hasText: 'You' }).getByRole('button').first().click();
-  await page.getByRole('button', { name: "I'm You. Let's play." }).click();
+  await expect(page.getByLabel("Player 1's hand", { exact: true })).toContainText('W I L D W O O D');
+  await expect(page.getByLabel("Player 1's hand", { exact: true })).not.toContainText('Forest guardian');
+  await page.locator('.player-row').filter({ hasText: 'Player 1' }).getByRole('button').first().click();
+  await page.getByRole('button', { name: "I'm Player 1. Let's play." }).click();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   const handCard = (await page.locator('.hand-card').boundingBox())!;
   const table = (await page.locator('.table-viewport').boundingBox())!;
@@ -489,13 +489,13 @@ test('hidden fronts work for nonflippable pieces and can be made public', async 
   await page.getByRole('button', { name: /Players 2/ }).click();
   await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button').first().click();
   await page.getByRole('button', { name: "I'm Player 2. Let's play." }).click();
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.hidden-face')).toHaveCount(1);
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.node-component')).toHaveCount(0);
+  await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.hidden-face')).toHaveCount(1);
+  await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.node-component')).toHaveCount(0);
   await page.getByRole('button', { name: 'Edit Amber token', exact: true }).click();
   await page.getByRole('button', { name: 'Behavior', exact: true }).click();
   await page.getByLabel('Hide front in hand', { exact: false }).uncheck();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.node-component')).toHaveCount(1);
+  await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.node-component')).toHaveCount(1);
 });
 
 test('hover shortcuts, hand visibility, reordering and drag between hand and stack', async ({ page }) => {
@@ -505,10 +505,10 @@ test('hover shortcuts, hand visibility, reordering and drag between hand and sta
   await expect(page.getByLabel('Preview Spirit cards')).toBeVisible();
   await page.keyboard.press('2');
   await expect(page.locator('.hand-card')).toHaveCount(2);
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(2);
+  await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(2);
   await page.getByRole('button', { name: 'Hide my table hand' }).click();
   await expect(page.getByRole('button', { name: 'Show my table hand' })).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByLabel("You's hand", { exact: true })).toContainText('W I L D W O O D');
+  await expect(page.getByLabel("Player 1's hand", { exact: true })).toContainText('W I L D W O O D');
   const before = (await workspace(page)).projects[0].instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order).map(i => i.id);
   const cards = page.locator('.hand-card');
   const a = (await cards.nth(1).boundingBox())!, b = (await cards.nth(0).boundingBox())!;
@@ -591,7 +591,7 @@ test('zero draws ten and hover flip does not require selecting the piece', async
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).hover();
   await page.keyboard.press('0');
   await expect(page.locator('.hand-card')).toHaveCount(10);
-  await expect(page.getByLabel("You's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(10);
+  await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(10);
 });
 
 test('multiplayer synchronizes atomic hand and stack interactions', async ({ browser, storageState }) => {

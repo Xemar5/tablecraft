@@ -93,7 +93,7 @@ export default function App() {
   const [uri, setUri] = useState(import.meta.env.VITE_SPACETIMEDB_URI ?? 'http://127.0.0.1:3000');
   const [database, setDatabase] = useState(import.meta.env.VITE_SPACETIMEDB_DATABASE ?? 'tablecraft-studio');
   const [roomCode, setRoomCode] = useState(() => `PLAY-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
-  const [playerName, setPlayerName] = useState('You');
+  const [playerName, setPlayerName] = useState('');
   const [projectName, setProjectName] = useState('');
   const [saveName, setSaveName] = useState('');
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
@@ -323,7 +323,7 @@ export default function App() {
       if (!/^[A-Z0-9-]{4,40}$/.test(roomCode)) throw new Error('Use 4-40 uppercase letters, digits or hyphens for the room code.');
       const { connectRoom } = await import('./multiplayer');
       const live = await connectRoom({
-        uri, database, code: roomCode, host, project, playerId: uid('player'), name: playerName.trim() || 'Player', color: '#b7cc91',
+        uri, database, code: roomCode, host, project, playerId: uid('player'), name: playerName.trim(), color: '#b7cc91',
       }, (next, history) => { setProject(next); setLiveUndo(history); }, message => notify(message, true), () => {
         sessionRef.current = undefined; setSession(undefined); notify('Disconnected. Your latest table is saved locally.', true);
       });
@@ -528,7 +528,7 @@ export default function App() {
         <button className="button full" onClick={leave}><WifiOff size={15} /> Leave session & keep local copy</button>
       </> : <>
         <div className="session-note"><Users size={22} /><div><strong>Already sharing a screen?</strong><p>Hotseat works offline. Add players in the Players tab and switch seats to keep hands hidden.</p></div></div>
-        <Field label="Your name"><input maxLength={50} value={playerName} onChange={e => setPlayerName(e.target.value)} /></Field>
+        <Field label="Your name"><input maxLength={50} placeholder="Optional" value={playerName} onChange={e => setPlayerName(e.target.value)} /></Field>
         <Field label="SpaceTimeDB server"><input value={uri} onChange={e => setUri(e.target.value)} placeholder="http://127.0.0.1:3000" /></Field>
         <Field label="Database name"><input value={database} onChange={e => setDatabase(e.target.value)} /></Field>
         <Field label="Room code"><input className="room-code-input" maxLength={40} value={roomCode} onChange={e => setRoomCode(e.target.value.toUpperCase())} /></Field>

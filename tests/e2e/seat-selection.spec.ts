@@ -11,10 +11,14 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await expect(page.getByRole('heading', { name: 'Seat selected', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: "I'm Player 2. Let's play.", exact: false })).toHaveCount(0);
   await expect(page.locator('.seat-marker.active')).toHaveAttribute('data-seat-id', 'player-1');
+  await expect(page.locator('[data-seat-id="player-1"] .seat-badge strong')).toHaveText('Player 1');
+  await expect(page.locator('[data-seat-id="player-1"] .you-tag')).toHaveText('You');
+  await expect(page.locator('[data-seat-id="player-2"] .you-tag')).toHaveCount(0);
+  await expect(page.locator('.seat-inspector .you-tag')).toHaveCount(0);
   const otherActions = page.getByRole('toolbar', { name: "Player 2's hand actions", exact: true });
   const inactiveTop = (await otherActions.boundingBox())!.y;
   await page.locator('[data-seat-id="player-1"]').click();
-  expect((await page.getByRole('toolbar', { name: "You's hand actions", exact: true }).boundingBox())!.y).toBeCloseTo(inactiveTop, 0);
+  expect((await page.getByRole('toolbar', { name: "Player 1's hand actions", exact: true }).boundingBox())!.y).toBeCloseTo(inactiveTop, 0);
   await expect(page.locator('.hand-toolbar').getByRole('button', { name: 'Allow others to insert into my hand', exact: true })).toBeVisible();
   await page.locator('[data-seat-id="player-2"]').click();
   for (const name of ["Turn cards face up when entering Player 2's hand", "Hide Player 2's table hand", "Shuffle Player 2's hand", "Reverse Player 2's hand", "Allow others to insert into Player 2's hand", "Allow others to take from Player 2's hand", "Unlock Player 2's table hand"])
@@ -54,6 +58,9 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await expect(page.getByRole('button', { name: "I'm Player 2. Let's play.", exact: false })).toBeVisible();
   await page.getByRole('button', { name: "I'm Player 2. Let's play.", exact: false }).click();
   await expect(page.locator('.seat-marker.active')).toHaveAttribute('data-seat-id', 'player-2');
+  await expect(page.locator('[data-seat-id="player-2"] .you-tag')).toBeVisible();
+  await expect(page.locator('[data-seat-id="player-1"] .you-tag')).toHaveCount(0);
+  await expect(page.locator('.seat-inspector .you-tag')).toBeVisible();
 
   const seatActions = page.getByRole('toolbar', { name: "Player 2's hand actions", exact: true });
   await expect(seatActions.getByRole('button', { name: 'Switch to this seat', exact: true })).toBeDisabled();
@@ -73,7 +80,7 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await expect(page.locator('.hand-toolbar').getByRole('button', { name: 'Show my table hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.hand-toolbar').getByRole('button', { name: 'Lock my table hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-seat-id="player-2"]')).toHaveAttribute('title', "Drag Player 2's seat");
-  await expect(page.locator('[data-seat-id="player-1"]')).toHaveAttribute('title', "Select You's seat");
+  await expect(page.locator('[data-seat-id="player-1"]')).toHaveAttribute('title', "Select Player 1's seat");
 
   await page.keyboard.press('Escape');
   await expect(page.getByRole('heading', { name: 'Seat selected', exact: true })).toHaveCount(0);

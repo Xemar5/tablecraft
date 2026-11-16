@@ -167,7 +167,7 @@ export function starterProject(): Project {
       { ...makeInstance(die.id, 3, 1200, 720), scale: 0.85, rotation: 12 },
     ],
     players: [
-      { id: 'player-1', owner: 'local', name: 'You', color: '#b7cc91', x: 980, y: 1000, rotation: 0 },
+      { id: 'player-1', owner: 'local', name: 'Player 1', color: '#b7cc91', x: 980, y: 1000, rotation: 0 },
       { id: 'player-2', owner: 'local', name: 'Player 2', color: '#ce9e7b', x: 980, y: 100, rotation: 180 },
     ],
     settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },

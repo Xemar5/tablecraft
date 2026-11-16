@@ -52,7 +52,7 @@ export const join_room = db.reducer({
     if (!player) {
       if (project.players.some(p => p.id === args.playerId)) throw new Error('Player identifier is already in use.');
       player = {
-        id: args.playerId, owner: identity, name: args.name, color: args.color,
+        id: args.playerId, owner: identity, name: args.name.trim() || `Player ${project.players.length + 1}`, color: args.color,
         x: 600 + project.players.length * 120, y: 1000, rotation: 0,
       };
       project.players.push(player);
