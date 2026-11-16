@@ -59,8 +59,11 @@ for (const origin of ['table', 'tray', 'mini'] as const) {
     await page.mouse.down();
     await page.mouse.move(seat.x + seat.width / 2, seat.y + seat.height / 2, { steps: 10 });
     await expect(page.locator('.mini-drop-preview')).toHaveCount(1);
+    await expect(page.locator('.hover-preview')).toBeVisible();
+    await expect(page.locator('.hand-drop-hint')).toContainText('Hold Alt to place on table instead');
     await page.keyboard.down('Alt');
     await expect(page.locator('.mini-drop-preview')).toHaveCount(0);
+    await expect(page.locator('.hand-drop-hint')).toHaveCount(0);
     await page.mouse.move(seat.x + seat.width / 2 + 1, seat.y + seat.height / 2);
     await expect(page.locator('.hand-drop-target')).toHaveCount(0);
     await page.mouse.up();
@@ -87,6 +90,13 @@ for (const [index, rotation] of [[0, 0], [1, 90], [3, 180]]) {
     await page.mouse.down();
     await page.mouse.move(point.x, point.y, { steps: 10 });
     await expect(mini).toHaveClass(/hand-drop-target/);
+    await expect(page.locator('.hover-preview')).toBeVisible();
+    await expect(page.locator('.hand-drop-hint')).toContainText(`Position ${index + 1}`);
+    const zoomLabel = await page.getByRole('button', { name: 'Fit table', exact: true }).innerText();
+    const zoom = Number(zoomLabel.replace('%', '')) / 100;
+    const offset = await mini.evaluate(element => parseFloat(getComputedStyle(element).outlineOffset));
+    expect(offset * zoom).toBeGreaterThan(19);
+    expect(offset * zoom).toBeLessThan(28);
     await expect(page.locator('.mini-drop-preview .component-thumbnail')).toHaveCSS('width', '44px');
     const ghostWidth = (await page.locator('.mini-drop-preview').boundingBox())!.width;
     expect(ghostWidth).toBeLessThan(box.width / 2);

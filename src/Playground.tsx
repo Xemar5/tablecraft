@@ -64,6 +64,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   if (searchedItems[0]?.stackReversed) searchedItems.reverse();
   const topPieces = p.instances.filter(i => !i.holder && (!i.stack || visibleStackMembers(p, i).at(-1)?.id === i.id));
   const selectedPieces = p.instances.filter(i => selected.includes(i.id));
+  const activePreviewId = handDrag?.id ?? (gesture.current && !gesture.current.pan ? Object.keys(gesture.current.positions).at(-1) : undefined) ?? previewItem;
   useEffect(() => {
     const element = handScroller.current;
     if (!element) return;
@@ -454,7 +455,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
             <span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
             <span>{playerHeld.length} cards</span>
-            <div className={`other-hand ${player.id === actor || permissions.take ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} aria-label={`${player.name}'s hand`}>
+            <div className={`other-hand ${player.id === actor || permissions.take ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} style={{ outlineOffset: 20 / zoom }} aria-label={`${player.name}'s hand`}>
               {playerHeld.map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
                 return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && (player.id === actor || permissions.take)} className={`${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
@@ -538,8 +539,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           <button className={p.settings.snap ? 'active-subtle' : ''} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
         </div>
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
-        {previewItem && !gesture.current && !handDrag && !altDown && (() => {
-          const item = p.instances.find(i => i.id === previewItem && !i.locked && (!i.holder || i.holder === actor));
+        {activePreviewId && !altDown && (() => {
+          const item = p.instances.find(i => i.id === activePreviewId && !i.locked && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
           return item && comp ? <div className="hover-preview" style={previewOnLeft ? { left: 16, right: 'auto' } : undefined} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {
@@ -644,6 +645,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         }}><ComponentView component={comp} components={p.components} row={item.row} back={visibleBack(item)} /></div>;
       })}
       {marquee && <div className="selection-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.width, height: marquee.height }} />}
+      {handDrop && <div className="stack-drop-hint hand-drop-hint" role="status" style={{ left: Math.min(handDrop.x + 18, window.innerWidth - 285), top: Math.max(12, handDrop.y - 62) }}>
+        <strong>Release to insert into hand</strong>
+        <span>Position {handDrop.index + 1} · Hold Alt to place on table instead</span>
+      </div>}
       {dropHint && <div className={`stack-drop-hint ${altDown ? 'stack-bypassed' : ''}`} role="status" style={{ left: Math.min(dropHint.x + 18, window.innerWidth - 285), top: Math.max(12, dropHint.y - 62) }}>
         <strong>{altDown ? 'Stacking off — release to move' : 'Release to add to stack'}</strong>
         <span>{altDown ? 'Release Alt to stack instead' : 'Hold Alt to move without stacking'}</span>
