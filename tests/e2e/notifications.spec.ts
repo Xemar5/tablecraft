@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 
-test('undo notices can be dismissed locally and new notices still appear', async ({ page }) => {
+test('undo notices pop up as dismissible toasts and new notices still appear', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
-  const notice = page.getByRole('status').filter({ hasText: 'Undo history cleared because component designs changed.' });
+  const notice = page.locator('.undo-toast').filter({ hasText: 'Undo history cleared' }).filter({ hasText: 'Component designs changed.' });
   await expect(notice).toBeVisible();
   await notice.getByRole('button', { name: 'Dismiss notification', exact: true }).click();
   await expect(notice).toHaveCount(0);
@@ -19,6 +19,22 @@ test('undo notices can be dismissed locally and new notices still appear', async
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(notice).toBeVisible();
+  await notice.click();
+  await expect(notice).toHaveCount(0);
+  await page.getByRole('button', { name: 'Component designer', exact: true }).click();
+  await page.getByRole('button', { name: 'Add text', exact: true }).click();
+  await page.getByRole('button', { name: 'Playground', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+});
+
+test('undo toasts hide on their own after a few seconds', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  await page.getByRole('button', { name: 'Add text', exact: true }).click();
+  await page.getByRole('button', { name: 'Playground', exact: true }).click();
+  const notice = page.locator('.undo-toast');
+  await expect(notice).toBeVisible();
+  await expect(notice).toHaveCount(0, { timeout: 9000 });
 });
 
 test('dismissing a storage warning does not permit overwriting the unreadable save', async ({ page }) => {

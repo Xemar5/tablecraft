@@ -197,7 +197,10 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   };
   const positionPreview = (clientX: number) => {
     const rect = viewport.current?.getBoundingClientRect();
-    if (rect) setPreviewOnLeft(clientX >= rect.left + rect.width * 2 / 3);
+    if (!rect) return;
+    // Switch sides before the cursor reaches the area the right-hand preview covers, which is most of a narrow table.
+    const width = viewport.current?.querySelector('.hover-preview')?.getBoundingClientRect().width || Math.min(rect.width * .9, 500);
+    setPreviewOnLeft(clientX >= Math.min(rect.left + rect.width * 2 / 3, Math.max(rect.left + rect.width / 2, rect.right - 16 - width - 24)));
   };
   const enterPiece = (event: React.PointerEvent, id: string) => {
     pointer.current = { x: event.clientX, y: event.clientY };

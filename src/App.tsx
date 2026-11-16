@@ -251,6 +251,17 @@ export default function App() {
   const viewer = !!session && !actor;
   const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
   const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
+  // Each new undo notice pops up once as a toast when the table is visible, then hides after a few seconds or a click.
+  const [undoToast, setUndoToast] = useState<string>();
+  const shownNotice = useRef('');
+  const noticeKey = `${session?.code ?? 'offline'}:${project.id}:${undoNotice}`;
+  useEffect(() => {
+    if (!undoNotice) { shownNotice.current = ''; setUndoToast(undefined); return; }
+    if (home || mode !== 'playground') { setUndoToast(undefined); return; }
+    if (shownNotice.current === noticeKey) return;
+    shownNotice.current = noticeKey; setUndoToast(undoNotice);
+  }, [undoNotice, noticeKey, home, mode]);
+  useEffect(() => { if (!undoToast) return; const timer = setTimeout(() => setUndoToast(undefined), 6000); return () => clearTimeout(timer); }, [undoToast]);
   const undo = useCallback(() => {
     if (sessionRef.current) {
       void sessionRef.current.undo(actor).catch(error => notify(error instanceof Error ? error.message : String(error), true));
@@ -432,7 +443,6 @@ export default function App() {
       </>}
             {home && <div className="header-actions">{settingsButton}</div>}
     </header>
-    <Notice key={`${session?.code ?? 'offline'}:${project.id}`} message={undoNotice} role="status" hidden={home || mode !== 'playground'} />
     <Notice message={storageError ?? ''}><button onClick={() => {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
       setStorageError(null);
@@ -525,7 +535,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
