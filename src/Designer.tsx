@@ -694,10 +694,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 <button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button>
               </div>
             </div>
-            {selected.length === 1 && <div className="visibility-rules">
-              <Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
-              {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}
-            </div>}
           </div>
           <div className="inspector-section design-section transform-section">
             <div className="field-grid transform-grid"><NumberField label="X" icon={<MoveHorizontal size={14} />} value={node.x} onChange={x => updateNode({ x })} />
@@ -823,6 +819,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 <NumberField label="Left" value={node.paddingLeft ?? node.padding} min={0} max={200} onChange={paddingLeft => updateNode({ paddingLeft })} />
               </div></div>
             </>}
+          </div>}
+          {selected.length === 1 && <div className="inspector-section design-section visibility-rules">
+            <Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
+            {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}
           </div>}
         </> : <>
           <div className="inspector-section design-section">

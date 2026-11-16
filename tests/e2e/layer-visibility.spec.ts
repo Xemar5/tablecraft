@@ -24,6 +24,8 @@ test('layer and group visibility controls preserve the design and support undo',
   await expect(face).not.toContainText('Unique child text');
   await expect(groupRow.getByRole('button', { name: 'Show Visibility group' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Visible', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#designer-inspector-panel .design-section').last()).toHaveClass(/visibility-rules/);
+  await expect(page.locator('#designer-inspector-panel .design-section').last().getByLabel('Show when CSV field', { exact: true })).toBeVisible();
   await expect.poll(async () => (await stored()).find(node => node.name === 'Visibility group')?.visible).toBe(false);
   const after = await stored();
   expect(after).toEqual(before.map(node => node.name === 'Visibility group' ? { ...node, visible: false } : node));
