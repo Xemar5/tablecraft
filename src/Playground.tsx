@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
@@ -8,6 +8,7 @@ import { ZoomPresets } from './ZoomPresets';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
+import { stackPlan, stackSlot } from './stackOrder';
 
 type Props = {
   project: Project; actor: string; owner: string; host?: boolean; selected: string[]; setSelected: (ids: string[]) => void;
@@ -125,6 +126,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   if (searchedItems[0]?.stackReversed) searchedItems.reverse();
   const topPieces = p.instances.filter(i => !i.holder && (!i.stack || visibleStackMembers(p, i).at(-1)?.id === i.id));
   const selectedPieces = p.instances.filter(i => selected.includes(i.id));
+  const plan = useMemo(() => viewer ? undefined : stackPlan(p, selected, actor || undefined), [p, selected, actor, viewer]);
   const wholeStack = items.length > 1 && selectedPieces.length === items.length && items.every(i => selected.includes(i.id));
   const stackTop = piece && !piece.holder ? visibleStackMembers(p, piece).at(-1) : undefined;
   const canDrawSelection = p.settings.hands && !selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand);
@@ -608,7 +610,9 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
                 const bounds = viewport.current?.querySelector<HTMLElement>(`[data-piece-id="${CSS.escape(item.id)}"]`)?.getBoundingClientRect();
                 return bounds && bounds.right >= rect.x && bounds.left <= rect.x + rect.width && bounds.bottom >= rect.y && bounds.top <= rect.y + rect.height;
               }).flatMap(item => stackMembers(p, item).map(i => i.id));
-              setSelected([...new Set([...box.ids, ...ids])]);
+              // Keep pieces already in the box in the order they were caught, so the stacking order follows the sweep.
+              const inBox = new Set(ids);
+              setSelected([...new Set([...box.ids, ...selected.filter(id => inBox.has(id)), ...ids])]);
             }
             return;
           }
@@ -727,8 +731,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             const position = preview[item.id] ?? item;
             return <div key={item.id} className={`table-piece ${rolling[item.id] !== undefined ? 'rolling' : ''} ${selected.includes(item.id) ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${preview[item.id] ? `dragging drag-source ${handDrop ? 'mini-drop-source' : ''}` : ''} ${dropHint?.id === item.id && !altDown ? 'stack-drop-target' : ''}`}
               data-testid="table-piece" data-piece-id={item.id}
-              style={{ left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : p.instances.indexOf(item) + 2,
-                transform: `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})` }}
+              style={{ '--piece-zoom': zoom * item.scale, left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : p.instances.indexOf(item) + 2,
+                transform: `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})` } as React.CSSProperties}
               onPointerDown={e => startPiece(e, item)}
               onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece}
               onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} tabIndex={0} role="button" aria-label={`${comp.name}${members.length > 1 ? `, stack of ${members.length}` : ''}`}
@@ -738,6 +742,15 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               <ComponentView component={comp} components={p.components} row={rolling[item.id] ?? item.row} back={visibleBack(item)} />
               {members.length > 1 && <span className="stack-count"><Layers size={13} /> {members.length}</span>}
               {item.locked && <span className="piece-lock"><LockKeyhole size={15} /></span>}
+              {plan && selected.includes(item.id) && (() => {
+                const index = plan.units.indexOf(item.stack ?? item.id);
+                if (index < 0) return null;
+                const slot = stackSlot(index, plan.units.length);
+                return <span className={`stack-order-badge ${plan.error ? 'blocked' : ''}`} data-testid="stack-order" data-slot={slot}
+                  title={plan.error ? `Can't stack: ${plan.error}` : `Stacked ${slot === 'bottom' ? 'at the bottom' : slot === 'top' ? 'on top' : 'in the middle'} (${index + 1} of ${plan.units.length})`}>
+                  <b>{index + 1}</b><StackSlotIcon slot={slot} blocked={!!plan.error} />
+                </span>;
+              })()}
               {selected.includes(item.id) && <><i className="selection-corner tl" /><i className="selection-corner tr" /><i className="selection-corner bl" /><i className="selection-corner br" /></>}
             </div>;
           })}
@@ -749,6 +762,9 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           <span /><button className={p.settings.grid ? 'active-subtle' : ''} title="Toggle grid" aria-label="Toggle grid" onClick={() => dispatch({ type: 'settings', patch: { grid: !p.settings.grid } })}><Grid2X2 size={18} /></button>
           <button className={p.settings.snap ? 'active-subtle' : ''} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
         </div>
+        {plan?.error && <div className="stack-order-warning" role="status" onPointerDown={e => e.stopPropagation()}>
+          <StackSlotIcon blocked /><span><strong>Pieces can't be stacked</strong><small>{plan.error}</small></span>
+        </div>}
         {p.settings.turns && turnPlayer && <div className="turn-pill" role="status" aria-label="Turn" onPointerDown={e => e.stopPropagation()}>
           <span className="turn-pill-avatar" style={{ background: turnPlayer.color }}>{turnPlayer.name.slice(0, 1).toUpperCase()}</span>
           <span className="turn-pill-name"><span className="turn-pill-label"><strong>{turnPlayer.name}</strong>'s turn</span>{turnPlayer.id === actor && <YouTag />}</span>
@@ -937,7 +953,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
           <div className="field-grid"><NumberField deferred label="Rotation" value={piece.rotation} onChange={rotation => dispatch({ type: 'transform', ids: selected, rotation: rotation - piece.rotation })} /><NumberField deferred label="Scale" value={piece.scale} min={.1} max={5} step={.1} onChange={scale => dispatch({ type: 'transform', ids: selected, scaleFactor: scale / piece.scale })} /></div>
-          {selected.length > 1 && <button className="button full" onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={15} /> Stack selected pieces</button>}
+          {selected.length > 1 && <button className="button full" disabled={!!plan?.error} title={plan?.error ? `Can't stack: ${plan.error}` : plan ? 'The first selected piece goes on the bottom, the last on top' : undefined} onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={15} /> Stack selected pieces</button>}
           {items.length > 1 && <div className="stack-actions"><button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>
             <button className="button" disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={14} /> Shuffle</button>
             <button className="button full" onClick={() => dispatch({ type: 'unstack', id: piece.id })}><Layers size={14} /> Spread stack</button></div>}
@@ -1031,4 +1047,12 @@ function SeatInspector({ player, active, editable, override, held, actions, last
 
 function YouTag() {
   return <span className="you-tag" title="This is your seat">You</span>;
+}
+
+/** A three-line stack glyph highlighting where a piece lands; crossed out when the selection can't be stacked. */
+function StackSlotIcon({ slot, blocked = false }: { slot?: 'bottom' | 'middle' | 'top'; blocked?: boolean }) {
+  return <svg className="stack-slot-icon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" fill="none" strokeWidth="2" strokeLinecap="round">
+    {(['top', 'middle', 'bottom'] as const).map((line, index) => <line key={line} className={slot === line ? 'on' : ''} x1="2.5" x2="11.5" y1={3 + index * 4} y2={3 + index * 4} />)}
+    {blocked && <line className="cross" x1="2" y1="12" x2="12" y2="2" />}
+  </svg>;
 }
