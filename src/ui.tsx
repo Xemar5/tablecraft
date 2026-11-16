@@ -37,6 +37,45 @@ export function ScrollArrows({ target, left, right, label }: {
   })}</>;
 }
 
+export function HorizontalScroll({ children, label, contentClassName = '', className = '', target }: {
+  children: ReactNode; label: string; contentClassName?: string; className?: string; target?: RefObject<HTMLDivElement | null>;
+}) {
+  const internal = useRef<HTMLDivElement>(null);
+  const ref = target ?? internal;
+  const [edges, setEdges] = useState({ left: false, right: false });
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const measure = () => setEdges(previous => {
+      const left = element.scrollLeft > 1, right = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
+      return previous.left === left && previous.right === right ? previous : { left, right };
+    });
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      event.preventDefault();
+      element.scrollLeft += delta * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1);
+    };
+    const resize = new ResizeObserver(measure);
+    const observe = () => {
+      resize.disconnect(); resize.observe(element);
+      for (const child of element.children) resize.observe(child);
+      measure();
+    };
+    const mutations = new MutationObserver(observe);
+    mutations.observe(element, { childList: true, subtree: true, characterData: true });
+    element.addEventListener('scroll', measure);
+    element.addEventListener('wheel', wheel, { passive: false });
+    observe();
+    return () => { resize.disconnect(); mutations.disconnect(); element.removeEventListener('scroll', measure); element.removeEventListener('wheel', wheel); };
+  }, [ref]);
+  return <div className={`horizontal-scroll ${className}${edges.left ? ' overflow-left' : ''}${edges.right ? ' overflow-right' : ''}`}>
+    <div ref={ref} className={`horizontal-scroll-content ${contentClassName}`} aria-label={label}>{children}</div>
+    <ScrollArrows target={ref} {...edges} label={label} />
+  </div>;
+}
+
 export function Modal({ title, subtitle, children, onClose, wide = false }: {
   title: string; subtitle?: string; children: ReactNode; onClose: () => void; wide?: boolean;
 }) {

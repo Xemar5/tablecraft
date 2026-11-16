@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, handPermissions, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Instance, type Player, type Project } from './domain';
-import { ColorField, Field, Modal, NumberField, Toggle } from './ui';
+import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
 type Props = {
@@ -90,17 +90,6 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     return () => document.removeEventListener('pointerdown', clear, true);
   }, [selected, held, setSelected]);
   const activePreviewId = handDrag?.id ?? (gesture.current && !gesture.current.pan ? Object.keys(gesture.current.positions).at(-1) : undefined) ?? previewItem;
-  useEffect(() => {
-    const element = handScroller.current;
-    if (!element) return;
-    const scroll = (e: WheelEvent) => {
-      if (e.ctrlKey) return;
-      e.preventDefault();
-      element.scrollLeft += Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    };
-    element.addEventListener('wheel', scroll, { passive: false });
-    return () => element.removeEventListener('wheel', scroll);
-  }, [p.settings.hands, handVisible]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Alt') {
@@ -604,7 +593,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
       </div>
       {p.settings.hands && handVisible && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
-        <div ref={handScroller} className="hand-cards" aria-label="Hand cards">{held.length ? held.map(item => {
+        <HorizontalScroll target={handScroller} contentClassName="hand-cards" className="hand-cards-scroll" label="Hand cards">{held.length ? held.map(item => {
          const comp = p.components.find(c => c.id === item.componentId)!;
           const draggingIds = handDrag ? selected.includes(handDrag.id) ? selected : [handDrag.id] : [];
           const remaining = held.filter(i => !draggingIds.includes(i.id));
@@ -656,8 +645,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             </div></div>;
         }) : <div className="empty-hand"><Copy size={20} /><span>Drag pieces here to take them into your hand.</span></div>}
         {insertion !== undefined && insertion === held.filter(i => !(handDrag && (selected.includes(handDrag.id) ? selected.includes(i.id) : i.id === handDrag.id))).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
-        </div>
-      </div><div className="hand-toolbar" aria-label="Hand actions">
+        </HorizontalScroll>
+      </div><HorizontalScroll contentClassName="hand-toolbar" label="Hand actions">
         <button className="icon-button" aria-label="Turn cards face up when entering a hand" title="Turn cards face up when entering a hand" aria-pressed={faceUpInHand} onClick={() => setFaceUpInHand(!faceUpInHand)}><FlipHorizontal2 size={16} /></button>
         <button className="icon-button" aria-label={handHidden ? 'Show my table hand' : 'Hide my table hand'} title={handHidden ? 'Show my table hand' : 'Hide my table hand'} aria-pressed={handHidden} onClick={() => setHandHidden(!handHidden)}>{handHidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
         <button className="icon-button" aria-label="Shuffle hand" title="Shuffle hand" disabled={held.length < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
@@ -666,7 +655,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         <button className="icon-button" aria-label="Allow others to take from my hand" title="Allow others to take from my hand" aria-pressed={permissions.take} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandTake: !permissions.take } })}><ArrowUpFromLine size={16} /></button>
         <button className="icon-button" aria-label={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} title={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} aria-pressed={seatsUnlocked} onClick={() => setSeatsUnlocked(!seatsUnlocked)}>{seatsUnlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
         <button className="icon-button" aria-label="Switch seat" title="Switch seat" onClick={() => { setPanel('players'); onShowInspector(); }}><Users size={16} /></button>
-      </div></>}
+      </HorizontalScroll></>}
       {handDrag && !handDrop && (() => {
         const item = p.instances.find(i => i.id === handDrag.id);
         const comp = p.components.find(c => c.id === item?.componentId);
@@ -707,7 +696,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     </>, document.body)}
     {inspectorVisible && <PanelSeparator label="Resize table inspector" controls="playground-inspector-panel" value={panels.sizes.playgroundInspector} {...panels.limits.playgroundInspector} direction={-1} onResize={value => panels.resize('playgroundInspector', value)} />}
     <aside id="playground-inspector-panel" className="inspector playground-inspector" style={{ width: panels.sizes.playgroundInspector, minWidth: 0, flex: `0 0 ${panels.sizes.playgroundInspector}px` }} hidden={!inspectorVisible}>
-      <div className="inspector-tabs"><button className={panel === 'table' ? 'active' : ''} onClick={() => setPanel('table')}><Settings2 size={14} /> Table</button><button className={panel === 'players' ? 'active' : ''} onClick={() => setPanel('players')}><Users size={14} /> Players <span>{p.players.length}</span></button></div>
+      <HorizontalScroll contentClassName="inspector-tabs" label="Table inspector tabs"><button className={panel === 'table' ? 'active' : ''} onClick={() => setPanel('table')}><Settings2 size={14} /> Table</button><button className={panel === 'players' ? 'active' : ''} onClick={() => setPanel('players')}><Users size={14} /> Players <span>{p.players.length}</span></button></HorizontalScroll>
       <div className="inspector-scroll">{panel === 'players' ? <>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">Hotseat</span></div>
           <p className="help-text">No fixed player limit. Add seats for everyone sharing this screen.</p>

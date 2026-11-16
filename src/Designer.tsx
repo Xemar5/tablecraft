@@ -6,7 +6,7 @@ import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { download, exportComponentBundle } from './storage';
-import { ColorField, Field, Modal, NumberField, ScrollArrows, Toggle } from './ui';
+import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
@@ -524,8 +524,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   return <div ref={designer} className="designer-layout">
     <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
-      <div className="face-tabs"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
-        <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></div>
+      <HorizontalScroll contentClassName="face-tabs" label="Component faces"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
+        <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></HorizontalScroll>
       <div className="layer-list">
         <div className={`layer-root-drop${dropTarget?.id === '__root' ? ' active' : ''}`} onDragOver={event => { event.preventDefault(); setDropTarget({ id: '__root', mode: 'inside' }); }}
           onDrop={event => { event.preventDefault(); if (draggedLayer.length) dropAtRoot(draggedLayer); setDraggedLayer([]); setDropTarget(undefined); }}>
@@ -641,7 +641,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     </section>
     <PanelSeparator label="Resize designer inspector" controls="designer-inspector-panel" value={panels.sizes.designerInspector} {...panels.limits.designerInspector} direction={-1} onResize={value => panels.resize('designerInspector', value)} />
     <aside id="designer-inspector-panel" className="inspector" style={{ width: panels.sizes.designerInspector, minWidth: 0, flex: `0 0 ${panels.sizes.designerInspector}px` }}>
-      <div className="inspector-tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></div>
+      <HorizontalScroll contentClassName="inspector-tabs" label="Designer inspector tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></HorizontalScroll>
       <div className="inspector-scroll">
         {tab === 'design' && <div className="inspector-section"><div className="boolean-actions" aria-label="Boolean operations">
           {([

@@ -164,6 +164,8 @@ Each seat's hand is shown at its table position. Your own table hand can be swit
 
 Your active seat's mini hand always supports dragging cards onto the playground or a compatible stack, and dropping tabletop pieces into it. While dragging over an allowed mini hand, the piece shrinks to mini-hand size and an insertion marker shows its position: before, between, or after the existing cards. You can also drag from the bottom tray into a specific mini-hand position, or reorder your mini hand directly. Hovering a grabbable mini-hand card highlights exactly which card will be taken. The seat-position lock does not lock card interactions.
 
+Compact horizontal strips use hidden scrollbars with thin, fast-fading edge shadows: component filters, the designer toolbar, inspector and face tabs, hand cards, and hand actions. Scroll with the mouse wheel or trackpad; hover an edge to reveal an arrow, hold it to scroll, or focus it and press Enter/Space to step. Shadows and arrows appear only where more content is available.
+
 Click a hand card to select it. Shift-click selects the range from the selection anchor (or just the clicked card if nothing is selected); Ctrl-click or Cmd-click toggles individual cards. Clicking elsewhere clears hand selection. Dragging an already selected tray card keeps the selected group together.
 
 Shift-drag detaches the top card immediately, revealing the remaining stack before you drop it. The detached card can be dropped on the table, into a hand, or onto a compatible stack; hold Alt to bypass stacking. Tabletop drags preserve the original grab offset in table coordinates, so it scales with the current zoom and camera rotation.

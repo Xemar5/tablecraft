@@ -110,6 +110,23 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hand-insert-end { height: 105px; flex: 0 0 3px; margin-left: 2px; }
 .hand-toolbar { min-height: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 2px 16px; background: #f7f9f2; border-top: 1px solid #e4e9dc; }
 .hand-toolbar .icon-button { width: 28px; height: 28px; }
+.horizontal-scroll { position: relative; min-width: 0; flex-shrink: 0; }
+.horizontal-scroll-content { overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; }
+.horizontal-scroll-content::-webkit-scrollbar { display: none; }
+.horizontal-scroll-content > * { flex-shrink: 0; }
+.horizontal-scroll-content.face-tabs > button { min-width: max-content; padding-left: 10px; padding-right: 10px; }
+.horizontal-scroll::before, .horizontal-scroll::after { content: ''; position: absolute; top: 0; bottom: 0; width: 18px; z-index: 11; pointer-events: none; opacity: 0; transition: opacity .15s; }
+.horizontal-scroll::before { left: 0; background: linear-gradient(to right, #293d3640, transparent); }
+.horizontal-scroll::after { right: 0; background: linear-gradient(to left, #293d3640, transparent); }
+.horizontal-scroll.overflow-left::before, .horizontal-scroll.overflow-right::after { opacity: 1; }
+.horizontal-scroll::before, .horizontal-scroll::after,
+.designer-toolbar-scroll::before, .designer-toolbar-scroll::after,
+.library-filter-scroll::before, .library-filter-scroll::after { width: 12px; }
+.horizontal-scroll::before, .designer-toolbar-scroll::before, .library-filter-scroll::before { background: linear-gradient(to right, #293d3640, #293d361b 25%, #293d3608 50%, #293d3601 75%, transparent); }
+.horizontal-scroll::after, .designer-toolbar-scroll::after, .library-filter-scroll::after { background: linear-gradient(to left, #293d3640, #293d361b 25%, #293d3608 50%, #293d3601 75%, transparent); }
+.hand-cards-scroll { flex: 1; height: 100%; }
+.horizontal-scroll-content.hand-toolbar { justify-content: flex-start; }
+.horizontal-scroll-content.hand-toolbar > :first-child { margin-left: auto; }
 .table-piece.drag-source { opacity: .12; }
 .table-piece.mini-drop-source { opacity: 0; }
 .board-drag-preview { position: fixed; z-index: 1000; pointer-events: none; filter: drop-shadow(0 10px 12px #29433155); }
