@@ -229,9 +229,11 @@ test('own mini hand accepts and releases cards with other-player access disabled
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await page.locator('[data-seat-id="player-2"]').click();
+  await page.getByRole('button', { name: 'Switch to this seat', exact: true }).click();
   await page.getByRole('button', { name: "I'm Player 2. Let's play.", exact: false }).click();
   await page.getByRole('button', { name: 'Allow others to insert into my hand', exact: true }).click();
   await page.locator('[data-seat-id="player-1"]').click();
+  await page.getByRole('button', { name: 'Switch to this seat', exact: true }).click();
   await page.getByRole('button', { name: "I'm You. Let's play.", exact: false }).click();
   await expect(page.getByRole('button', { name: 'Allow others to insert into my hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });

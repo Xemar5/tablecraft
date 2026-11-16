@@ -155,7 +155,7 @@ Use **Toggle component library** in the header to hide or show the library in bo
 
 Notification banners have an **X** button to dismiss them locally. Dismissing an undo notice does not change shared history; dismissing a storage or snapshot error does not enable writes or overwrite unreadable saves. Reload to show an unresolved warning again.
 
-The Playground inspector opens on **Selection**, with settings and actions for selected pieces, stacks or hand cards. When nothing is selected, it prompts you to select a component. **Table** contains shared table settings, while **Players** manages seats. Switching tabs does not change the selection.
+The Playground inspector opens on **Selection**, with settings and actions for selected pieces, stacks or hand cards. Clicking a seat on the table selects it instead of switching to it: the Selection tab then shows that seat's name, color (with alpha), position and rotation, plus a **Switch to this seat** action. You can only edit seats you own. Press Escape or click empty table space to deselect. When nothing is selected, it prompts you to select a component. **Table** contains shared table settings, while **Players** manages seats. Switching tabs does not change the selection.
 
 Hover the horizontal overflow shadows in the library filters or designer toolbar to reveal scroll arrows. Hold an arrow to scroll continuously; release to stop. Focus an arrow and press Enter or Space to scroll a step.
 
@@ -200,7 +200,7 @@ Locked pieces do not show previews. Previews switch to the left when hovering in
 | Roll a die | Press `R` or select a die and choose **Roll die** (rotation stays unchanged) |
 | Play from hand | Drag a held piece onto the table |
 
-Use **Players** to add any number of hotseat seats and change names, colors, hand/seat coordinates and rotation. Switching local seats shows a pass-the-screen privacy curtain. Remote players own their own seats; each connected client can add more hotseat players. The turn tracker is optional and advisory: it does not prevent other players from manipulating pieces.
+Use **Players** to add any number of hotseat seats. To change a seat's name, color, coordinates or rotation, select the seat on the table or use its edit button in **Players**. Switching local seats shows a pass-the-screen privacy curtain. Remote players own their own seats; each connected client can add more hotseat players. The turn tracker is optional and advisory: it does not prevent other players from manipulating pieces.
 
 The flip, rotate, clone and delete shortcuts apply to the selection when hovering a selected piece, otherwise to the hovered/focused piece (or stack); without a hovered piece they fall back to the selection. Number shortcuts draw from the hovered/focused stack. Shortcuts are disabled while editing form fields or while a dialog is open. Numeric controls allow intermediate edits, clamp to their allowed range on blur, support native spin controls, and can be adjusted by dragging vertically.
 
@@ -246,6 +246,6 @@ Unit tests cover bindings, hierarchy validation, stack compatibility, shuffle/re
 The app intentionally does not enforce board-game rules or load arbitrary executable HTML. Exported components are validated JSON data, not scripts.
 # Playground undo
 
-Use the Playground toolbar's **Undo playground action** button or **Ctrl+Z / Cmd+Z** to reverse the latest tabletop action. In a live room, **any authenticated player can undo the most recent action by any player**, and everyone receives the result. Undo includes pieces, stacks, dice rolls, hands, table settings, and edits to existing seats. Shortcuts do not intercept typing, dialogs, pass-device curtains, or Component designer editing. The inspector's Rotation, Scale and Grid size fields apply their value when you finish typing (blur or Enter) or release a scrub, so each finished edit is one action. There is no redo.
+Use the Playground toolbar's **Undo playground action** button or **Ctrl+Z / Cmd+Z** to reverse the latest tabletop action. In a live room, **any authenticated player can undo the most recent action by any player**, and everyone receives the result. Undo includes pieces, stacks, dice rolls, hands, table settings, and edits to existing seats. Shortcuts do not intercept typing, dialogs, pass-device curtains, or Component designer editing. The inspector's Rotation, Scale, Grid size and selected-seat fields apply their value when you finish typing (blur or Enter), release a scrub or slider, or close the color picker, so each finished edit is one action. There is no redo.
 
 The latest 50 effective actions are retained. Offline history lasts until a workspace reload, replacement/import or live-session transition; it is not included in JSON exports or snapshots. Live room history is stored server-side with the room and survives reconnects. A component design edit/removal or explicit new-seat creation clears history and displays a notice; designs and seat identities/ownership are never restored by undo. Joining an existing live room does not clear history or allow undo to remove the joined seat.

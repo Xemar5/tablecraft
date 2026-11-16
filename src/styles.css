@@ -154,3 +154,8 @@
 .library-preview-wrap:hover .preview-add,.library-preview-wrap:focus-within .preview-add{opacity:1;transform:scale(1)}
 .preview-spawn-all{right:39px;padding:0;cursor:pointer}
 .preview-spawn-all:hover{background:#f4f8ec;color:var(--green)}
+
+.seat-marker.seat-selected{border-style:solid;border-color:#698351;box-shadow:0 0 0 2px #69835133}
+.seat-avatar{width:40px;height:40px;font-size:15px}
+.seat-fields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:8px}
+.seat-fields:disabled{opacity:.6}

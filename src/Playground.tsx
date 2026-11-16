@@ -28,6 +28,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [search, setSearch] = useState<string[]>();
   const [query, setQuery] = useState('');
   const [seatEditor, setSeatEditor] = useState<Player>();
+  const [selectedSeatId, setSelectedSeatId] = useState<string>();
+  const selectedSeat = p.players.find(player => player.id === selectedSeatId);
+  useEffect(() => { if (selected.length) setSelectedSeatId(undefined); }, [selected]);
+  const selectSeat = (player: Player) => { setSelected([]); setSelectedSeatId(player.id); setPanel('selection'); onShowInspector(); };
   const [hovered, setHovered] = useState<string>();
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
@@ -292,7 +296,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input,textarea,select,[role="dialog"]') || document.querySelector('[role="dialog"]')) return;
-      if (e.key === 'Escape') setSelected([]);
+      if (e.key === 'Escape') { setSelected([]); setSelectedSeatId(undefined); }
       const hoveredPiece = p.instances.find(i => i.id === hovered && (!i.holder || i.holder === actor));
       const shortcutIds = hoveredPiece && !selected.includes(hoveredPiece.id) ? stackMembers(p, hoveredPiece).map(i => i.id) : selected;
       const shortcutPiece = hoveredPiece ?? piece;
@@ -437,7 +441,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             e.currentTarget.setPointerCapture(e.pointerId);
           } else if (e.button === 0) {
             marqueeGesture.current = { x: e.clientX, y: e.clientY, ids: e.shiftKey ? selected : [] };
-            if (!e.shiftKey) setSelected([]);
+            if (!e.shiftKey) { setSelected([]); setSelectedSeatId(undefined); }
             e.currentTarget.setPointerCapture(e.pointerId);
           }
         }}
@@ -476,7 +480,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);
             const remaining = playerHeld.filter(i => !handDrop?.ids.includes(i.id));
             const canTake = player.id === actor || handPermissions(p, player.id).take;
-            return <button key={player.id} data-seat-id={player.id} title={seatsUnlocked ? `Drag ${player.name}'s seat` : `Switch to ${player.name}`} className={`seat-marker ${player.id === actor ? 'active' : ''}`}
+            return <button key={player.id} data-seat-id={player.id} aria-pressed={selectedSeatId === player.id} title={seatsUnlocked ? `Drag ${player.name}'s seat` : `Select ${player.name}'s seat`} className={`seat-marker ${player.id === actor ? 'active' : ''} ${selectedSeatId === player.id ? 'seat-selected' : ''}`}
             onPointerDown={e => {
               e.stopPropagation(); seatMoved.current = false;
               if (!seatsUnlocked || e.button !== 0 || (owner !== 'local' && player.owner !== owner)) return;
@@ -500,7 +504,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               seatGesture.current = null; setSeatPosition(undefined);
             }}
             onPointerCancel={() => { seatGesture.current = null; setSeatPosition(undefined); }}
-            onClick={() => { if (!seatMoved.current) onSwitch(player); seatMoved.current = false; }}
+            onClick={() => { if (!seatMoved.current) selectSeat(player); seatMoved.current = false; }}
             style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
             <div className="seat-badge"><span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
             <span>{playerHeld.length} cards</span></div>
@@ -719,12 +723,16 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           <p className="help-text">No fixed player limit. Add seats for everyone sharing this screen.</p>
           <div className="player-list">{p.players.map(player => <div key={player.id} className={`player-row ${actor === player.id ? 'active' : ''}`}>
             <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span>{player.name}<small>{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
-            {(owner === 'local' || owner === player.owner) && <button className="icon-button" title={`Edit ${player.name}`} onClick={() => setSeatEditor({ ...player })}><Settings2 size={14} /></button>}
+            {(owner === 'local' || owner === player.owner) && <button className="icon-button" title={`Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
           <button className="button full" onClick={() => setSeatEditor({ id: uid('player'), owner, name: `Player ${p.players.length + 1}`, color: ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], x: 600 + p.players.length * 120, y: 1000, rotation: 0 })}><Plus size={15} /> Add hotseat player</button>
         </div>
       </> : panel === 'selection' ? <>
-        {piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
+        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={owner === 'local' || owner === selectedSeat.owner}
+          held={p.instances.filter(i => i.holder === selectedSeat.id).length}
+          onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
+          onSwitch={() => onSwitch(selectedSeat)} onClose={() => setSelectedSeatId(undefined)} /> :
+        piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
           <div className="action-grid">
             <button disabled={!selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable)} onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>
@@ -785,5 +793,32 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         <div className="modal-actions"><button className="button primary" type="submit">Save seat</button></div>
       </form>
     </Modal>}
+  </div>;
+}
+
+function SeatInspector({ player, active, editable, held, onChange, onSwitch, onClose }: {
+  player: Player; active: boolean; editable: boolean; held: number;
+  onChange: (patch: Partial<Player>) => void; onSwitch: () => void; onClose: () => void;
+}) {
+  const [name, setName] = useState(player.name);
+  const cancelName = useRef(false);
+  useEffect(() => setName(player.name), [player.name]);
+  const commitName = () => {
+    const next = name.trim();
+    if (!cancelName.current && next && next !== player.name) onChange({ name: next }); else setName(player.name);
+    cancelName.current = false;
+  };
+  return <div className="inspector-section selected-inspector seat-inspector">
+    <div className="section-title"><h3>Seat selected</h3><button className="icon-button" title="Deselect" aria-label="Deselect seat" onClick={onClose}><X size={14} /></button></div>
+    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}</strong><small>{active ? 'Active seat' : editable ? `${held} in hand` : 'Remote player'}</small>
+      {!active && <button className="text-button" onClick={onSwitch}>Switch to this seat <ChevronRight size={12} /></button>}</div></div>
+    <fieldset className="seat-fields" disabled={!editable}>
+      <Field label="Player name"><input required maxLength={50} value={name} onChange={e => setName(e.target.value)} onBlur={commitName}
+        onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { cancelName.current = true; e.currentTarget.blur(); } }} /></Field>
+      <ColorField deferred label="Player color" value={player.color} onChange={color => onChange({ color })} />
+      <div className="field-grid"><NumberField deferred label="Seat X" value={player.x} onChange={x => onChange({ x })} /><NumberField deferred label="Seat Y" value={player.y} onChange={y => onChange({ y })} /></div>
+      <NumberField deferred label="Seat rotation" value={player.rotation} onChange={rotation => onChange({ rotation })} />
+    </fieldset>
+    {!editable && <p className="help-text">Only this seat's owner can change its settings.</p>}
   </div>;
 }

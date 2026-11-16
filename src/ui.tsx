@@ -144,7 +144,23 @@ export function Notice({ message, children, className = 'error-banner', role = '
     <button type="button" className="icon-button notice-close" aria-label="Dismiss notification" title="Dismiss notification" onClick={() => setDismissed(true)}><X size={16} /></button>
   </div>;
 }
-export function ColorField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+export function ColorField({ label, value: committed, onChange, deferred = false }: {
+  label: string; value: string; onChange: (value: string) => void;
+  /** Report the color only when an edit finishes (slider release, picker close, text blur or Enter). */
+  deferred?: boolean;
+}) {
+  const [draft, setDraft] = useState(committed);
+  const latest = useRef(committed);
+  const container = useRef<HTMLDivElement>(null);
+  useEffect(() => { setDraft(committed); latest.current = committed; }, [committed]);
+  const value = deferred ? draft : committed;
+  const report = (next: string) => { if (deferred) { latest.current = next; setDraft(next); } else onChange(next); };
+  useEffect(() => {
+    const element = container.current; if (!deferred || !element) return;
+    const change = () => { if (latest.current !== committed) onChange(latest.current); };
+    element.addEventListener('change', change);
+    return () => element.removeEventListener('change', change);
+  }, [deferred, committed, onChange]);
   const parsed = useMemo(() => {
     if (!CSS.supports('color', value)) return null;
     const context = document.createElement('canvas').getContext('2d');
@@ -161,14 +177,15 @@ export function ColorField({ label, value, onChange }: { label: string; value: s
     };
   }, [value]);
   const withAlpha = (rgb: string, alpha: number) => alpha === 255 ? rgb : `${rgb}${alpha.toString(16).padStart(2, '0')}`;
-  return <div className="field color-field"><span>{label}</span>
+  return <div ref={container} className="field color-field"><span>{label}</span>
     <div className="color-input">
       <input type="color" aria-label={label} value={parsed?.rgb ?? '#000000'} disabled={!parsed}
-        onChange={event => { if (parsed) onChange(withAlpha(event.target.value, parsed.alpha)); }} />
-      <input aria-label={`${label} value`} value={value} onChange={event => onChange(event.target.value)} />
+        onChange={event => { if (parsed) report(withAlpha(event.target.value, parsed.alpha)); }} />
+      <input aria-label={`${label} value`} value={value} onChange={event => report(event.target.value)}
+        onKeyDown={event => { if (deferred && event.key === 'Enter') event.currentTarget.blur(); }} />
     </div>
     <div className="color-alpha"><span>Alpha</span><input type="range" aria-label={`${label} alpha`} min={0} max={255} step={1} value={parsed?.alpha ?? 255} disabled={!parsed}
-      onChange={event => { if (parsed) onChange(withAlpha(parsed.rgb, event.target.valueAsNumber)); }} />
+      onChange={event => { if (parsed) report(withAlpha(parsed.rgb, event.target.valueAsNumber)); }} />
       <output>{parsed ? `${Math.round(parsed.alpha / 255 * 100)}%` : 'N/A'}</output>
     </div>
   </div>;
