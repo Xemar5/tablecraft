@@ -123,6 +123,7 @@ Rooms are collaborative prototyping spaces for **trusted playtesters**, not adve
 - Room tables are private. A sender-specific view exposes the room joined by that identity.
 - Knowing the room code grants membership and collaborative editing access.
 - Server reducers validate commands and serialize mutations. Seat changes and ordinary hand actions are restricted to players owned by the sender. The optional visible-hand transfer setting explicitly lets any room member move cards into or out of any hand.
+- Pieces and seats you drag stay where you dropped them while the room confirms the move, instead of jumping back until the server update arrives. If the server rejects the move (or another update moves them first), they show the authoritative position.
 - **Hidden hands are visual privacy, not server-side secrecy.** Every room member receives the entire project state, including CSV data, stack order and hand assignments. Developer tools can inspect that information.
 - Component designs use last-write-wins replacement. Two simultaneous edits to the same design are not merged.
 - Returning players must use the same browser identity/token to recover their original seats and hands. There is no account-based cross-device identity recovery.
