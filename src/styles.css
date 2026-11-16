@@ -133,6 +133,7 @@
 .design-section .field{gap:4px;margin-bottom:8px}
 .design-section .field:last-child,.design-section .field-grid .field{margin-bottom:0}
 .design-section .field-grid{gap:8px}
+.design-section .field-grid:not(:last-child){margin-bottom:8px}
 .selection-header{display:flex;align-items:flex-end;gap:6px}
 .selection-header>.field{flex:1;min-width:0;margin-bottom:0}
 .selection-actions{display:flex;align-items:center;gap:4px}
@@ -144,7 +145,7 @@
 .transform-grid .field-icon-label{flex:0 0 20px;justify-content:center;color:#718767}
 .field-icon-label{position:relative;display:flex;align-items:center}
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
-.sizing-grid{margin-top:8px}
+.sizing-grid{margin-top:0}
 .boolean-section .boolean-actions{justify-content:flex-start;gap:4px}
 .inspector-scroll{min-height:0;overscroll-behavior-y:contain}
 .playground-inspector .inspector-section{padding:16px 14px}
