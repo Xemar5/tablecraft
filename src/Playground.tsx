@@ -293,6 +293,27 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     }
     void dispatch({ type: 'reorderHand', ids, playerId: actor });
   };
+  /** Hand actions for the active seat's toolbar, or for a seat selected in the inspector. Hand commands only apply to the active seat. */
+  const handActions = (seat?: Player) => {
+    const own = !seat || seat.id === actor;
+    const hand = !seat ? 'my hand' : `${seat.name}'s hand`;
+    const tableHand = !seat ? 'my table hand' : `${seat.name}'s table hand`;
+    const inactive = own ? undefined : `Switch to ${seat!.name}'s seat to manage this hand`;
+    const label = (text: string) => ({ 'aria-label': text, title: inactive ? `${text} (${inactive})` : text });
+    const seatPermissions = seat ? handPermissions(p, seat.id) : permissions;
+    const seatHeld = seat ? p.instances.filter(i => i.holder === seat.id).length : held.length;
+    return <>
+      <button className="icon-button" aria-label="Turn cards face up when entering a hand" title="Turn cards face up when entering a hand" aria-pressed={faceUpInHand} onClick={() => setFaceUpInHand(!faceUpInHand)}><FlipHorizontal2 size={16} /></button>
+      <button className="icon-button" {...label(`${own && handHidden ? 'Show' : 'Hide'} ${tableHand}`)} aria-pressed={own && handHidden} disabled={!own} onClick={() => setHandHidden(!handHidden)}>{own && handHidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+      <button className="icon-button" {...label(seat ? `Shuffle ${hand}` : 'Shuffle hand')} disabled={!own || seatHeld < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
+      <button className="icon-button" {...label(seat ? `Reverse ${hand}` : 'Reverse hand')} disabled={!own || seatHeld < 2} onClick={() => dispatch({ type: 'reorderHand', ids: held.map(i => i.id).reverse(), playerId: actor })}><ArrowRightLeft size={16} /></button>
+      <button className="icon-button" {...label(`Allow others to insert into ${hand}`)} aria-pressed={seatPermissions.insert} disabled={!own} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandInsert: !permissions.insert } })}><ArrowDownToLine size={16} /></button>
+      <button className="icon-button" {...label(`Allow others to take from ${hand}`)} aria-pressed={seatPermissions.take} disabled={!own} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandTake: !permissions.take } })}><ArrowUpFromLine size={16} /></button>
+      <button className="icon-button" aria-label={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} title={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} aria-pressed={seatsUnlocked} onClick={() => setSeatsUnlocked(!seatsUnlocked)}>{seatsUnlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
+      {seat ? <button className="icon-button" aria-label="Switch to this seat" title={own ? 'This is your active seat' : `Switch to ${seat.name}'s seat`} disabled={own} onClick={() => onSwitch(seat)}><Users size={16} /></button>
+        : <button className="icon-button" aria-label="Switch seat" title="Switch seat" onClick={() => { setPanel('players'); onShowInspector(); }}><Users size={16} /></button>}
+    </>;
+  };
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement).closest('input,textarea,select,[role="dialog"]') || document.querySelector('[role="dialog"]')) return;
@@ -667,16 +688,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         }) : <div className="empty-hand"><Copy size={20} /><span>Drag pieces here to take them into your hand.</span></div>}
         {insertion !== undefined && insertion === held.filter(i => !(handDrag && (selected.includes(handDrag.id) ? selected.includes(i.id) : i.id === handDrag.id))).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
         </HorizontalScroll>
-      </div><HorizontalScroll contentClassName="hand-toolbar" label="Hand actions">
-        <button className="icon-button" aria-label="Turn cards face up when entering a hand" title="Turn cards face up when entering a hand" aria-pressed={faceUpInHand} onClick={() => setFaceUpInHand(!faceUpInHand)}><FlipHorizontal2 size={16} /></button>
-        <button className="icon-button" aria-label={handHidden ? 'Show my table hand' : 'Hide my table hand'} title={handHidden ? 'Show my table hand' : 'Hide my table hand'} aria-pressed={handHidden} onClick={() => setHandHidden(!handHidden)}>{handHidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
-        <button className="icon-button" aria-label="Shuffle hand" title="Shuffle hand" disabled={held.length < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
-        <button className="icon-button" aria-label="Reverse hand" title="Reverse hand" disabled={held.length < 2} onClick={() => dispatch({ type: 'reorderHand', ids: held.map(i => i.id).reverse(), playerId: actor })}><ArrowRightLeft size={16} /></button>
-        <button className="icon-button" aria-label="Allow others to insert into my hand" title="Allow others to insert into my hand" aria-pressed={permissions.insert} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandInsert: !permissions.insert } })}><ArrowDownToLine size={16} /></button>
-        <button className="icon-button" aria-label="Allow others to take from my hand" title="Allow others to take from my hand" aria-pressed={permissions.take} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandTake: !permissions.take } })}><ArrowUpFromLine size={16} /></button>
-        <button className="icon-button" aria-label={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} title={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} aria-pressed={seatsUnlocked} onClick={() => setSeatsUnlocked(!seatsUnlocked)}>{seatsUnlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
-        <button className="icon-button" aria-label="Switch seat" title="Switch seat" onClick={() => { setPanel('players'); onShowInspector(); }}><Users size={16} /></button>
-      </HorizontalScroll></>}
+      </div><HorizontalScroll contentClassName="hand-toolbar" label="Hand actions">{handActions()}</HorizontalScroll></>}
       {handDrag && !handDrop && (() => {
         const item = p.instances.find(i => i.id === handDrag.id);
         const comp = p.components.find(c => c.id === item?.componentId);
@@ -731,7 +743,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={owner === 'local' || owner === selectedSeat.owner}
           held={p.instances.filter(i => i.holder === selectedSeat.id).length}
           onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
-          onSwitch={() => onSwitch(selectedSeat)} onClose={() => setSelectedSeatId(undefined)} /> :
+          onClose={() => setSelectedSeatId(undefined)}
+          actions={<div className="seat-hand-actions" role="toolbar" aria-label={`${selectedSeat.name}'s hand actions`}>{handActions(selectedSeat)}</div>} /> :
         piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
           <div className="action-grid">
@@ -796,9 +809,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   </div>;
 }
 
-function SeatInspector({ player, active, editable, held, onChange, onSwitch, onClose }: {
-  player: Player; active: boolean; editable: boolean; held: number;
-  onChange: (patch: Partial<Player>) => void; onSwitch: () => void; onClose: () => void;
+function SeatInspector({ player, active, editable, held, actions, onChange, onClose }: {
+  player: Player; active: boolean; editable: boolean; held: number; actions: React.ReactNode;
+  onChange: (patch: Partial<Player>) => void; onClose: () => void;
 }) {
   const [name, setName] = useState(player.name);
   const cancelName = useRef(false);
@@ -810,8 +823,8 @@ function SeatInspector({ player, active, editable, held, onChange, onSwitch, onC
   };
   return <div className="inspector-section selected-inspector seat-inspector">
     <div className="section-title"><h3>Seat selected</h3><button className="icon-button" title="Deselect" aria-label="Deselect seat" onClick={onClose}><X size={14} /></button></div>
-    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}</strong><small>{active ? 'Active seat' : editable ? `${held} in hand` : 'Remote player'}</small>
-      {!active && <button className="text-button" onClick={onSwitch}>Switch to this seat <ChevronRight size={12} /></button>}</div></div>
+    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}</strong>    <small>{active ? 'Active seat' : editable ? `${held} in hand` : 'Remote player'}</small></div></div>
+        {actions}
     <fieldset className="seat-fields" disabled={!editable}>
       <Field label="Player name"><input required maxLength={50} value={name} onChange={e => setName(e.target.value)} onBlur={commitName}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { cancelName.current = true; e.currentTarget.blur(); } }} /></Field>

@@ -168,3 +168,8 @@
 .library-preview[draggable=true]{cursor:grab}
 .preview-hint{position:absolute;left:8px;top:8px;display:flex;align-items:center;gap:4px;padding:3px 6px;border:1px solid #dbe3d0;border-radius:4px;background:#fff;color:#3c643b;font-size:9px;font-weight:550;white-space:nowrap;box-shadow:0 2px 6px #253c251a;opacity:0;transform:translateY(-2px);transition:opacity .16s,transform .16s;pointer-events:none;z-index:3}
 .library-preview:hover .preview-hint,.library-preview:focus-visible .preview-hint{opacity:1;transform:none}
+.seat-hand-actions{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 12px;padding:4px;border:1px solid #e4e9dc;border-radius:8px;background:#f7f9f2}
+.seat-hand-actions .icon-button{width:28px;height:28px}
+.seat-hand-actions .icon-button[aria-pressed="true"]{background:#e7eedc;color:#365d46}
+.seat-hand-actions .icon-button:disabled{opacity:.4;cursor:not-allowed}
+.seat-inspector .selected-component small{text-transform:none}
