@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, handPermissions, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
+import { ZoomPresets } from './ZoomPresets';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
@@ -238,6 +239,29 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     }
     setZoom(z);
   };
+  /** Centers the camera on the selected table pieces (whole stacks included) and zooms so they fill most of the view. */
+  const focusSelection = () => {
+    const rect = viewport.current?.getBoundingClientRect();
+    const stacks = new Set(p.instances.filter(i => selected.includes(i.id) && i.stack).map(i => i.stack));
+    const targets = p.instances.filter(i => !i.holder && (selected.includes(i.id) || (i.stack && stacks.has(i.stack))));
+    if (!rect || !targets.length) return false;
+    const angle = camera * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+    const xs: number[] = [], ys: number[] = [];
+    for (const item of targets) {
+      const comp = p.components.find(c => c.id === item.componentId);
+      if (!comp) continue;
+      const turn = item.rotation * Math.PI / 180, w = comp.width * item.scale / 2, h = comp.height * item.scale / 2;
+      for (const [cx, cy] of [[-w, -h], [w, -h], [w, h], [-w, h]]) {
+        const x = item.x + cx * Math.cos(turn) - cy * Math.sin(turn), y = item.y + cx * Math.sin(turn) + cy * Math.cos(turn);
+        xs.push(x * cos - y * sin); ys.push(x * sin + y * cos);
+      }
+    }
+    if (!xs.length) return false;
+    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const z = Math.max(.15, Math.min(2, rect.width * .6 / Math.max(1, maxX - minX), rect.height * .6 / Math.max(1, maxY - minY)));
+    setZoom(z); setPan({ x: rect.width / 2 - (minX + maxX) / 2 * z, y: rect.height / 2 - (minY + maxY) / 2 * z });
+    return true;
+  };
   const worldPoint = (x: number, y: number, scale = zoom, translation = pan) => {
     const rect = viewport.current!.getBoundingClientRect();
     const dx = x - rect.left - translation.x, dy = y - rect.top - translation.y;
@@ -423,6 +447,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
       const shortcutIds = hoveredPiece && !selected.includes(hoveredPiece.id) ? stackMembers(p, hoveredPiece).map(i => i.id) : selected;
       const shortcutPiece = hoveredPiece ?? piece;
       const draggedHandPiece = handDrag && p.instances.find(i => i.id === handDrag.id && i.holder === actor);
+      if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f') { if (focusSelection()) e.preventDefault(); return; }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f' && (draggedHandPiece || shortcutPiece)) {
         // A flipped stack can replace its top DOM node. Keep the active drag on the stable viewport.
         if (gesture.current && viewport.current && !gesture.current.pan) viewport.current.setPointerCapture(gesture.current.pointer);
@@ -740,7 +765,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
           <span className="turn-pill-name"><span className="turn-pill-label"><strong>{turnPlayer.name}</strong>'s turn</span>{turnPlayer.id === actor && <YouTag />}</span>
           <button className="button primary" title={`Pass the turn to ${nextTurnPlayer?.name}`} onClick={endTurn}>End turn <ChevronRight size={13} /></button>
         </div>}
-        <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
+        <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><ZoomPresets levels={[.25, .5, .75, 1, 1.5, 2]} zoom={zoom} onSelect={level => changeZoom(level)}><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button></ZoomPresets><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
         {activePreviewId && !altDown && (() => {
           const item = p.instances.find(i => i.id === activePreviewId && !i.locked && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
@@ -907,6 +932,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
             <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
             <button onClick={() => rotate(90)}><RotateCw size={17} /><span>Rotate +90°<kbd>E</kbd></span></button>
             <button onClick={() => clone()}><Copy size={17} /><span>Clone<kbd>Ctrl D</kbd></span></button>
+            <button onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={17} /><span>Focus<kbd>Shift F</kbd></span></button>
             {wholeStack ? <>
               <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
               <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Layers size={17} /><span>Draw all</span></button>

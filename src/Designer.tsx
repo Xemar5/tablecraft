@@ -11,6 +11,7 @@ import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSe
 import { resizeNode, rotateNode } from './designTransform';
 import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
+import { ZoomPresets } from './ZoomPresets';
 
 type Face = 'front' | 'back';
 type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude';
@@ -720,7 +721,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         </div>
       </div>
       <div className="canvas-bottom"><span><Square size={12} /> {component.kind} component</span>
-        <div><button onClick={() => setZoom(value => Math.max(.25, value - .25))}>-</button><button onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button><button onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div></div>
+        <div><button onClick={() => setZoom(value => Math.max(.25, value - .25))}>-</button><ZoomPresets levels={[.25, .5, 1, 1.5, 2, 3]} zoom={zoom} onSelect={setZoom}><button title="Reset zoom" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button></ZoomPresets><button onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div></div>
     </section>
     <PanelSeparator label="Resize designer inspector" controls="designer-inspector-panel" value={panels.sizes.designerInspector} {...panels.limits.designerInspector} direction={-1} onResize={value => panels.resize('designerInspector', value)} />
     <aside id="designer-inspector-panel" className="inspector" style={{ width: panels.sizes.designerInspector, minWidth: 0, flex: `0 0 ${panels.sizes.designerInspector}px` }}>
