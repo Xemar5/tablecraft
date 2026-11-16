@@ -456,3 +456,38 @@ describe('portable saves', () => {
     expect(() => parseArchive(JSON.stringify({ format: 'tablecraft', version: 1, projects: [p] }))).toThrow('Broken');
   });
 });
+describe('removing seats', () => {
+  it('spreads the hand where the seat was, adjusts the turn and protects the active and last seat', () => {
+    let p = starterProject();
+    const cards = p.instances.filter(i => i.stack).slice(-3);
+    p = applyCommand(p, { type: 'settings', patch: { turn: 1 } });
+    p = applyCommand(p, { type: 'drawMany', id: cards[0].id, playerId: 'player-2', count: 3 }, 'player-2');
+    const held = p.instances.filter(i => i.holder === 'player-2').sort((a, b) => a.order - b.order);
+    expect(held).toHaveLength(3);
+    expect(() => applyCommand(p, { type: 'removePlayer', playerId: 'player-2' }, 'player-2')).toThrow('Switch to another seat');
+    expect(() => applyCommand(p, { type: 'removePlayer', playerId: 'missing' }, 'player-1')).toThrow('Seat no longer exists');
+    const next = applyCommand(p, { type: 'removePlayer', playerId: 'player-2' }, 'player-1');
+    expect(next.players.map(player => player.id)).toEqual(['player-1']);
+    expect(next.settings.turn).toBe(0);
+    const placed = held.map(item => next.instances.find(i => i.id === item.id)!);
+    expect(placed.every(i => i.holder === null && i.stack === null)).toBe(true);
+    // Player 2 sits at (980, 100) facing down (180 degrees): the row runs right to left, centered on the seat.
+    expect(placed.map(i => i.y)).toEqual([100, 100, 100]);
+    expect(placed[1].x).toBe(980);
+    expect(placed[0].x).toBeGreaterThan(980);
+    expect(placed[2].x).toBeLessThan(980);
+    expect(() => applyCommand(next, { type: 'removePlayer', playerId: 'player-1' })).toThrow('Keep at least one seat');
+  });
+
+  it('wraps large hands into rows that grow toward the table', () => {
+    let p = starterProject();
+    const deck = p.instances.find(i => i.stack)!;
+    const size = p.instances.filter(i => i.stack === deck.stack).length;
+    p = applyCommand(p, { type: 'drawMany', id: deck.id, playerId: 'player-2', count: size }, 'player-2');
+    const next = applyCommand(p, { type: 'removePlayer', playerId: 'player-2' }, 'player-1');
+    const placed = p.instances.filter(i => i.holder === 'player-2').map(item => next.instances.find(i => i.id === item.id)!);
+    const rows = new Set(placed.map(i => i.y));
+    expect(rows.size).toBe(Math.ceil(size / 8));
+    expect(Math.min(...rows)).toBe(100);
+  });
+});

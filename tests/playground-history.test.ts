@@ -159,6 +159,16 @@ describe('shared Playground history', () => {
     expect(undoPlayground(joined, moved.history).project.players).toEqual(joined.players);
   });
 
+  it('clears history when a seat is removed so undo cannot reference it', () => {
+    const moved = applyPlaygroundCommand(table(), emptyPlaygroundHistory(), { type: 'move', ids: ['a'], patch: { x: 123 } }, 'alice');
+    const seat = { ...moved.project.players[0], id: 'hotseat' };
+    const project = { ...moved.project, players: [...moved.project.players, seat] };
+    const removed = applyPlaygroundCommand(project, moved.history, { type: 'removePlayer', playerId: 'hotseat' }, 'alice');
+    expect(removed.project.players.map(player => player.id)).not.toContain('hotseat');
+    expect(removed.history.entries).toHaveLength(0);
+    expect(removed.history.notice).toMatch(/seat was removed/);
+  });
+
   it('invalidates an incompatible inverse explicitly without changing the table', () => {
     const result = applyPlaygroundCommand(table(), emptyPlaygroundHistory(), { type: 'delete', ids: ['a'] }, 'alice');
     const changed = { ...result.project, components: [], instances: [] };

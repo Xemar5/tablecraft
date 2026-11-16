@@ -87,6 +87,7 @@ export const dispatch = db.reducer({ command: t.string(), actor: t.string() }, (
       const target = project.players.find(p => p.id === command.player.id);
       if (command.player.owner !== identity || (target && target.owner !== identity)) throw new Error('You can only edit your own seats.');
     }
+    if (command.type === 'removePlayer' && project.players.find(p => p.id === command.playerId)?.owner !== identity) throw new Error('You can only remove your own seats.');
     const previous = ctx.db.playground_history.code.find(member.code);
     const history = project !== parsed ? { entries: [], notice: migrationNotice }
       : previous ? playgroundHistorySchema.parse(JSON.parse(previous.history)) : emptyPlaygroundHistory();

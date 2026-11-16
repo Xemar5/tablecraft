@@ -31,6 +31,7 @@ export function applyPlaygroundCommand(
   if (command.type === 'player' && !project.players.some(player => player.id === command.player.id)) {
     return { project: next, history: { entries: [], notice: 'Undo history cleared because a seat was added.' } };
   }
+  if (command.type === 'removePlayer') return { project: next, history: { entries: [], notice: 'Undo history cleared because a seat was removed.' } };
   if (command.type === 'rename' || command.type === 'reorderComponent' || command.type === 'handSettings') return { project: next, history };
   const player = command.type === 'player' ? project.players.find(player => player.id === command.player.id) : undefined;
   const entry = entrySchema.parse({

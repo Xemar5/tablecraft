@@ -118,6 +118,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dropFromHand'), id, targetId: id, stackId: id }),
   z.object({ type: z.literal('reorderHand'), ids: z.array(id), playerId: id }),
   z.object({ type: z.literal('player'), player: playerSchema }),
+  z.object({ type: z.literal('removePlayer'), playerId: id }),
   z.object({ type: z.literal('handSettings'), playerId: id, patch: playerSchema.pick({ allowHandInsert: true, allowHandTake: true, handFaceUp: true, tableHandHidden: true, tableHandUnlocked: true }) }),
   z.object({ type: z.literal('settings'), patch: projectSchema.shape.settings.partial() }),
   z.object({ type: z.literal('rename'), name: z.string().min(1).max(100) }),
@@ -651,6 +652,28 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       const index = p.players.findIndex(player => player.id === command.player.id);
       if (index < 0) p.players.push(command.player);
       else p.players[index] = command.player;
+      break;
+    }
+    case 'removePlayer': {
+      const index = p.players.findIndex(player => player.id === command.playerId);
+      if (index < 0) throw new Error('Seat no longer exists.');
+      if (p.players.length < 2) throw new Error('Keep at least one seat at the table.');
+      if (actor === command.playerId) throw new Error('Switch to another seat before removing this one.');
+      const seat = p.players[index];
+      // Lay the hand out in rows centered on the seat, growing toward the table along the seat's facing.
+      const held = p.instances.filter(i => i.holder === seat.id).sort((a, b) => a.order - b.order);
+      const step = Math.max(0, ...held.map(i => component(i).width * i.scale)) + 16;
+      const rowStep = Math.max(0, ...held.map(i => component(i).height * i.scale)) + 16;
+      const perRow = 8, angle = seat.rotation * Math.PI / 180;
+      const along = { x: Math.cos(angle), y: Math.sin(angle) }, inward = { x: Math.sin(angle), y: -Math.cos(angle) };
+      held.forEach((item, n) => {
+        const row = Math.floor(n / perRow), columns = Math.min(perRow, held.length - row * perRow);
+        const offset = (n % perRow - (columns - 1) / 2) * step, depth = row * rowStep;
+        Object.assign(item, { holder: null, stack: null, stackReversed: false, x: Math.round(seat.x + along.x * offset + inward.x * depth), y: Math.round(seat.y + along.y * offset + inward.y * depth) });
+      });
+      p.players.splice(index, 1);
+      if (index < p.settings.turn) p.settings.turn--;
+      p.settings.turn %= p.players.length;
       break;
     }
     case 'settings':

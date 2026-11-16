@@ -30,6 +30,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [search, setSearch] = useState<string[]>();
   const [query, setQuery] = useState('');
   const [seatEditor, setSeatEditor] = useState<Player>();
+  const [removingSeat, setRemovingSeat] = useState<Player>();
   const [selectedSeatId, setSelectedSeatId] = useState<string>();
   const selectedSeat = p.players.find(player => player.id === selectedSeatId);
   useEffect(() => { if (selected.length) setSelectedSeatId(undefined); }, [selected]);
@@ -806,6 +807,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           held={p.instances.filter(i => i.holder === selectedSeat.id).length}
           onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
           onClose={() => setSelectedSeatId(undefined)}
+          lastSeat={p.players.length < 2} onRemove={() => setRemovingSeat(selectedSeat)}
           actions={<div className="seat-hand-actions" role="toolbar" aria-label={`${selectedSeat.name}'s hand actions`}>{handActions(selectedSeat)}</div>} /> :
         piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
@@ -861,6 +863,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           </div>;
         })}</div></div>
     </Modal>}
+    {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
+      <div className="modal-actions"><button className="button" onClick={() => setRemovingSeat(undefined)}>Cancel</button><button className="button danger" onClick={() => { const id = removingSeat.id; void dispatch({ type: 'removePlayer', playerId: id }).then(ok => { if (ok) { setSelectedSeatId(seat => seat === id ? undefined : seat); setRemovingSeat(undefined); } }); }}>Remove seat</button></div>
+    </Modal>}
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
       <form className="seat-form" onSubmit={e => { e.preventDefault(); dispatch({ type: 'player', player: seatEditor }); setSeatEditor(undefined); }}>
         <Field label="Player name"><input required maxLength={50} value={seatEditor.name} onChange={e => setSeatEditor({ ...seatEditor, name: e.target.value })} /></Field>
@@ -874,10 +879,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   </div>;
 }
 
-function SeatInspector({ player, active, editable, held, actions, onChange, onClose }: {
-  player: Player; active: boolean; editable: boolean; held: number; actions: React.ReactNode;
-  onChange: (patch: Partial<Player>) => void; onClose: () => void;
+function SeatInspector({ player, active, editable, held, actions, lastSeat, onChange, onClose, onRemove }: {
+  player: Player; active: boolean; editable: boolean; held: number; actions: React.ReactNode; lastSeat: boolean;
+  onChange: (patch: Partial<Player>) => void; onClose: () => void; onRemove: () => void;
 }) {
+  const removeBlocked = lastSeat ? 'Keep at least one seat at the table.' : active ? 'Switch to another seat before removing this one.' : undefined;
   const [name, setName] = useState(player.name);
   const cancelName = useRef(false);
   useEffect(() => setName(player.name), [player.name]);
@@ -898,6 +904,8 @@ function SeatInspector({ player, active, editable, held, actions, onChange, onCl
       <NumberField deferred label="Seat rotation" value={player.rotation} onChange={rotation => onChange({ rotation })} />
     </fieldset>
     {!editable && <p className="help-text">Only this seat's owner can change its settings.</p>}
+    {editable && <><button className="button danger full" disabled={!!removeBlocked} title={removeBlocked} onClick={onRemove}><Trash2 size={14} /> Remove seat</button>
+      {removeBlocked && <p className="help-text">{removeBlocked}</p>}</>}
   </div>;
 }
 
