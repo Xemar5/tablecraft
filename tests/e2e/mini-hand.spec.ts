@@ -50,8 +50,10 @@ test('wheel zoom follows the cursor inward and the table center outward', async 
   }
 });
 
-test('zooming during a tabletop drag preserves the cursor anchor through movement and drop', async ({ page }) => {
+for (const rotated of [false, true]) {
+test(`zooming during a tabletop drag preserves the cursor anchor through movement and drop (rotated ${rotated})`, async ({ page }) => {
   const { source } = await seedHand(page);
+  if (rotated) await page.getByRole('button', { name: 'Rotate camera right', exact: true }).click();
   const piece = page.locator(`[data-piece-id="${source.id}"]`);
   const box = (await piece.boundingBox())!;
   let x = box.x + box.width * .7 + 40, y = box.y + box.height * .3 + 20;
@@ -84,6 +86,7 @@ test('zooming during a tabletop drag preserves the cursor anchor through movemen
     return Math.hypot(bounds.x + bounds.width * .7 - x, bounds.y + bounds.height * .3 - y);
   }).toBeLessThan(1);
 });
+}
 
 test('mini-hand source stays faded outside all hands until the drag ends', async ({ page }) => {
   const { held } = await seedHand(page);

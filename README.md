@@ -166,7 +166,7 @@ Your active seat's mini hand always supports dragging cards onto the playground 
 
 Click a hand card to select it. Shift-click selects the range from the selection anchor (or just the clicked card if nothing is selected); Ctrl-click or Cmd-click toggles individual cards. Clicking elsewhere clears hand selection. Dragging an already selected tray card keeps the selected group together.
 
-Shift-drag detaches the top card immediately, revealing the remaining stack before you drop it. The detached card can be dropped on the table, into a hand, or onto a compatible stack; hold Alt to bypass stacking.
+Shift-drag detaches the top card immediately, revealing the remaining stack before you drop it. The detached card can be dropped on the table, into a hand, or onto a compatible stack; hold Alt to bypass stacking. Tabletop drags preserve the original grab offset in table coordinates, so it scales with the current zoom and camera rotation.
 
 Table hands accept drops within an extra 28 screen pixels on every side, making edge insertion easier at any zoom. The dashed target outline sits 20 screen pixels outside the mini hand, behind the player badge; an insertion tooltip shows the position and Alt shortcut. Component previews remain visible while dragging (Alt still hides them). A mini-hand card stays faded at its source until the drag ends. Mouse-wheel zoom-in follows the cursor; zoom-out uses the table center, including during drags. The dragged piece updates immediately to keep its grabbed point anchored to the cursor independently of the camera pivot. Zoom buttons use the table center. Hold **Alt** while dropping to bypass table-hand insertion and stacking and place the pieces directly on the tabletop instead.
 

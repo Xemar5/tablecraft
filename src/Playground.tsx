@@ -56,7 +56,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const handSelectionAnchor = useRef<string>(undefined);
   const handClickSuppressed = useRef(false);
   const tableHandGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
-  const gesture = useRef<{ pointer: number; x: number; y: number; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number } }>(null);
+  const gesture = useRef<{ pointer: number; x: number; y: number; startWorld?: { x: number; y: number }; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number } }>(null);
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
@@ -161,13 +161,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       const g = gesture.current;
       const dragging = g && !g.pan && pointer.current;
       const anchor = cursor ? { x: cursor.x - rect.left, y: cursor.y - rect.top } : { x: rect.width / 2, y: rect.height / 2 };
-      setPan({ x: anchor.x - (anchor.x - pan.x) * z / zoom, y: anchor.y - (anchor.y - pan.y) * z / zoom });
-      if (g && dragging) {
-        g.x = rect.left + anchor.x + (g.x - rect.left - anchor.x) * z / zoom;
-        g.y = rect.top + anchor.y + (g.y - rect.top - anchor.y) * z / zoom;
-        const angle = -camera * Math.PI / 180;
-        const dx = dragging.x - g.x, dy = dragging.y - g.y;
-        const delta = { x: (dx * Math.cos(angle) - dy * Math.sin(angle)) / z, y: (dx * Math.sin(angle) + dy * Math.cos(angle)) / z };
+      const nextPan = { x: anchor.x - (anchor.x - pan.x) * z / zoom, y: anchor.y - (anchor.y - pan.y) * z / zoom };
+      setPan(nextPan);
+      if (g && dragging && g.startWorld) {
+        const point = worldPoint(dragging.x, dragging.y, z, nextPan);
+        const delta = { x: point.x - g.startWorld.x, y: point.y - g.startWorld.y };
         setPreview(Object.fromEntries(Object.entries(g.positions).map(([id, pos]) => [id, { x: pos.x + delta.x, y: pos.y + delta.y }])));
       }
     }
@@ -177,9 +175,15 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     const angle = -camera * Math.PI / 180;
     return { x: (dx * Math.cos(angle) - dy * Math.sin(angle)) / zoom, y: (dx * Math.sin(angle) + dy * Math.cos(angle)) / zoom };
   };
-  const worldPoint = (x: number, y: number) => {
+  const worldPoint = (x: number, y: number, scale = zoom, translation = pan) => {
     const rect = viewport.current!.getBoundingClientRect();
-    return worldDelta(x - rect.left - pan.x, y - rect.top - pan.y);
+    const dx = x - rect.left - translation.x, dy = y - rect.top - translation.y;
+    const angle = -camera * Math.PI / 180;
+    return { x: (dx * Math.cos(angle) - dy * Math.sin(angle)) / scale, y: (dx * Math.sin(angle) + dy * Math.cos(angle)) / scale };
+  };
+  const dragDelta = (g: NonNullable<typeof gesture.current>, x: number, y: number) => {
+    const point = worldPoint(x, y);
+    return g.startWorld ? { x: point.x - g.startWorld.x, y: point.y - g.startWorld.y } : { x: 0, y: 0 };
   };
   const rotateCamera = (degrees: number) => {
     const rect = viewport.current?.getBoundingClientRect();
@@ -355,7 +359,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     if (!ids.includes(item.id)) return;
     if (item.locked) { void dispatch({ type: 'front', ids: group }); return; }
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
-    const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions, front: group };
+    const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), positions, front: group };
     gesture.current = active;
     if (extracting) {
       viewport.current?.setPointerCapture(e.pointerId);
@@ -399,7 +403,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           .then(ok => { if (ok) setSelected([...stackMembers(p, target), ...moving].map(i => i.id)); });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
-      const delta = worldDelta(e.clientX - g.x, e.clientY - g.y);
+      const delta = dragDelta(g, e.clientX, e.clientY);
       const anchor = Object.values(g.positions)[0];
       let { x: dx, y: dy } = delta;
       if (p.settings.snap && anchor) {
@@ -454,7 +458,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           if (!g || g.pointer !== e.pointerId) return;
           if (g.pan) setPan({ x: g.pan.x + e.clientX - g.x, y: g.pan.y + e.clientY - g.y });
           else {
-            const delta = worldDelta(e.clientX - g.x, e.clientY - g.y);
+            const delta = dragDelta(g, e.clientX, e.clientY);
             setPreview(Object.fromEntries(Object.entries(g.positions).map(([id, pos]) => [id, { x: pos.x + delta.x, y: pos.y + delta.y }])));
             showDropHint(e.clientX, e.clientY, p.instances.filter(i => i.id in g.positions), e.altKey);
           }
