@@ -36,7 +36,7 @@ export function LibraryVariants({ component, components, projectId }: { componen
             startLibraryDrag(event.dataTransfer, projectId, component.id, rows);
           }}>
           <ComponentThumbnail component={component} components={components} row={index} width={34} />
-          <span><small>{index + 1}</small> {label}</span>
+          <span>{index + 1}. {label}</span>
         </button>;
       })}
     </div>}

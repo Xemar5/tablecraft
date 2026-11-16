@@ -41,6 +41,11 @@ test('variant selection, ranges, and drag spawn an atomic set without reordering
   const card = page.locator('.library-item').filter({ has: page.getByRole('button', { name: 'Spawn Spirit cards', exact: true }) });
   await card.getByRole('button', { name: 'Variants (6)' }).click();
   const variants = card.getByRole('group', { name: 'Spirit cards variants' }).getByRole('button');
+  await expect(card.locator('.library-item-name small')).toHaveText(/\d+ × \d+ px\s*6 variants/);
+  await expect(variants.first().locator('span')).toHaveText(/^1\. \S/);
+  const rowBounds = (await variants.first().boundingBox())!;
+  const thumbBounds = (await variants.first().locator('.component-thumbnail').boundingBox())!;
+  expect(thumbBounds.x - rowBounds.x).toBeLessThan(8);
   await variants.nth(1).click();
   await variants.nth(3).click({ modifiers: ['Control'] });
   await variants.nth(5).click({ modifiers: ['Shift'] });

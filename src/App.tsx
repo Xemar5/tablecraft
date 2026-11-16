@@ -425,7 +425,7 @@ export default function App() {
                 const target = visible[index + (e.key === 'ArrowUp' ? -1 : 1)];
                 if (target) void dispatch({ type: 'reorderComponent', id: comp.id, targetId: target.id, position: e.key === 'ArrowUp' ? 'before' : 'after' });
               }}><GripVertical size={14} /></button>
-            <button className="library-item-name" onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{comp.rows.length > 1 ? `${comp.rows.length} variants` : `${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <span className="data-dot" />}</small></button>
+            <button className="library-item-name" onClick={() => edit(comp.id)}><strong>{comp.name}</strong><small>{`${comp.width} × ${comp.height} px`}{comp.rows.length > 1 && <><span className="data-dot" />{`${comp.rows.length} variants`}</>}</small></button>
             <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
           {comp.source && <div className="library-link-note"><small><Link size={11} /> Read-only · {comp.source.projectName}</small><button className="text-button" aria-label={`Make local copy of ${comp.name}`} onClick={() => void copyLinked(comp)}>Make local copy</button></div>}
           {mode === 'playground' && <>
