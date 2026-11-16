@@ -102,6 +102,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   if (searchedItems[0]?.stackReversed) searchedItems.reverse();
   const topPieces = p.instances.filter(i => !i.holder && (!i.stack || visibleStackMembers(p, i).at(-1)?.id === i.id));
   const selectedPieces = p.instances.filter(i => selected.includes(i.id));
+  const wholeStack = items.length > 1 && selectedPieces.length === items.length && items.every(i => selected.includes(i.id));
+  const stackTop = piece && !piece.holder ? visibleStackMembers(p, piece).at(-1) : undefined;
+  const canDrawSelection = p.settings.hands && !selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand);
   const selectHandCard = (id: string, event: React.MouseEvent) => {
     if (handClickSuppressed.current) { handClickSuppressed.current = false; return; }
     const anchor = held.findIndex(i => i.id === handSelectionAnchor.current);
@@ -810,7 +813,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
             <button onClick={() => rotate(90)}><RotateCw size={17} /><span>Rotate +90°<kbd>E</kbd></span></button>
             <button onClick={() => clone()}><Copy size={17} /><span>Clone</span></button>
-            <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!p.settings.hands || selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand)}><Hand size={17} /><span>Draw to hand</span></button>
+            {wholeStack ? <>
+              <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
+              <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Layers size={17} /><span>Draw all</span></button>
+            </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand</span></button>}
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}</span></button>
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete</span></button>
           </div>
