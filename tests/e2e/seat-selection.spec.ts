@@ -12,6 +12,11 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await expect(page.getByRole('button', { name: "I'm Player 2. Let's play.", exact: false })).toHaveCount(0);
   await expect(page.locator('.seat-marker.active')).toHaveAttribute('data-seat-id', 'player-1');
   const otherActions = page.getByRole('toolbar', { name: "Player 2's hand actions", exact: true });
+  const inactiveTop = (await otherActions.boundingBox())!.y;
+  await page.locator('[data-seat-id="player-1"]').click();
+  expect((await page.getByRole('toolbar', { name: "You's hand actions", exact: true }).boundingBox())!.y).toBeCloseTo(inactiveTop, 0);
+  await expect(page.locator('.hand-toolbar').getByRole('button', { name: 'Allow others to insert into my hand', exact: true })).toBeVisible();
+  await page.locator('[data-seat-id="player-2"]').click();
   for (const name of ["Hide Player 2's table hand", "Shuffle Player 2's hand", "Reverse Player 2's hand", "Allow others to insert into Player 2's hand", "Allow others to take from Player 2's hand"])
     await expect(otherActions.getByRole('button', { name, exact: true })).toBeDisabled();
   await expect(otherActions.getByRole('button', { name: 'Unlock table hands', exact: true })).toBeEnabled();
