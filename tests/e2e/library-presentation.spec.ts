@@ -141,7 +141,7 @@ test('filter wheel scrolling hides the scrollbar and updates overflow shadows', 
   await expect(wrapper).not.toHaveClass(/overflow-left|overflow-right/);
 });
 
-test('type filters scroll without bleeding and every multi-variant kind has a preview badge', async ({ page }) => {
+test('type filters scroll without bleeding and multi-variant kinds other than dice have a preview badge', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.library-item').first()).toBeVisible();
   const filters = page.locator('.library-filters');
@@ -156,8 +156,9 @@ test('type filters scroll without bleeding and every multi-variant kind has a pr
   await expect(artWithVariants.first().locator('.preview-ghost')).not.toHaveCount(0);
   await filters.getByRole('button', { name: 'Dice', exact: true }).click();
   const die = page.locator('.library-item').filter({ hasText: 'Spirit die' });
-  await expect(die.locator('.preview-variants')).toHaveText('6');
-  await expect(die.locator('.preview-ghost')).toHaveCount(2);
+  await expect(die).toBeVisible();
+  await expect(die.locator('.preview-variants')).toHaveCount(0);
+  await expect(die.locator('.preview-ghost')).toHaveCount(0);
 });
 
 test('transparent botanical artwork has no synthetic top-edge highlight', async ({ page }) => {

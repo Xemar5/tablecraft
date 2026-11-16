@@ -150,3 +150,7 @@
 .boolean-section .boolean-actions{justify-content:flex-start;gap:4px}
 .inspector-scroll{min-height:0;overscroll-behavior-y:contain}
 .playground-inspector .inspector-section{padding:16px 14px}
+.library-preview-wrap{position:relative}
+.library-preview-wrap:hover .preview-add,.library-preview-wrap:focus-within .preview-add{opacity:1;transform:scale(1)}
+.preview-spawn-all{right:39px;padding:0;cursor:pointer}
+.preview-spawn-all:hover{background:#f4f8ec;color:var(--green)}

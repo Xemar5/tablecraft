@@ -97,3 +97,49 @@ test('cancelled and invalid drags do not spawn, and all variants can still be cl
   await page.getByRole('button', { name: 'Undo playground action' }).click();
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 });
+
+test('dragging a component or using its spawn-all button spawns every variant, stacked when possible; dice spawn one piece', async ({ page }) => {
+  await page.goto('/');
+  const before = await state(page);
+  const viewport = page.locator('.table-viewport');
+  const item = (name: string) => page.locator('.library-item').filter({ has: page.getByRole('button', { name: `Spawn ${name}`, exact: true }) }).first();
+  const cards = before.components.find(c => c.name === 'Spirit cards')!;
+
+  await item('Spirit cards').getByRole('button', { name: 'Spawn Spirit cards', exact: true }).dragTo(viewport);
+  await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 6);
+  let added = (await state(page)).instances.slice(-6);
+  expect(added.map(i => i.row)).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(new Set(added.map(i => i.stack)).size).toBe(1);
+  expect(added[0].stack).toBeTruthy();
+  expect(added.map(i => i.order)).toEqual([0, 1, 2, 3, 4, 5]);
+  expect(new Set(added.map(i => `${i.x},${i.y}`)).size).toBe(1);
+  expect(added.every(i => i.componentId === cards.id)).toBe(true);
+  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
+
+  await item('Spirit cards').hover();
+  await item('Spirit cards').getByRole('button', { name: 'Spawn all Spirit cards variants', exact: true }).click();
+  await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 6);
+  added = (await state(page)).instances.slice(-6);
+  expect(new Set(added.map(i => i.stack)).size).toBe(1);
+  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
+
+  const fern = item('Botanical artwork (fern)');
+  await fern.getByRole('button', { name: 'Spawn all Botanical artwork (fern) variants', exact: true }).click({ force: true });
+  await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 3);
+  added = (await state(page)).instances.slice(-3);
+  expect(added.map(i => i.row)).toEqual([0, 1, 2]);
+  expect(added.every(i => !i.stack)).toBe(true);
+  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
+
+  const die = item('Spirit die');
+  await expect(die.getByRole('button', { name: /^Variants/ })).toHaveCount(0);
+  await expect(die.getByRole('button', { name: /^Spawn all/ })).toHaveCount(0);
+  await expect(die.locator('.preview-variants, .preview-ghost')).toHaveCount(0);
+  await die.getByRole('button', { name: 'Spawn Spirit die', exact: true }).dragTo(viewport);
+  await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 1);
+  added = (await state(page)).instances.slice(-1);
+  expect(added[0]).toMatchObject({ row: 0, stack: null });
+});

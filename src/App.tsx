@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
-import { archiveSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, Link, LoaderCircle, Palette, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings2, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { archiveSchema, canStack, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
 import { download, exportProject, loadWorkspace, parseArchive, parseComponentBundle, remapComponentBundle, saveWorkspace } from './storage';
@@ -32,6 +32,9 @@ function loadSnapshots(): { projects: Project[]; error: string | null } {
     return { projects: [], error: `Saved snapshots couldn't be read and have not been overwritten. ${String(error)}` };
   }
 }
+
+// Dice rows are faces of one die, not separately spawnable variants.
+const hasVariants = (component: Component) => component.kind !== 'dice' && component.rows.length > 1;
 
 export default function App() {
   const [initial] = useState(boot);
@@ -244,13 +247,23 @@ export default function App() {
     if (session && player.owner !== session.identity) { notify('This seat belongs to another connected player.', true); return; }
     if (player.id !== actor) { setCurtain(player); setSelected([]); }
   };
-  const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }) => {
+  const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }, stacked = false) => {
+    if (component.kind === 'dice') { rows = [0]; stacked = false; }
     if (!rows.length || rows.length > 1000 || rows.some(row => !Number.isSafeInteger(row) || row < 0 || row >= Math.max(component.rows.length, 1))) {
       notify('Choose up to 1,000 valid variants to spawn at once.', true); return;
     }
+    const scale = component.kind === 'card' ? .72 : .8;
+    if (stacked && rows.length > 1 && canStack([component])) {
+      // Spawning never creates stacks, so a new stack is added as one validated paste.
+      const stack = uid('stack');
+      const instances = rows.map((row, order) => ({ ...makeInstance(component.id, row, point.x, point.y), scale, stack, order }));
+      void dispatch({ type: 'paste', instances }).then(success => {
+        if (success) { setSelected(instances.map(i => i.id)); notify(`Added a stack of ${instances.length} ${component.name} pieces to the table.`); }
+      });
+      return;
+    }
     const instances = rows.map((row, i) => ({
-      ...makeInstance(component.id, row, point.x + (i % 5) * 24, point.y + Math.floor(i / 5) * 24),
-      scale: component.kind === 'card' ? .72 : component.kind === 'board' ? .8 : .8,
+      ...makeInstance(component.id, row, point.x + (i % 5) * 24, point.y + Math.floor(i / 5) * 24), scale,
     }));
     void dispatch({ type: 'spawn', instances }).then(success => {
       if (success) { setSelected(instances.map(i => i.id)); notify(`Added ${instances.length === 1 ? component.name : `${instances.length} pieces`} to the table.`); }
@@ -406,16 +419,20 @@ export default function App() {
             if (libraryDrag !== comp.id) void dispatch({ type: 'reorderComponent', id: libraryDrag, targetId: comp.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
             setLibraryDrag(undefined); setLibraryDrop(undefined);
           }}>
+          <div className="library-preview-wrap">
           <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'playground'}
-            onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, [0])}
+            onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, hasVariants(comp) ? comp.rows.map((_, i) => i) : [0], hasVariants(comp))}
             onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
-            {comp.rows.length > 1 && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
+            {hasVariants(comp) && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
             <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : comp.kind === 'artwork' ? <Palette size={10} /> : <Square size={10} />}{comp.kind}</span>
-            {comp.rows.length > 1 && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
+            {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
             <span className="preview-add"><Plus size={17} /></span>
           </button>
+          {mode === 'playground' && hasVariants(comp) && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
+            title={`Spawn all ${comp.rows.length} variants${comp.stackable ? ' as a stack' : ''}`} onClick={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)}><CopyPlus size={15} /></button>}
+          </div>
           <div className="library-item-label"><button className="icon-button library-reorder" draggable aria-label={`Reorder ${comp.name}`} title="Drag to reorder; use Up/Down arrows when focused"
               onDragStart={e => { e.dataTransfer.setData('text/plain', comp.id); e.dataTransfer.effectAllowed = 'move'; setLibraryDrag(comp.id); }}
               onDragEnd={() => { setLibraryDrag(undefined); setLibraryDrop(undefined); }}
@@ -429,7 +446,7 @@ export default function App() {
             <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
           {comp.source && <div className="library-link-note"><small><Link size={11} /> Read-only · {comp.source.projectName}</small><button className="text-button" aria-label={`Make local copy of ${comp.name}`} onClick={() => void copyLinked(comp)}>Make local copy</button></div>}
           {mode === 'playground' && <>
-            {comp.rows.length > 1 && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i))} />}
+            {hasVariants(comp) && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)} />}
           </>}
         </div>)}
           {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}

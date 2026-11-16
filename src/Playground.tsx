@@ -10,7 +10,7 @@ import { PanelSeparator, type usePanelLayout } from './panelLayout';
 type Props = {
   project: Project; actor: string; owner: string; selected: string[]; setSelected: (ids: string[]) => void;
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
-  onSpawn: (component: Component, rows: number[], point: { x: number; y: number }) => void;
+  onSpawn: (component: Component, rows: number[], point: { x: number; y: number }, stacked?: boolean) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
   inspectorVisible: boolean; handVisible: boolean;
   onShowInspector: () => void;
@@ -419,7 +419,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           const data = readLibraryDrag(e.dataTransfer);
           const component = data?.projectId === p.id ? p.components.find(c => c.id === data.componentId) : undefined;
           if (!data || !component) { notify('Unable to spawn these library variants.', true); return; }
-          onSpawn(component, data.rows, worldPoint(e.clientX, e.clientY));
+          onSpawn(component, data.rows, worldPoint(e.clientX, e.clientY), data.stacked);
         }}
         onPointerLeave={() => { if (!gesture.current) { pointer.current = null; setHovered(undefined); setPreviewItem(undefined); } }}
         onContextMenu={e => e.preventDefault()}
