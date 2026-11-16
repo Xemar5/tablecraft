@@ -501,7 +501,8 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         item.x += command.dx ?? 0;
         item.y += command.dy ?? 0;
         item.rotation = (item.rotation + (command.rotation ?? 0)) % 360;
-        item.scale *= command.scaleFactor ?? 1;
+        // Rounding keeps relative factors such as target / current from drifting below the typed value.
+        item.scale = Math.round(item.scale * (command.scaleFactor ?? 1) * 1e9) / 1e9;
         if (command.flip && item.stack && flippedStacks.has(item.stack)) item.stackReversed = !item.stackReversed;
         else if (command.flip && component(item).flippable) item.flipped = !item.flipped;
       }

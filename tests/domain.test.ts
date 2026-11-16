@@ -309,6 +309,10 @@ describe('tabletop commands', () => {
     expect(next.instances.find(i => i.id === ids[1])).toMatchObject({ rotation: 70, scale: 3, flipped: false });
     expect(cards[0].rotation).toBe(15);
     expect(() => applyCommand(p, { type: 'transform', ids, scaleFactor: 10 })).toThrow();
+    cards[1].scale = .3;
+    const relative = applyCommand(p, { type: 'transform', ids: [ids[1]], scaleFactor: .7 / .3 }, 'player-1');
+    expect(relative.instances.find(i => i.id === ids[1])?.scale).toBe(.7);
+    cards[1].scale = 1.5;
     cards[1].locked = true;
     expect(() => applyCommand(p, { type: 'transform', ids, rotation: 90 })).toThrow('Unlock');
     expect(cards[0].rotation).toBe(15);
