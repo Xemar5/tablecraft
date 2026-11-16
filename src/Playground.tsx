@@ -112,6 +112,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const [altDown, setAltDown] = useState(false);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number }>();
   const marqueeGesture = useRef<{ x: number; y: number; ids: string[] }>(null);
+  const handMarquee = useRef<{ pointer: number; x: number; y: number; ids: string[] }>(null);
   const handGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
   const handSelectionAnchor = useRef<string>(undefined);
   const handClickSuppressed = useRef(false);
@@ -144,9 +145,21 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         : [id]);
     }
   };
+  /** Table-hand cards join the table selection: plain click selects only the card, modifier-click toggles it. */
+  const selectMini = (id: string, event: React.MouseEvent) => {
+    if (handClickSuppressed.current) { handClickSuppressed.current = false; return; }
+    handSelectionAnchor.current = id;
+    setSelected(event.ctrlKey || event.metaKey || event.shiftKey ? selected.includes(id) ? selected.filter(key => key !== id) : [...selected, id] : [id]);
+  };
+  const boxRect = (x: number, y: number, event: React.PointerEvent) => ({ x: Math.min(x, event.clientX), y: Math.min(y, event.clientY), width: Math.abs(event.clientX - x), height: Math.abs(event.clientY - y) });
+  const touches = (element: Element | null | undefined, rect: { x: number; y: number; width: number; height: number }) => {
+    const bounds = element?.getBoundingClientRect();
+    return !!bounds && bounds.right >= rect.x && bounds.left <= rect.x + rect.width && bounds.bottom >= rect.y && bounds.top <= rect.y + rect.height;
+  };
   useEffect(() => {
     const clear = (event: PointerEvent) => {
-      if (event.target instanceof Element && event.target.closest('[data-hand-id],[data-mini-id]')) return;
+      // The table and the hand tray manage their own selection (including box selection).
+      if (event.target instanceof Element && event.target.closest('[data-hand-id],[data-mini-id],.table-viewport,.hand-tray')) return;
       handSelectionAnchor.current = undefined;
       if (selected.some(id => held.some(i => i.id === id))) setSelected([]);
     };
@@ -602,14 +615,13 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           pointer.current = { x: e.clientX, y: e.clientY };
           const box = marqueeGesture.current;
           if (box) {
-            const rect = { x: Math.min(box.x, e.clientX), y: Math.min(box.y, e.clientY), width: Math.abs(e.clientX - box.x), height: Math.abs(e.clientY - box.y) };
+            const rect = boxRect(box.x, box.y, e);
             setMarquee(rect);
             if (rect.width > 3 || rect.height > 3) {
-              const ids = topPieces.filter(item => {
-                if (item.locked) return false;
-                const bounds = viewport.current?.querySelector<HTMLElement>(`[data-piece-id="${CSS.escape(item.id)}"]`)?.getBoundingClientRect();
-                return bounds && bounds.right >= rect.x && bounds.left <= rect.x + rect.width && bounds.bottom >= rect.y && bounds.top <= rect.y + rect.height;
-              }).flatMap(item => stackMembers(p, item).map(i => i.id));
+              const ids = topPieces.filter(item => !item.locked && touches(viewport.current?.querySelector(`[data-piece-id="${CSS.escape(item.id)}"]`), rect))
+                .flatMap(item => stackMembers(p, item).map(i => i.id));
+              // Cards in your own table hand join the box selection too.
+              if (actor && p.settings.hands) ids.push(...held.filter(i => !i.locked && touches(viewport.current?.querySelector(`[data-seat-id="${CSS.escape(actor)}"] [data-mini-id="${CSS.escape(i.id)}"]`), rect)).map(i => i.id));
               // Keep pieces already in the box in the order they were caught, so the stacking order follows the sweep.
               const inBox = new Set(ids);
               setSelected([...new Set([...box.ids, ...selected.filter(id => inBox.has(id)), ...ids])]);
@@ -717,7 +729,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
                     }
                   }}
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined); }}
-                  onClick={e => { e.stopPropagation(); if (player.id === actor) selectHandCard(i.id, e); }}>
+                  onClick={e => { e.stopPropagation(); if (player.id === actor) selectMini(i.id, e); }}>
                   <ComponentThumbnail component={comp} components={p.components} row={i.row} back={i.flipped} hidden={player.id === actor ? !!player.tableHandHidden : comp.hideInHand} width={44} />
                   {handDrop?.playerId === player.id && handDrop.index === remaining.length && remaining.at(-1)?.id === i.id && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
                 </div>;
@@ -790,7 +802,27 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         })()}
         <div className="table-hint">{viewer ? <>Watching as a viewer <span /> Click pieces to inspect them <span /> Take a seat in Players to play</> : <>Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</>}</div>
       </div>
-      {p.settings.hands && handVisible && !viewer && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
+      {p.settings.hands && handVisible && !viewer && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}
+        onPointerDown={e => {
+          // Box selection in the tray selects hand cards only; Shift/Ctrl/Cmd adds to the current hand selection.
+          if (e.button !== 0 || (e.target as Element).closest('button,[data-hand-id]')) return;
+          const ids = e.shiftKey || e.ctrlKey || e.metaKey ? selected.filter(id => held.some(i => i.id === id)) : [];
+          handMarquee.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, ids };
+          handSelectionAnchor.current = undefined;
+          setSelected(ids);
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }}
+        onPointerMove={e => {
+          const box = handMarquee.current;
+          if (!box || box.pointer !== e.pointerId) return;
+          const rect = boxRect(box.x, box.y, e);
+          setMarquee(rect);
+          if (rect.width <= 3 && rect.height <= 3) return;
+          const ids = held.filter(i => touches(e.currentTarget.querySelector(`[data-hand-id="${CSS.escape(i.id)}"]`), rect)).map(i => i.id);
+          setSelected([...new Set([...box.ids, ...ids])]);
+        }}
+        onPointerUp={e => { if (handMarquee.current?.pointer === e.pointerId) { handMarquee.current = null; setMarquee(undefined); } }}
+        onPointerCancel={() => { handMarquee.current = null; setMarquee(undefined); }}>
         <HorizontalScroll target={handScroller} contentClassName="hand-cards" className="hand-cards-scroll" label="Hand cards">{held.length ? held.map(item => {
          const comp = p.components.find(c => c.id === item.componentId)!;
           const draggingIds = handDrag ? selected.includes(handDrag.id) ? selected : [handDrag.id] : [];
