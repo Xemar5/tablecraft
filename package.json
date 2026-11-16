@@ -16,7 +16,8 @@
     "preview": "vite preview --host 127.0.0.1",
     "db:build": "spacetime build --module-path server",
     "db:generate": "spacetime generate --lang typescript --module-path server --out-dir src/module_bindings -y",
-    "db:publish": "spacetime publish tablecraft-studio --module-path server --server http://127.0.0.1:3000"
+    "db:publish": "spacetime publish tablecraft-studio --module-path server --server http://127.0.0.1:3000",
+    "db:publish:maincloud": "spacetime publish tablecraft-xemar5 --module-path server --server maincloud"
   },
   "dependencies": {
     "lucide-react": "^0.468.0",

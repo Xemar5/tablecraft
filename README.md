@@ -108,6 +108,14 @@ VITE_SPACETIMEDB_DATABASE=tablecraft-studio
 
 After server schema changes, run `npm run db:generate`, then republish. Shared command changes also require republishing the module, even when the schema is unchanged. Generated client bindings are included.
 
+### Hosting on GitHub Pages
+
+The frontend is a static site. [.github/workflows/pages.yml](.github/workflows/pages.yml) runs the unit tests, builds with `BASE_PATH=/<repository>/` and deploys `dist/` to GitHub Pages on every push to `main` (or manually from the Actions tab). Enable it once under **Settings → Pages → Source: GitHub Actions**. Offline design and play work without a server; saves stay in each visitor's browser.
+
+Pages cannot run SpaceTimeDB, so the deployed build defaults multiplayer to Maincloud (`https://maincloud.spacetimedb.com`, database `tablecraft-xemar5`). Override either with the repository variables `SPACETIMEDB_URI` and `SPACETIMEDB_DATABASE`. Pages is served over HTTPS, so any other server must offer HTTPS/WSS. Both values are public in the built site.
+
+Publish the module to Maincloud with `spacetime login` (browser sign-in to the account that owns the database) and `npm run db:publish:maincloud`. Republish there after server or shared command changes, just as for a local server; pushing to `main` only redeploys the frontend.
+
 ### Trust model
 
 Rooms are collaborative prototyping spaces for **trusted playtesters**, not adversarial competitive games:
