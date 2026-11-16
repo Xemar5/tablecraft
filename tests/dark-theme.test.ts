@@ -54,4 +54,11 @@ describe('dark theme PostCSS plugin', () => {
     expect(css).not.toContain('dark] from');
     expect(css).not.toContain('dark] [data-theme-fixed]');
   });
+
+  it('mirrors scrollbar colors and leaves hand-written dark-only rules alone', async () => {
+    const css = await run('.l{scrollbar-color:#dbe3d3 transparent}:root[data-theme=dark] *{scrollbar-color:#3c3f3c transparent}');
+    expect(css).toMatch(/:root\[data-theme=dark\] \.l\{scrollbar-color:#[0-9a-f]{6} transparent\}/);
+    expect(css).toContain(':root[data-theme=dark] *{scrollbar-color:#3c3f3c transparent}');
+    expect(css).not.toContain('dark] :root');
+  });
 });

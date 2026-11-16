@@ -3,7 +3,8 @@
 // with lightness inverted (hue kept), so new styles get a dark variant automatically.
 // Mirroring all color-related declarations, not only literal colors, keeps the
 // original specificity and source order between rules in dark mode. Rules whose selector
-// contains `[data-theme-fixed]` keep their colors in both themes (e.g. theme previews).
+// contains `[data-theme-fixed]` keep their colors in both themes (e.g. theme previews); rules already
+// written for `:root[data-theme=dark]` are dark-only overrides and are left as they are.
 
 export const DARK_SELECTOR = ':root[data-theme=dark]';
 
@@ -12,7 +13,7 @@ type Rgba = { r: number; g: number; b: number; a: number };
 const NAMED: Record<string, string> = { white: '#ffffff', black: '#000000' };
 const COLOR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|\b(?:white|black)\b/g;
 const HAS_COLOR = new RegExp(COLOR.source);
-const PAINT_PROP = /^(?:color|fill|stroke|filter|caret-color|accent-color|background(?:-color|-image)?|(?:border|outline|column-rule|text-decoration)(?:-(?:top|right|bottom|left|block|inline)(?:-start|-end)?)?(?:-color)?|.*shadow.*)$/;
+const PAINT_PROP = /^(?:color|fill|stroke|filter|caret-color|accent-color|scrollbar-color|background(?:-color|-image)?|(?:border|outline|column-rule|text-decoration)(?:-(?:top|right|bottom|left|block|inline)(?:-start|-end)?)?(?:-color)?|.*shadow.*)$/;
 
 function parse(color: string): Rgba | undefined {
   const value = NAMED[color.toLowerCase()] ?? color;
@@ -95,7 +96,7 @@ export function darkThemePlugin() {
       const root = rootNode as Root, RuleCtor = (helpers as { Rule: new (props: object) => Rule }).Rule;
       const generated = new WeakSet<Rule>();
       root.walkRules(rule => {
-        if (generated.has(rule) || rule.selector.includes('[data-theme-fixed]') || (rule.parent?.type === 'atrule' && /keyframes$/.test(rule.parent.name ?? ''))) return;
+        if (generated.has(rule) || rule.selector.includes('[data-theme-fixed]') || rule.selector.includes(DARK_SELECTOR) || (rule.parent?.type === 'atrule' && /keyframes$/.test(rule.parent.name ?? ''))) return;
         const decls = rule.nodes.filter((n): n is Decl => n.type === 'decl' && mirrors((n as Decl).prop, (n as Decl).value));
         if (!decls.length) return;
         const dark = rule.clone({ selector: darkSelector(rule.selector) }).removeAll();
