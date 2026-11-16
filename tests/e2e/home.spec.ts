@@ -4,6 +4,43 @@ import { linkComponent } from '../../src/projectLinks';
 
 test.use({ storageState: { cookies: [], origins: [] } });
 
+test('Home actions retain aligned spacing and icons, and New project has a padded form', async ({ page }) => {
+  await page.goto('/');
+  for (const width of [1280, 800, 620]) {
+    await page.setViewportSize({ width, height: 800 });
+    const buttons = page.locator('.home-actions > button');
+    await expect(buttons).toHaveCount(3);
+    const measurements = await buttons.evaluateAll(elements => elements.map(element => {
+      const style = getComputedStyle(element);
+      const bounds = element.getBoundingClientRect();
+      const icon = element.querySelector('svg')!.getBoundingClientRect();
+      return { height: bounds.height, left: bounds.left, right: bounds.right, margin: style.margin,
+        paddingLeft: style.paddingLeft, paddingRight: style.paddingRight, iconWidth: icon.width };
+    }));
+    for (const button of measurements) {
+      expect(button.margin).toBe('0px');
+      expect(button.paddingLeft).toBe(button.paddingRight);
+      expect(button.iconWidth).toBe(16);
+      expect(button.height).toBe(measurements[0].height);
+      expect(button.left).toBeGreaterThanOrEqual(0);
+      expect(button.right).toBeLessThanOrEqual(width);
+    }
+  }
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
+  const name = dialog.getByRole('textbox', { name: 'Project name', exact: true });
+  await expect(name).toBeFocused();
+  await expect(dialog.locator('form')).toHaveCSS('padding', '24px 26px');
+  await expect(dialog.getByText('You can change the name later.', { exact: true })).toBeVisible();
+  const bounds = (await dialog.boundingBox())!;
+  const input = (await name.boundingBox())!;
+  expect(input.x - bounds.x).toBeGreaterThanOrEqual(26);
+  expect(bounds.x + bounds.width - input.x - input.width).toBeGreaterThanOrEqual(26);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.home-project')).toHaveCount(1);
+});
+
 test('fresh visits start at Home, open projects resume, and the logo returns Home', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('region', { name: 'Project home' })).toBeVisible();

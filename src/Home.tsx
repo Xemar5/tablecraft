@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, GripVertical, Link2, Plus, Trash2, Upload } from 'lucide-react';
+import { Download, FolderPlus, GripVertical, Link2, Plus, Trash2, Upload } from 'lucide-react';
 import { ComponentThumbnail } from './ComponentView';
 import { type Project } from './domain';
 import { Field, Modal } from './ui';
@@ -16,7 +16,7 @@ export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onImport
   const [name, setName] = useState('');
   return <section className="home-screen" aria-label="Project home">
     <div className="home-heading"><div><p>YOUR WORKSHOP</p><h1>Projects</h1><p>Design, collect, and play.</p></div>
-      <div className="button-row"><button className="button" onClick={onImport}><Upload size={16} /> Import projects</button>
+      <div className="home-actions"><button className="button" onClick={onImport}><Upload size={16} /> Import projects</button>
         <button className="button" onClick={onExportAll} disabled={!projects.length}><Download size={16} /> Export all projects</button>
         <button className="button primary" onClick={() => { setName(`Untitled project ${projects.length + 1}`); setCreating(true); }}><Plus size={16} /> New project</button></div>
     </div>
@@ -59,9 +59,12 @@ export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onImport
     {deleting && <Modal title={`Delete ${deleting.name}?`} subtitle="This removes the project from this browser. Export it first to keep a backup. Other projects keep their last linked snapshots." onClose={() => setDeleting(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setDeleting(undefined)}>Cancel</button><button className="button danger" onClick={() => { onDelete(deleting.id); setDeleting(undefined); }}>Delete project</button></div>
     </Modal>}
-    {creating && <Modal title="New project" onClose={() => setCreating(false)}><form onSubmit={event => {
+    {creating && <Modal title="New project" subtitle="Give your next game a place to grow." onClose={() => setCreating(false)}><form className="new-project-form" onSubmit={event => {
       event.preventDefault(); onCreate(name.trim()); setCreating(false);
-    }}><Field label="Project name"><input required pattern={'.*\\S.*'} maxLength={100} value={name} onChange={event => setName(event.target.value)} /></Field>
-      <div className="modal-actions"><button className="button primary" type="submit">Create project</button></div></form></Modal>}
+    }}>
+      <div className="new-project-intro"><span className="new-project-icon"><FolderPlus size={25} /></span><div><h3>One idea. Endless possibilities.</h3><p>Keep your components, table and playtests together.</p></div></div>
+      <Field label="Project name"><input autoFocus required pattern={'.*\\S.*'} maxLength={100} value={name} onFocus={event => event.currentTarget.select()} onChange={event => setName(event.target.value)} /></Field>
+      <p className="new-project-hint">You can change the name later.</p>
+      <div className="modal-actions"><button className="button" type="button" onClick={() => setCreating(false)}>Cancel</button><button className="button primary" type="submit"><Plus size={16} /> Create project</button></div></form></Modal>}
   </section>;
 }

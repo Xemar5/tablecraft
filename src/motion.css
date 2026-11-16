@@ -1,5 +1,16 @@
 .library-footer { padding-bottom: 14px; }
 
+.home-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.home-actions > .button { flex: 0 0 auto; margin: 0; padding: 9px 14px; }
+.home-actions svg, .new-project-form button svg { flex-shrink: 0; }
+.new-project-form { padding: 24px 26px; }
+.new-project-intro { display: flex; align-items: center; gap: 14px; margin-bottom: 24px; }
+.new-project-icon { display: grid; place-items: center; flex: 0 0 52px; height: 52px; border-radius: 14px; background: #edf2e5; color: #66804e; }
+.new-project-intro h3 { margin: 0 0 6px; font-size: 14px; color: #365d46; }
+.new-project-intro p, .new-project-hint { margin: 0; font-size: 12px; line-height: 1.6; color: #7d806c; }
+.new-project-hint { margin-top: 8px; }
+.new-project-form .modal-actions { border-top: 1px solid var(--line); padding-top: 20px; margin-top: 24px; }
+
 .other-hand {
   position: absolute;
   left: 50%;
