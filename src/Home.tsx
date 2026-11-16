@@ -50,7 +50,6 @@ export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onImport
           <button className="icon-button" aria-label={`Export project ${project.name}`} onClick={() => onExport(project)}><Download size={17} /></button>
           <button className="icon-button" aria-label={`Delete project ${project.name}`} onClick={() => setDeleting(project)}><Trash2 size={17} /></button></div>
       </div>
-      {project.description && <p>{project.description}</p>}
       <details><summary>Components ({project.components.length})</summary><ul className="home-components">
         {project.components.map(component => <li key={component.id}><div className="home-component-image"><ComponentThumbnail component={component} components={project.components} width={44} /></div>
           <span><strong>{component.name}</strong><small>{component.kind} · {Math.max(1, component.rows.length)} variants {component.source && <><Link2 size={11} /> Read-only link</>}</small></span></li>)}

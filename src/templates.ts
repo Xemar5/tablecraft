@@ -157,7 +157,7 @@ export function starterProject(): Project {
     ...makeInstance(card.id, n % 6, 600, 400), stack: 'starter-deck', order: n, flipped: true, scale: 0.72,
   }));
   return {
-    id: uid('project'), name: 'Wildwood', description: 'A little magic. A lot of possibility.',
+    id: uid('project'), name: 'Wildwood', description: '',
     components: [...bundles.map(bundle => bundle.root), ...bundles.flatMap(bundle => bundle.components.filter(item => item.id !== bundle.root.id))],
     instances: [
       { ...makeInstance(board.id, 0, 1050, 430), scale: 0.85, locked: true },
