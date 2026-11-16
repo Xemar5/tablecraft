@@ -1,6 +1,38 @@
 import { X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 
+export function useSmoothHorizontalWheel(target: RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const element = target.current;
+    if (!element) return;
+    let frame: number | undefined, destination = element.scrollLeft, previous = 0;
+    const stop = () => { if (frame !== undefined) cancelAnimationFrame(frame); frame = undefined; };
+    const tick = (now: number) => {
+      const elapsed = Math.min(now - previous, 50);
+      previous = now;
+      destination = Math.max(0, Math.min(destination, element.scrollWidth - element.clientWidth));
+      const distance = destination - element.scrollLeft;
+      element.scrollLeft = Math.abs(distance) <= 1 ? destination : element.scrollLeft + distance * (1 - Math.exp(-elapsed / 55));
+      if (Math.abs(destination - element.scrollLeft) <= 1) { element.scrollLeft = destination; frame = undefined; }
+      else frame = requestAnimationFrame(tick);
+    };
+    const wheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      if (!delta) return;
+      event.preventDefault();
+      const amount = delta * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1);
+      destination = Math.max(0, Math.min((frame === undefined ? element.scrollLeft : destination) + amount, element.scrollWidth - element.clientWidth));
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { stop(); element.scrollLeft = destination; }
+      else if (frame === undefined) { previous = performance.now(); frame = requestAnimationFrame(tick); }
+    };
+    element.addEventListener('wheel', wheel, { passive: false });
+    document.addEventListener('pointerdown', stop, true);
+    window.addEventListener('blur', stop);
+    return () => { stop(); element.removeEventListener('wheel', wheel); document.removeEventListener('pointerdown', stop, true); window.removeEventListener('blur', stop); };
+  }, [target]);
+}
+
 export function ScrollArrows({ target, left, right, label }: {
   target: RefObject<HTMLDivElement | null>; left: boolean; right: boolean; label: string;
 }) {
@@ -42,6 +74,7 @@ export function HorizontalScroll({ children, label, contentClassName = '', class
 }) {
   const internal = useRef<HTMLDivElement>(null);
   const ref = target ?? internal;
+  useSmoothHorizontalWheel(ref);
   const [edges, setEdges] = useState({ left: false, right: false });
   useEffect(() => {
     const element = ref.current;
@@ -50,13 +83,6 @@ export function HorizontalScroll({ children, label, contentClassName = '', class
       const left = element.scrollLeft > 1, right = element.scrollLeft + element.clientWidth < element.scrollWidth - 1;
       return previous.left === left && previous.right === right ? previous : { left, right };
     });
-    const wheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      if (!delta) return;
-      event.preventDefault();
-      element.scrollLeft += delta * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientWidth : 1);
-    };
     const resize = new ResizeObserver(measure);
     const observe = () => {
       resize.disconnect(); resize.observe(element);
@@ -66,9 +92,8 @@ export function HorizontalScroll({ children, label, contentClassName = '', class
     const mutations = new MutationObserver(observe);
     mutations.observe(element, { childList: true, subtree: true, characterData: true });
     element.addEventListener('scroll', measure);
-    element.addEventListener('wheel', wheel, { passive: false });
     observe();
-    return () => { resize.disconnect(); mutations.disconnect(); element.removeEventListener('scroll', measure); element.removeEventListener('wheel', wheel); };
+    return () => { resize.disconnect(); mutations.disconnect(); element.removeEventListener('scroll', measure); };
   }, [ref]);
   return <div className={`horizontal-scroll ${className}${edges.left ? ' overflow-left' : ''}${edges.right ? ' overflow-right' : ''}`}>
     <div ref={ref} className={`horizontal-scroll-content ${contentClassName}`} aria-label={label}>{children}</div>

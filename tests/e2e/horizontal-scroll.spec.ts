@@ -1,5 +1,30 @@
 import { expect, test } from '@playwright/test';
 
+test('wheel scrolling eases toward accumulated input and respects reduced motion', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page.goto('/');
+  await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).hover();
+  await page.keyboard.press('0');
+  const content = page.getByLabel('Hand cards', { exact: true });
+  const initial = await content.evaluate(element => {
+    element.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }));
+    element.dispatchEvent(new WheelEvent('wheel', { deltaY: 100, cancelable: true }));
+    return element.scrollLeft;
+  });
+  expect(initial).toBe(0);
+  const intermediate = await content.evaluate(element => new Promise<number>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve(element.scrollLeft)));
+  }));
+  expect(intermediate).toBeGreaterThan(0);
+  expect(intermediate).toBeLessThan(200);
+  await expect.poll(() => content.evaluate(el => el.scrollLeft)).toBe(200);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await content.evaluate(element => {
+    element.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, cancelable: true }));
+    return element.scrollLeft;
+  })).toBe(100);
+});
+
 test('hand cards use wheel scrolling, edge shadows and hold arrows without a scrollbar', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 800 });
   await page.goto('/');

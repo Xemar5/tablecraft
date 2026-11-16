@@ -9,7 +9,7 @@ import { Designer } from './Designer';
 import { Playground } from './Playground';
 import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
-import { Field, Modal, Notice, ScrollArrows } from './ui';
+import { Field, Modal, Notice, ScrollArrows, useSmoothHorizontalWheel } from './ui';
 import { Home } from './Home';
 import { LinkedComponent } from './LinkedComponent';
 import { linkComponent, localComponentCopy, refreshProjectLinks } from './projectLinks';
@@ -62,27 +62,18 @@ export default function App() {
   const [libraryDrop, setLibraryDrop] = useState<{ id: string; position: 'before' | 'after' }>();
   const filterStrip = useRef<HTMLDivElement>(null);
   const [filterEdges, setFilterEdges] = useState({ left: false, right: false });
+  useSmoothHorizontalWheel(filterStrip);
   useEffect(() => {
     const element = filterStrip.current;
     if (!element) return;
     const measure = () => setFilterEdges({ left: element.scrollLeft > 1, right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 });
-    const wheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      if (!delta) return;
-      event.preventDefault();
-      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? element.clientWidth : 1;
-      element.scrollLeft += delta * unit;
-    };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     element.addEventListener('scroll', measure);
-    element.addEventListener('wheel', wheel, { passive: false });
     measure();
     return () => {
       observer.disconnect();
       element.removeEventListener('scroll', measure);
-      element.removeEventListener('wheel', wheel);
     };
   }, []);
   const [modal, setModal] = useState<'templates' | 'projects' | 'session' | 'help' | 'save' | 'link'>();

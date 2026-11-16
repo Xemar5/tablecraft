@@ -6,7 +6,7 @@ import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { download, exportComponentBundle } from './storage';
-import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle } from './ui';
+import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle, useSmoothHorizontalWheel } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
@@ -103,26 +103,18 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const [toolMenu, setToolMenu] = useState<'shape' | 'link' | null>(null);
   const [toolMenuPosition, setToolMenuPosition] = useState({ left: 0, top: 0 });
   const toolbar = useRef<HTMLDivElement>(null);
+  useSmoothHorizontalWheel(toolbar);
   const [toolbarEdges, setToolbarEdges] = useState({ left: false, right: false });
   useEffect(() => {
     const element = toolbar.current;
     if (!element) return;
     const measure = () => setToolbarEdges({ left: element.scrollLeft > 1, right: element.scrollLeft + element.clientWidth < element.scrollWidth - 1 });
     const scroll = () => { measure(); setToolMenu(null); };
-    const wheel = (event: WheelEvent) => {
-      if (event.ctrlKey || event.metaKey || element.scrollWidth <= element.clientWidth) return;
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-      if (!delta) return;
-      event.preventDefault();
-      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16 : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? element.clientWidth : 1;
-      element.scrollLeft += delta * unit;
-    };
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     element.addEventListener('scroll', scroll);
-    element.addEventListener('wheel', wheel, { passive: false });
     measure();
-    return () => { observer.disconnect(); element.removeEventListener('scroll', scroll); element.removeEventListener('wheel', wheel); };
+    return () => { observer.disconnect(); element.removeEventListener('scroll', scroll); };
   }, []);
   const toggleToolMenu = (menu: 'shape' | 'link', button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
