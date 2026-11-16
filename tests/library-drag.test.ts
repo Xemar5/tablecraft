@@ -15,7 +15,9 @@ describe('library drag payload', () => {
     const data = transfer();
     startLibraryDrag(data, 'project', 'component', [1, 3]);
     expect(data.effectAllowed).toBe('copy');
-    expect(readLibraryDrag(data)).toEqual({ projectId: 'project', componentId: 'component', rows: [1, 3] });
+    expect(readLibraryDrag(data)).toEqual({ projectId: 'project', componentId: 'component', rows: [1, 3], stacked: false });
+    startLibraryDrag(data, 'project', 'component', [0, 1, 2], true);
+    expect(readLibraryDrag(data)).toEqual({ projectId: 'project', componentId: 'component', rows: [0, 1, 2], stacked: true });
   });
 
   it('rejects malformed, duplicate, and oversized payloads', () => {
