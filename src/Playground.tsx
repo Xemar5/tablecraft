@@ -36,8 +36,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
   const [previewOnLeft, setPreviewOnLeft] = useState(false);
-  const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number }>();
-  const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number }>(null);
+  const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number; rotation: number }>();
+  const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number; startWorld: { x: number; y: number }; rotation: number }>(null);
+  const [hoveredSeat, setHoveredSeat] = useState<string>();
   const seatMoved = useRef(false);
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
@@ -160,12 +161,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         const delta = { x: point.x - g.startWorld.x, y: point.y - g.startWorld.y };
         setPreview(Object.fromEntries(Object.entries(g.positions).map(([id, pos]) => [id, { x: pos.x + delta.x, y: pos.y + delta.y }])));
       }
+      if (seatGesture.current && pointer.current) previewSeat(pointer.current.x, pointer.current.y, z, nextPan);
     }
     setZoom(z);
-  };
-  const worldDelta = (dx: number, dy: number) => {
-    const angle = -camera * Math.PI / 180;
-    return { x: (dx * Math.cos(angle) - dy * Math.sin(angle)) / zoom, y: (dx * Math.sin(angle) + dy * Math.cos(angle)) / zoom };
   };
   const worldPoint = (x: number, y: number, scale = zoom, translation = pan) => {
     const rect = viewport.current!.getBoundingClientRect();
@@ -176,6 +174,26 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const dragDelta = (g: NonNullable<typeof gesture.current>, x: number, y: number) => {
     const point = worldPoint(x, y);
     return g.startWorld ? { x: point.x - g.startWorld.x, y: point.y - g.startWorld.y } : { x: 0, y: 0 };
+  };
+  /** Seat drags anchor to the world point under the pointer, so zooming or rotating mid-drag cannot offset the seat. */
+  const previewSeat = (x: number, y: number, scale = zoom, translation = pan) => {
+    const g = seatGesture.current;
+    if (!g) return;
+    const point = worldPoint(x, y, scale, translation);
+    setSeatPosition({ id: g.id, x: g.startX + point.x - g.startWorld.x, y: g.startY + point.y - g.startWorld.y, rotation: g.rotation });
+  };
+  const rotateDraggedSeat = (degrees: number) => {
+    const g = seatGesture.current;
+    if (!g) return false;
+    g.rotation = ((g.rotation + degrees) % 360 + 360) % 360;
+    seatMoved.current = true;
+    const at = pointer.current ?? { x: g.x, y: g.y };
+    previewSeat(at.x, at.y);
+    return true;
+  };
+  const canEditSeat = (player: Player) => owner === 'local' || player.owner === owner;
+  const rotateSeat = (player: Player, degrees: number) => {
+    if (canEditSeat(player)) void dispatch({ type: 'player', player: { ...player, rotation: ((player.rotation + degrees) % 360 + 360) % 360 } });
   };
   const rotateCamera = (degrees: number) => {
     const rect = viewport.current?.getBoundingClientRect();
@@ -329,7 +347,12 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           ? held.filter(i => selected.includes(i.id)).map(i => i.id) : [draggedHandPiece.id] : shortcutIds;
         dispatch({ type: 'transform', ids, flip: true });
       }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && ['q', 'e'].includes(e.key.toLowerCase()) && shortcutPiece) {
+      const seatTarget = !hoveredPiece ? p.players.find(player => player.id === hoveredSeat) ?? (!piece ? selectedSeat : undefined) : undefined;
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && ['q', 'e'].includes(e.key.toLowerCase()) && (seatGesture.current || seatTarget)) {
+        e.preventDefault();
+        const degrees = e.key.toLowerCase() === 'q' ? -90 : 90;
+        if (!rotateDraggedSeat(degrees) && seatTarget) rotateSeat(seatTarget, degrees);
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && ['q', 'e'].includes(e.key.toLowerCase()) && shortcutPiece) {
         e.preventDefault();
         dispatch({ type: 'transform', ids: shortcutIds, rotation: e.key.toLowerCase() === 'q' ? -90 : 90 });
       }
@@ -451,7 +474,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         onWheel={e => {
           pointer.current = { x: e.clientX, y: e.clientY };
           const item = p.instances.find(i => i.id === hovered && !i.holder);
-          if (e.shiftKey && item && p.components.find(c => c.id === item.componentId)?.kind === 'card') {
+          if (seatGesture.current && !e.ctrlKey) rotateDraggedSeat(e.deltaY > 0 ? 15 : -15);
+          else if (e.shiftKey && item && p.components.find(c => c.id === item.componentId)?.kind === 'card') {
             e.preventDefault();
             void dispatch({ type: 'transform', ids: stackMembers(p, item).map(i => i.id), rotation: e.deltaY > 0 ? 15 : -15 });
           } else { if (e.ctrlKey) e.preventDefault(); changeZoom(zoom * (e.deltaY > 0 ? .92 : 1.08), e.deltaY > 0 ? undefined : { x: e.clientX, y: e.clientY }); }
@@ -505,28 +529,29 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             onPointerDown={e => {
               e.stopPropagation(); seatMoved.current = false;
               if (!player.tableHandUnlocked || e.button !== 0 || (owner !== 'local' && player.owner !== owner)) return;
-              seatGesture.current = { id: player.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, startX: player.x, startY: player.y };
+              seatGesture.current = { id: player.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, startX: player.x, startY: player.y, startWorld: worldPoint(e.clientX, e.clientY), rotation: player.rotation };
               e.currentTarget.setPointerCapture(e.pointerId);
             }}
             onPointerMove={e => {
               const g = seatGesture.current;
               if (!g || g.id !== player.id || g.pointer !== e.pointerId) return;
               if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) seatMoved.current = true;
-              const delta = worldDelta(e.clientX - g.x, e.clientY - g.y);
-              setSeatPosition({ id: player.id, x: g.startX + delta.x, y: g.startY + delta.y });
+              pointer.current = { x: e.clientX, y: e.clientY };
+              previewSeat(e.clientX, e.clientY);
             }}
             onPointerUp={e => {
               const g = seatGesture.current;
               if (!g || g.id !== player.id || g.pointer !== e.pointerId) return;
               if (seatMoved.current) {
-                const delta = worldDelta(e.clientX - g.x, e.clientY - g.y);
-                void dispatch({ type: 'player', player: { ...player, x: g.startX + delta.x, y: g.startY + delta.y } });
+                const point = worldPoint(e.clientX, e.clientY);
+                void dispatch({ type: 'player', player: { ...player, x: Math.round(g.startX + point.x - g.startWorld.x), y: Math.round(g.startY + point.y - g.startWorld.y), rotation: g.rotation } });
               }
               seatGesture.current = null; setSeatPosition(undefined);
             }}
             onPointerCancel={() => { seatGesture.current = null; setSeatPosition(undefined); }}
             onClick={() => { if (!seatMoved.current) selectSeat(player); seatMoved.current = false; }}
-            style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
+            style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${seatPosition?.id === player.id ? seatPosition.rotation : player.rotation}deg)` } as React.CSSProperties}
+            onPointerEnter={() => setHoveredSeat(player.id)} onPointerLeave={() => setHoveredSeat(seat => seat === player.id ? undefined : seat)}>
             <div className="seat-badge"><span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>{player.id === actor && <YouTag />}
             <span>{playerHeld.length} cards</span></div>
             <div className={`other-hand ${canTake ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} style={{ outlineOffset: 20 / zoom }} aria-label={`${player.name}'s hand`}>

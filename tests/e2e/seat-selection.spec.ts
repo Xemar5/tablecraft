@@ -86,3 +86,49 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await expect(page.getByRole('heading', { name: 'Seat selected', exact: true })).toHaveCount(0);
   await expect(page.locator('[data-seat-id="player-2"]')).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('dragged seats stay under the cursor while zooming and rotate with the wheel or Q/E', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.hand-toolbar').getByRole('button', { name: 'Unlock my table hand', exact: true }).click();
+  const badge = page.locator('[data-seat-id="player-1"] .seat-badge');
+  const box = (await badge.boundingBox())!;
+  let x = box.x + box.width * .3, y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  x += 40; y -= 30;
+  await page.mouse.move(x, y, { steps: 5 });
+  const avatar = page.locator('[data-seat-id="player-1"] .seat-avatar');
+  const offset = async () => { const a = (await avatar.boundingBox())!; return { x: a.x + a.width / 2 - x, y: a.y + a.height / 2 - y }; };
+  const before = await offset();
+  const width = (await avatar.boundingBox())!.width;
+  for (const delta of [-200, 200, -200]) {
+    const zoom = await page.getByRole('button', { name: 'Fit table', exact: true }).innerText();
+    await page.keyboard.down('Control'); await page.mouse.wheel(0, delta); await page.keyboard.up('Control');
+    await expect(page.getByRole('button', { name: 'Fit table', exact: true })).not.toHaveText(zoom);
+    x += 6; y += 4;
+    await page.mouse.move(x, y);
+    const scale = (await avatar.boundingBox())!.width / width;
+    const now = await offset();
+    // The avatar keeps its world offset from the grab point, so its screen offset only scales with zoom.
+    expect(Math.abs(now.x - before.x * scale)).toBeLessThan(1);
+    expect(Math.abs(now.y - before.y * scale)).toBeLessThan(1);
+  }
+  await page.mouse.wheel(0, 100);
+  await page.keyboard.press('e');
+  await page.mouse.up();
+  await expect.poll(async () => (await seat(page, 'player-1')).rotation).toBe(105);
+  const world = await page.evaluate(([cx, cy]) => {
+    const el = document.querySelector('[data-seat-id="player-1"]') as HTMLElement;
+    return { left: parseFloat(el.style.left), top: parseFloat(el.style.top), hit: document.elementFromPoint(cx, cy)?.closest('[data-seat-id]')?.getAttribute('data-seat-id') };
+  }, [x, y]);
+  expect(world.hit).toBe('player-1');
+  const stored = await seat(page, 'player-1');
+  expect(Number.isInteger(stored.x) && Number.isInteger(stored.y)).toBe(true);
+  expect(world).toMatchObject({ left: stored.x, top: stored.y });
+
+  await page.locator('[data-seat-id="player-2"] .seat-badge').hover();
+  await page.keyboard.press('q');
+  await expect.poll(async () => (await seat(page, 'player-2')).rotation).toBe(90);
+  await page.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+  await expect.poll(async () => (await seat(page, 'player-2')).rotation).toBe(180);
+});
