@@ -1,6 +1,7 @@
 import { DbConnection } from './module_bindings';
 import { projectSchema, validateProject, type Command, type Project } from './domain';
 
+/** `playerId` is the seat a host keeps when creating a room; guests join as viewers. */
 export interface ConnectionOptions {
   uri: string; database: string; code: string; host: boolean; project: Project; playerId: string; name: string; color: string;
 }
@@ -9,6 +10,8 @@ export interface LiveSession {
   connection: DbConnection; identity: string; code: string; host: string;
   send: (command: Command, actor: string) => Promise<void>;
   undo: (actor: string) => Promise<void>;
+  /** Takes an empty seat (or creates playerId when new), releasing the current one; an empty id watches as a viewer. */
+  takeSeat: (playerId: string, name: string, color: string) => Promise<void>;
   disconnect: () => void;
 }
 export function connectRoom(options: ConnectionOptions, onState: (p: Project, undo: { count: number; notice: string }) => void, onError: (message: string) => void, onDisconnect: () => void): Promise<LiveSession> {
@@ -42,6 +45,7 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project, un
                   connection: conn, identity: identity.toHexString(), code: options.code, host: row.host,
                   send: (command, actor) => conn.reducers.dispatch({ command: JSON.stringify(command), actor }),
                   undo: actor => conn.reducers.undo({ actor }),
+                  takeSeat: (playerId, name, color) => conn.reducers.takeSeat({ playerId, name, color }),
                   disconnect: () => { intentional = true; conn.disconnect(); },
                 });
               }

@@ -71,16 +71,26 @@ export async function live(options: LiveOptions, commands: Command[], actorId?: 
               checkOpen();
               await connection.reducers.joinRoom({
                 code: options.code, initialState: options.initial ? JSON.stringify(options.initial) : '',
-                playerId: `player-${randomUUID()}`, name: options.name, color: options.color,
+                playerId: '', name: options.name, color: options.color,
               });
               checkOpen();
               const getRow = () => [...connection.db.roomState.iter()].find(row => row.code === options.code);
               let row = getRow();
               if (!row) throw new Error('Joined room, but no room state was received.');
               let project = validateProject(projectSchema.parse(JSON.parse(row.state)));
-              const owned = project.players.filter(player => player.owner === identityHex);
-              const actor = actorId ? owned.find(player => player.id === actorId) : owned[0];
-              if (!actor) throw new Error('The selected actor is not owned by this identity.');
+              // Guests join as viewers: take the requested seat, else the first empty seat, else a new one.
+              const target = actorId ? project.players.find(player => player.id === actorId)
+                : project.players.find(player => player.owner === identityHex) ?? project.players.find(player => !player.owner);
+              if (actorId && !target) throw new Error('The selected actor seat does not exist in this room.');
+              if (target?.owner !== identityHex) {
+                await connection.reducers.takeSeat({ playerId: target?.id ?? `player-${randomUUID()}`, name: options.name, color: options.color });
+                checkOpen();
+                row = getRow();
+                if (!row) throw new Error('Room state disappeared after taking a seat.');
+                project = validateProject(projectSchema.parse(JSON.parse(row.state)));
+              }
+              const actor = project.players.find(player => player.owner === identityHex);
+              if (!actor) throw new Error('Unable to take a seat for this identity.');
               for (const raw of commands) {
                 checkOpen();
                 const command = commandSchema.parse(raw);

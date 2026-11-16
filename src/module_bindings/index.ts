@@ -36,6 +36,7 @@ import {
 // Import all reducer arg schemas
 import DispatchReducer from "./dispatch_reducer";
 import JoinRoomReducer from "./join_room_reducer";
+import TakeSeatReducer from "./take_seat_reducer";
 import UndoReducer from "./undo_reducer";
 
 // Import all procedure arg schemas
@@ -60,6 +61,7 @@ const tablesSchema = __schema({
 const reducersSchema = __reducers(
   __reducerSchema("dispatch", DispatchReducer),
   __reducerSchema("join_room", JoinRoomReducer),
+  __reducerSchema("take_seat", TakeSeatReducer),
   __reducerSchema("undo", UndoReducer),
 );
 

@@ -10,6 +10,12 @@ import {
   type Infer as __Infer,
 } from "spacetimedb";
 
+export const LiveConnection = __t.object("LiveConnection", {
+  connection: __t.string(),
+  identity: __t.string(),
+});
+export type LiveConnection = __Infer<typeof LiveConnection>;
+
 export const Membership = __t.object("Membership", {
   identity: __t.identity(),
   code: __t.string(),

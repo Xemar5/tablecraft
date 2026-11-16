@@ -649,7 +649,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     case 'handSettings': {
       const player = p.players.find(player => player.id === command.playerId);
       // Seat owners change their own settings; servers additionally let the room host override other seats.
-      if (!actor || !player) throw new Error('Choose a seat before changing hand settings.');
+      if (!player) throw new Error('Seat no longer exists.');
       Object.assign(player, command.patch);
       break;
     }

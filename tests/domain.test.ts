@@ -178,13 +178,13 @@ describe('tabletop commands', () => {
     p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandTake: true } }, 'player-2');
     expect(applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1').instances.find(i => i.id === card.id)?.holder).toBeNull();
   });
-  it('requires an active seat to configure hands and checks every source independently', () => {
+  it('configures hands on existing seats (seat managers include the host and viewers) and checks every source independently', () => {
     let p = starterProject();
     p.players.push({ ...p.players[1], id: 'player-3' });
     const cards = p.instances.filter(i => i.componentId === p.components[0].id && !i.stack).slice(0, 2);
     cards[0].holder = 'player-2'; cards[1].holder = 'player-3';
-    expect(() => applyCommand(p, { type: 'handSettings', playerId: 'player-1', patch: { allowHandTake: true } })).toThrow('Choose a seat');
-    expect(() => applyCommand(p, { type: 'handSettings', playerId: 'missing', patch: { allowHandTake: true } }, 'player-1')).toThrow('Choose a seat');
+    expect(applyCommand(p, { type: 'handSettings', playerId: 'player-1', patch: { allowHandTake: true } }).players[0].allowHandTake).toBe(true);
+    expect(() => applyCommand(p, { type: 'handSettings', playerId: 'missing', patch: { allowHandTake: true } }, 'player-1')).toThrow('Seat no longer exists');
     expect(() => applyCommand(p, { type: 'settings', patch: { allowHandTake: true } }, 'player-1')).toThrow('per-hand');
     p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandTake: true, allowHandInsert: false } }, 'player-2');
     expect(p.players[0].allowHandTake).toBeUndefined();
