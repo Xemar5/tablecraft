@@ -69,10 +69,16 @@ export const projectSchema = z.object({
   players: z.array(playerSchema),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
-    hands: z.boolean(), allowOtherHands: z.boolean().optional(), turns: z.boolean(), turn: z.number().int().min(0),
+    hands: z.boolean(), allowOtherHands: z.boolean().optional(),
+    allowHandInsert: z.boolean().optional(), allowHandTake: z.boolean().optional(),
+    turns: z.boolean(), turn: z.number().int().min(0),
   }),
 });
 export type Project = z.infer<typeof projectSchema>;
+export const handPermissions = (p: Project) => ({
+  insert: p.settings.allowHandInsert ?? p.settings.allowOtherHands ?? true,
+  take: p.settings.allowHandTake ?? p.settings.allowOtherHands ?? false,
+});
 export const archiveSchema = z.object({
   format: z.literal('tablecraft'), version: z.literal(1), projects: z.array(projectSchema).max(100),
 });
@@ -91,7 +97,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('roll'), ids: z.array(id).min(1), seed: z.number().int() }),
   z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num }),
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
-  z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional() }),
+  z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
   z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional() }),
   z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(), rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional() }),
@@ -431,23 +437,30 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     }
     case 'transferToHand': {
-      if (!p.settings.hands || !p.settings.allowOtherHands) throw new Error('Moving cards between visible hands is disabled.');
+      if (!p.settings.hands) throw new Error('Enable hands before transferring components.');
       if (!actor || !p.players.some(player => player.id === actor) || !p.players.some(player => player.id === command.playerId)) throw new Error('Choose a valid active player and destination.');
       const items = command.ids.map(get);
+      if (command.playerId !== actor && !handPermissions(p).insert && items.some(i => i.holder !== command.playerId)) throw new Error('Inserting into other players’ hands is disabled.');
+      if (items.some(i => i.holder && i.holder !== actor) && !handPermissions(p).take) throw new Error('Taking from other players’ hands is disabled.');
       if (new Set(command.ids).size !== items.length) throw new Error('Choose each component once.');
       items.forEach(item => {
         if (item.locked || !component(item).hand) throw new Error('Only unlocked components that support hands can be transferred.');
       });
-      let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId && !items.includes(i)).map(i => i.order));
-      drawOrder(items).forEach(item => {
+      const remaining = p.instances.filter(i => i.holder === command.playerId && !items.includes(i)).sort((a, b) => a.order - b.order);
+      const index = command.index ?? remaining.length;
+      if (index > remaining.length) throw new Error('Hand insertion position is out of range.');
+      const moving = drawOrder(items);
+      moving.forEach(item => {
         if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
-        if (command.faceUp !== false) item.flipped = false;
-        Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
+        if (item.holder !== command.playerId && command.faceUp !== false) item.flipped = false;
+        Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false });
       });
+      remaining.splice(index, 0, ...moving);
+      remaining.forEach((item, order) => { item.order = order; });
       break;
     }
     case 'playVisibleHand': {
-      if (!p.settings.hands || !p.settings.allowOtherHands) throw new Error('Moving cards between visible hands is disabled.');
+      if (!p.settings.hands || !handPermissions(p).take) throw new Error('Taking from other players’ hands is disabled.');
       if (!actor || !p.players.some(player => player.id === actor)) throw new Error('Choose a valid active player.');
       const item = get(command.id);
       if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');

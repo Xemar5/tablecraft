@@ -172,11 +172,10 @@ test('flipping an unselected hand drag does not flip another selected card', asy
   expect(after.find(i => i.id === before[1].id)).toMatchObject({ holder: null, flipped: !before[1].flipped });
 });
 
-test('visible hands can exchange cards only after the table setting is enabled', async ({ page }) => {
+test('visible hands accept cards by default and allow taking only when enabled', async ({ page }) => {
   await page.goto('/');
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
   await expect(page.locator('.hand-card')).toHaveCount(1);
-  await page.getByLabel('Move cards between table hands').check();
   const held = await page.locator('.hand-card').first().boundingBox();
   const seat = page.locator('[data-seat-id="player-2"]');
   const seatBox = await seat.boundingBox();
@@ -190,6 +189,15 @@ test('visible hands can exchange cards only after the table setting is enabled',
   const otherCard = seat.locator('.other-hand > div').first();
   const cardBox = await otherCard.boundingBox();
   const table = await page.locator('.table-viewport').boundingBox();
+  await otherCard.hover();
+  await expect(otherCard).toHaveCSS('outline-style', 'none');
+  await page.mouse.down();
+  await page.mouse.move(table!.x + table!.width * .75, table!.y + table!.height * .5, { steps: 10 });
+  await page.mouse.up();
+  await expect(otherCard).toBeVisible();
+  await page.getByRole('button', { name: "Allow taking from other players' hands", exact: true }).click();
+  await otherCard.hover();
+  await expect(otherCard).toHaveCSS('outline-width', '3px');
   await page.mouse.move(cardBox!.x + cardBox!.width / 2, cardBox!.y + cardBox!.height / 2);
   await page.mouse.down();
   await page.mouse.move(table!.x + table!.width * .75, table!.y + table!.height * .5, { steps: 10 });

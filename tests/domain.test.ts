@@ -125,19 +125,58 @@ describe('tabletop commands', () => {
       }
     }
   });
-  it('only allows cross-hand transfers and plays when explicitly enabled for an authenticated actor', () => {
+  it('separately authorizes inserting and taking with an authenticated actor', () => {
     let p = starterProject();
     const card = p.instances.find(i => i.componentId === p.components[0].id && !i.stack)!;
     p = applyCommand(p, { type: 'drawSelection', ids: [card.id], playerId: 'player-1' }, 'player-1');
-    expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1')).toThrow('disabled');
+    const inserted = applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1');
+    expect(inserted.instances.find(i => i.id === card.id)?.holder).toBe('player-2');
+    expect(() => applyCommand(inserted, { type: 'transferToHand', ids: [card.id], playerId: 'player-1' }, 'player-1')).toThrow('Taking');
     expect(() => applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-2')).toThrow('disabled');
-    p = applyCommand(p, { type: 'settings', patch: { allowOtherHands: true } }, 'player-1');
+    p = applyCommand(p, { type: 'settings', patch: { allowHandInsert: false, allowHandTake: true } }, 'player-1');
+    expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1')).toThrow('Inserting');
+    p = applyCommand(p, { type: 'settings', patch: { allowHandInsert: true } }, 'player-1');
     expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' })).toThrow('active player');
     p = applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1');
     expect(p.instances.find(i => i.id === card.id)?.holder).toBe('player-2');
     expect(() => applyCommand(p, { type: 'release', id: card.id, x: 1, y: 2 }, 'player-1')).toThrow('Switch');
     p = applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1');
     expect(p.instances.find(i => i.id === card.id)).toMatchObject({ holder: null, x: 1, y: 2 });
+  });
+  it('inserts multiple cards atomically at the beginning, middle and end of a hand', () => {
+    for (const index of [0, 1, 2]) {
+      let p = starterProject();
+      const deck = p.instances.find(i => i.stack)!;
+      p = applyCommand(p, { type: 'drawMany', id: deck.id, count: 2, playerId: 'player-1' }, 'player-1');
+      const held = p.instances.filter(i => i.holder).sort((a, b) => a.order - b.order).map(i => i.id);
+      const moving = p.instances.filter(i => i.stack === deck.stack).slice(0, 2).map(i => i.id);
+      const next = applyCommand(p, { type: 'transferToHand', ids: moving, playerId: 'player-1', index }, 'player-1');
+      const expected = [...held]; expected.splice(index, 0, ...[...moving].reverse());
+      expect(next.instances.filter(i => i.holder).sort((a, b) => a.order - b.order).map(i => i.id)).toEqual(expected);
+      expect(() => applyCommand(p, { type: 'transferToHand', ids: moving, playerId: 'player-1', index: 3 }, 'player-1')).toThrow('out of range');
+      expect(p.instances.filter(i => i.holder)).toHaveLength(2);
+    }
+  });
+  it('keeps own reordering available with both permissions off and preserves faces', () => {
+    let p = starterProject();
+    p.settings.allowHandInsert = false; p.settings.allowHandTake = false;
+    p = applyCommand(p, { type: 'drawMany', id: p.instances.find(i => i.stack)!.id, count: 3, playerId: 'player-1' }, 'player-1');
+    const held = p.instances.filter(i => i.holder).sort((a, b) => a.order - b.order);
+    held[2].flipped = true;
+    const next = applyCommand(p, { type: 'transferToHand', ids: [held[2].id], playerId: 'player-1', index: 0 }, 'player-1');
+    expect(next.instances.find(i => i.id === held[2].id)).toMatchObject({ order: 0, flipped: true });
+  });
+  it('preserves legacy permissions until the separate controls override them', () => {
+    let p = starterProject();
+    const card = p.instances.find(i => i.componentId === p.components[0].id && !i.stack)!;
+    p.settings.allowOtherHands = false;
+    expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1')).toThrow('Inserting');
+    p.settings.allowOtherHands = true;
+    p = applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1');
+    p.settings.allowHandTake = false;
+    expect(() => applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1')).toThrow('Taking');
+    p.settings.allowHandTake = true;
+    expect(applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1').instances.find(i => i.id === card.id)?.holder).toBeNull();
   });
   it('flips a stack as a view without mutating member order or faces, and draws from its visible top', () => {
     let p = starterProject();

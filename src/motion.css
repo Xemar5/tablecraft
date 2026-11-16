@@ -5,7 +5,9 @@
   display: flex;
   justify-content: center;
   transform: translateX(-50%);
-  pointer-events: none;
+  pointer-events: auto;
+  min-width: 44px;
+  min-height: 60px;
 }
 .toggle-row input {
   inset: 0;
@@ -17,11 +19,21 @@
   cursor: pointer;
 }
 .other-hand > div {
+  position: relative;
+  pointer-events: auto;
+  cursor: default;
   margin: 0 -12px;
   transform-origin: bottom center;
   filter: drop-shadow(0 3px 3px #29433120);
 }
-.other-hand.interactive-hand > div { pointer-events: auto; cursor: grab; touch-action: none; }
+.other-hand.interactive-hand > div[data-grabbable="true"] { cursor: grab; touch-action: none; }
+.other-hand.interactive-hand > div[data-grabbable="true"]:hover { outline: 3px solid #6b8c4f; outline-offset: 2px; filter: drop-shadow(0 0 5px #365d4680); }
+.other-hand.hand-drop-target { outline: 2px dashed #6b8c4f; outline-offset: 9px; border-radius: 5px; }
+.other-hand > .mini-drag-source { opacity: .25; }
+.mini-insert-before::before, .mini-insert-end { content: ''; width: 3px; background: #365d46; border-radius: 3px; box-shadow: 0 0 0 2px #e6efdc; pointer-events: none; }
+.mini-insert-before::before { position: absolute; left: -3px; top: -8px; bottom: -8px; z-index: 1; }
+.mini-insert-end { flex: 0 0 3px; margin: -8px 0 -8px 12px; min-height: 60px; }
+.mini-drop-count { position: absolute; right: -5px; bottom: -5px; background: #365d46; color: white; border-radius: 10px; padding: 2px 5px; font-size: 12px; }
 .hidden-face {
   position: absolute;
   inset: 12%;
@@ -95,6 +107,7 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hand-toolbar { min-height: 34px; display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 2px 16px; background: #f7f9f2; border-top: 1px solid #e4e9dc; }
 .hand-toolbar .icon-button { width: 28px; height: 28px; }
 .table-piece.drag-source { opacity: .12; }
+.table-piece.mini-drop-source { opacity: 0; }
 .board-drag-preview { position: fixed; z-index: 1000; pointer-events: none; filter: drop-shadow(0 10px 12px #29433155); }
 .selection-marquee { position: fixed; z-index: 900; pointer-events: none; background: #7d9b6026; border: 1px solid #6b8c4f; border-radius: 3px; }
 .table-piece.stack-drop-target { outline: 4px solid #7d9b60; outline-offset: 9px; filter: drop-shadow(0 0 14px #78984d88); }
