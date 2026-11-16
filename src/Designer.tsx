@@ -735,7 +735,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           </div>
           <div className="inspector-section design-section appearance-section" key={`appearance-${node.id}`}>
             <ColorField label="Fill color" value={node.fill} onChange={fill => updateNode({ fill })} />
-            <NumberField label="Opacity" icon={<Eye size={14} />} value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
+            <NumberField label="Opacity" value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
           </div>
           {selected.length === 1 && <div className="inspector-section design-section content-section">
             {node.type === 'text' && selected.length === 1 && <>
