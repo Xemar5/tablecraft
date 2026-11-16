@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Armchair, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Users, Wifi, WifiOff, X } from 'lucide-react';
-import { archiveSchema, canStack, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import { applyCommand, archiveSchema, canStack, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
 import { download, exportProject, loadWorkspace, parseArchive, parseComponentBundle, remapComponentBundle, saveWorkspace } from './storage';
@@ -102,7 +102,23 @@ export default function App() {
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
   const fileInput = useRef<HTMLInputElement>(null);
-  const project = archive.projects.find(p => p.id === projectId) ?? archive.projects[0] ?? fallbackProject;
+  const confirmed = archive.projects.find(p => p.id === projectId) ?? archive.projects[0] ?? fallbackProject;
+  // Live actions are predicted locally until their reducer replies, so the table responds without waiting for the server.
+  // The SDK applies the room update before the reducer promise settles, so dropping a prediction then never applies it twice;
+  // a rejected action snaps back to the server state, and predictions are rebased onto every newer room update.
+  const [predictions, setPredictions] = useState<{ key: number; apply: (p: Project) => Project }[]>([]);
+  const predictionKey = useRef(0);
+  const predict = useCallback(<T,>(apply: (p: Project) => Project, sent: Promise<T>) => {
+    const key = ++predictionKey.current;
+    setPredictions(current => [...current, { key, apply }]);
+    const drop = () => setPredictions(current => current.filter(entry => entry.key !== key));
+    sent.then(drop, drop);
+    return sent;
+  }, []);
+  useEffect(() => { if (!session) setPredictions([]); }, [session]);
+  const project = useMemo(() => predictions.reduce((current, entry) => {
+    try { return entry.apply(current); } catch { return current; }
+  }, confirmed), [confirmed, predictions]);
   const activeComponent = project.components.find(c => c.id === componentId) ?? project.components[0];
   const fontFamilies = [...new Set(project.components.flatMap(c => [...c.front, ...c.back].map(n => n.font)).filter(Boolean))].sort().join('|');
   const notify = useCallback((message: string, error = false) => setToast({ message, error, id: Date.now() }), []);
@@ -205,7 +221,7 @@ export default function App() {
   }, [notify]);
   const dispatch = useCallback((command: Command): Promise<boolean> => {
     if (sessionRef.current) {
-      return sessionRef.current.send(command, actor).then(() => true).catch(error => {
+      return predict(p => applyCommand(p, command, actor || undefined), sessionRef.current.send(command, actor)).then(() => true).catch(error => {
         notify(error instanceof Error ? error.message : String(error), true);
         return false;
       });
@@ -231,7 +247,7 @@ export default function App() {
         }
       });
     });
-  }, [actor, projectId, notify]);
+  }, [actor, projectId, notify, predict]);
   const viewer = !!session && !actor;
   const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
   const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
@@ -267,7 +283,17 @@ export default function App() {
   const takeSeat = async (playerId: string) => {
     const live = sessionRef.current;
     if (!live) return false;
-    try { await live.takeSeat(playerId, playerName.trim() || settings.name.trim(), settings.color); return true; }
+    const name = playerName.trim() || settings.name.trim();
+    // Mirrors the take_seat reducer: leave any current seat, then claim the empty (or new) one under this player's name.
+    const claim = (p: Project): Project => {
+      const seat = p.players.find(player => player.id === playerId);
+      if (seat?.owner === live.identity) return p;
+      if (seat?.owner) throw new Error('Seat is taken.');
+      const players = p.players.map(player => player.owner === live.identity ? { ...player, owner: '' } : player === seat ? { ...player, owner: live.identity, name: name.slice(0, 50) || player.name } : player);
+      if (!seat && playerId) players.push({ id: playerId, owner: live.identity, name: name.slice(0, 50) || `Player ${players.length + 1}`, color: settings.color, ...nextSeatPlacement(players) });
+      return { ...p, players };
+    };
+    try { await predict(claim, live.takeSeat(playerId, name, settings.color)); return true; }
     catch (error) { notify(error instanceof Error ? error.message : String(error), true); return false; }
   };
   const switchPlayer = (player: Player) => {
@@ -516,13 +542,13 @@ export default function App() {
           return <div className={`seat-option${mine ? ' mine' : ''}${player.owner && !mine ? ' taken' : ''}`} key={player.id}>
             <span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span>
             <span className="seat-option-name"><strong>{player.name}</strong><small>{mine ? 'Your seat' : player.owner ? 'Taken by another player' : 'Empty seat'}</small></span>
-            <button className="button seat-option-button" disabled={!!player.owner} aria-label={`Take ${player.name}'s seat`} onClick={() => { void takeSeat(player.id).then(ok => { if (ok) { setModal(undefined); notify(`You took ${player.name}'s seat.`); } }); }}><Armchair size={13} /> {mine ? 'Seated' : 'Take seat'}</button>
+            <button className="button seat-option-button" disabled={!!player.owner} aria-label={`Take ${player.name}'s seat`} onClick={() => { setModal(undefined); void takeSeat(player.id).then(ok => { if (ok) notify(`You took ${player.name}'s seat.`); else setModal('seat'); }); }}><Armchair size={13} /> {mine ? 'Seated' : 'Take seat'}</button>
           </div>;
         })}
         {!project.players.length && <p className="link-source-empty">This table has no seats yet. Take a new one to start playing.</p>}</div>
         <div className="seat-picker-actions">
-          <button className="button" onClick={() => { void takeSeat('').then(ok => { if (ok) setModal(undefined); }); }}><Eye size={15} /> Watch as viewer</button>
-          <button className="button primary" onClick={() => { void takeSeat(uid('player')).then(ok => { if (ok) { setModal(undefined); notify('You took a new seat at the table.'); } }); }}><Plus size={15} /> Take a new seat</button>
+          <button className="button" onClick={() => { setModal(undefined); void takeSeat('').then(ok => { if (!ok) setModal('seat'); }); }}><Eye size={15} /> Watch as viewer</button>
+          <button className="button primary" onClick={() => { setModal(undefined); void takeSeat(uid('player')).then(ok => { if (ok) notify('You took a new seat at the table.'); else setModal('seat'); }); }}><Plus size={15} /> Take a new seat</button>
         </div>
       </div>
     </Modal>}

@@ -70,6 +70,8 @@ test('live undo is global, serialized, preserves joins, and rejects spoofed acto
     const code = `UNDO-${Date.now()}`;
     await connect(a, code, true, 'Alice');
     await connect(b, code, false, 'Bob');
+    // The seat picker closes optimistically; wait until the server has confirmed Bob's seat.
+    await expect.poll(async () => (await state(a)).players.some(player => player.name === 'Bob')).toBe(true);
     await expect.poll(async () => (await state(a)).players.length).toBe((await state(b)).players.length);
     const before = await state(a);
     await a.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();

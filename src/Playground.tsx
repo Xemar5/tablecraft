@@ -9,7 +9,6 @@ import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from 
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
 
-type Placement = { x: number; y: number; rotation: number };
 type Props = {
   project: Project; actor: string; owner: string; host?: boolean; selected: string[]; setSelected: (ids: string[]) => void;
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
@@ -38,28 +37,6 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const [camera, setCamera] = useState(0);
   const [tool, setTool] = useState<'select' | 'pan'>('select');
   const [preview, setPreview] = useState<Record<string, { x: number; y: number }>>({});
-  // Dropped pieces and seats stay where they were released until the (possibly remote) state reflects the move.
-  const [settling, setSettling] = useState<Record<string, { from: Placement; to: Placement }>>({});
-  const settle = (entries: Record<string, { from: Placement; to: Placement }>, sent: Promise<boolean>) => {
-    setSettling(current => ({ ...current, ...entries }));
-    const release = () => setSettling(current => {
-      const next = { ...current };
-      for (const id of Object.keys(entries)) if (next[id] === entries[id]) delete next[id];
-      return next;
-    });
-    void sent.then(ok => { if (ok) setTimeout(release, 2500); else release(); });
-  };
-  useEffect(() => setSettling(current => {
-    const stale = Object.keys(current).filter(id => {
-      const now = p.instances.find(item => item.id === id) ?? p.players.find(player => player.id === id);
-      const from = current[id].from;
-      return !now || ('holder' in now && now.holder) || now.x !== from.x || now.y !== from.y || now.rotation !== from.rotation;
-    });
-    if (!stale.length) return current;
-    const next = { ...current };
-    for (const id of stale) delete next[id];
-    return next;
-  }), [p]);
   const [search, setSearch] = useState<string[]>();
   const [query, setQuery] = useState('');
   const [seatEditor, setSeatEditor] = useState<Player>();
@@ -573,8 +550,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         dx = Math.round((anchor.x + dx) / p.settings.gridSize) * p.settings.gridSize - anchor.x;
         dy = Math.round((anchor.y + dy) / p.settings.gridSize) * p.settings.gridSize - anchor.y;
       }
-      if (moving.length) settle(Object.fromEntries(moving.map(i => [i.id, { from: i, to: { x: i.x + dx, y: i.y + dy, rotation: i.rotation } }])),
-        dispatch({ type: 'transform', ids: moving.map(i => i.id), dx, dy }));
+      if (moving.length) void dispatch({ type: 'transform', ids: moving.map(i => i.id), dx, dy });
     }
     gesture.current = null; setPreview({}); setDropHint(undefined);
   };
@@ -653,7 +629,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         }}>
           <div className="table-watermark" aria-hidden="true"><span><Layers size={34} strokeWidth={1.4} /></span><p>TABLECRAFT</p><small>MAKE SOMETHING WORTH PLAYING</small></div>
           {p.settings.hands && p.players.map(player => {
-            const seatSpot = seatPosition?.id === player.id ? seatPosition : settling[player.id]?.to ?? player;
+            const seatSpot = seatPosition?.id === player.id ? seatPosition : player;
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);
             const remaining = playerHeld.filter(i => !handDrop?.ids.includes(i.id));
             const canTake = !viewer && (player.id === actor || handPermissions(p, player.id).take);
@@ -677,7 +653,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               if (seatMoved.current) {
                 const point = worldPoint(e.clientX, e.clientY);
                 const moved = { ...player, x: Math.round(g.startX + point.x - g.startWorld.x), y: Math.round(g.startY + point.y - g.startWorld.y), rotation: g.rotation };
-                settle({ [player.id]: { from: player, to: moved } }, dispatch({ type: 'player', player: moved }));
+                void dispatch({ type: 'player', player: moved });
               }
               seatGesture.current = null; setSeatPosition(undefined);
             }}
@@ -748,7 +724,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           {topPieces.map(item => {
             const comp = p.components.find(c => c.id === item.componentId)!;
             const members = stackMembers(p, item);
-            const position = preview[item.id] ?? settling[item.id]?.to ?? item;
+            const position = preview[item.id] ?? item;
             return <div key={item.id} className={`table-piece ${rolling[item.id] !== undefined ? 'rolling' : ''} ${selected.includes(item.id) ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${preview[item.id] ? `dragging drag-source ${handDrop ? 'mini-drop-source' : ''}` : ''} ${dropHint?.id === item.id && !altDown ? 'stack-drop-target' : ''}`}
               data-testid="table-piece" data-piece-id={item.id}
               style={{ left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : p.instances.indexOf(item) + 2,
