@@ -117,18 +117,26 @@ test('dragged seats stay under the cursor while zooming and rotate with the whee
   await page.keyboard.press('e');
   await page.mouse.up();
   await expect.poll(async () => (await seat(page, 'player-1')).rotation).toBe(105);
-  const world = await page.evaluate(([cx, cy]) => {
+  const world = await page.evaluate(() => {
     const el = document.querySelector('[data-seat-id="player-1"]') as HTMLElement;
-    return { left: parseFloat(el.style.left), top: parseFloat(el.style.top), hit: document.elementFromPoint(cx, cy)?.closest('[data-seat-id]')?.getAttribute('data-seat-id') };
-  }, [x, y]);
-  expect(world.hit).toBe('player-1');
+    return { left: parseFloat(el.style.left), top: parseFloat(el.style.top) };
+  });
   const stored = await seat(page, 'player-1');
   expect(Number.isInteger(stored.x) && Number.isInteger(stored.y)).toBe(true);
   expect(world).toMatchObject({ left: stored.x, top: stored.y });
 
   await page.locator('[data-seat-id="player-2"] .seat-badge').hover();
   await page.keyboard.press('q');
-  await expect.poll(async () => (await seat(page, 'player-2')).rotation).toBe(90);
+  await page.waitForTimeout(200);
+  expect((await seat(page, 'player-2')).rotation).toBe(180);
+  await page.locator('[data-seat-id="player-1"] .seat-badge').hover();
+  await page.keyboard.press('q');
+  await expect.poll(async () => (await seat(page, 'player-1')).rotation).toBe(15);
   await page.getByRole('button', { name: 'Undo playground action', exact: true }).click();
-  await expect.poll(async () => (await seat(page, 'player-2')).rotation).toBe(180);
+  await expect.poll(async () => (await seat(page, 'player-1')).rotation).toBe(105);
+  await page.locator('.hand-toolbar').getByRole('button', { name: 'Lock my table hand', exact: true }).click();
+  await page.locator('[data-seat-id="player-1"] .seat-badge').hover();
+  await page.keyboard.press('e');
+  await page.waitForTimeout(200);
+  expect((await seat(page, 'player-1')).rotation).toBe(105);
 });

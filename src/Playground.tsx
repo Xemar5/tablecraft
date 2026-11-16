@@ -193,7 +193,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   };
   const canEditSeat = (player: Player) => owner === 'local' || player.owner === owner;
   const rotateSeat = (player: Player, degrees: number) => {
-    if (canEditSeat(player)) void dispatch({ type: 'player', player: { ...player, rotation: ((player.rotation + degrees) % 360 + 360) % 360 } });
+    if (canEditSeat(player) && player.tableHandUnlocked) void dispatch({ type: 'player', player: { ...player, rotation: ((player.rotation + degrees) % 360 + 360) % 360 } });
   };
   const rotateCamera = (degrees: number) => {
     const rect = viewport.current?.getBoundingClientRect();
