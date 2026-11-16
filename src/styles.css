@@ -137,6 +137,7 @@
 .selection-header{display:flex;align-items:flex-end;gap:6px}
 .selection-header>.field{flex:1;min-width:0;margin-bottom:0}
 .selection-actions{display:flex;align-items:center;gap:4px}
+.visibility-toggle[aria-pressed=false]{background:#eef2e8;color:#8e9d80}
 .compact-action{min-height:28px;padding:5px 8px;font-size:10px}
 .design-section .toggle-row{margin-top:8px}
 .visibility-rules{margin-top:8px}

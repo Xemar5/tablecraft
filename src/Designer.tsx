@@ -688,11 +688,12 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <div className="selection-header">
               <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
               <div className="selection-actions">
+                {selected.length === 1 && <button className={`icon-button visibility-toggle${node.visible === false ? ' is-hidden' : ''}`} aria-label="Visible" aria-pressed={node.visible !== false}
+                  title={node.visible === false ? 'Show layer' : 'Hide layer'} onClick={() => toggleLayerVisibility(node)}>{node.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}</button>}
                 {canUngroup && <button className="button compact-action" title="Ungroup selected groups (Ctrl/Cmd+G)" aria-label="Ungroup selected groups (Ctrl/Cmd+G)" onClick={ungroupSelection}><Ungroup size={14} /><span>Ungroup</span></button>}
                 <button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button>
               </div>
             </div>
-            {selected.length === 1 && <Toggle label="Visible" checked={node.visible !== false} onChange={() => toggleLayerVisibility(node)} />}
             {selected.length === 1 && <div className="visibility-rules">
               <Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
               {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}

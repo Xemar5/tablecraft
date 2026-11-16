@@ -23,13 +23,13 @@ test('layer and group visibility controls preserve the design and support undo',
   await groupRow.getByRole('button', { name: 'Hide Visibility group' }).click();
   await expect(face).not.toContainText('Unique child text');
   await expect(groupRow.getByRole('button', { name: 'Show Visibility group' })).toBeVisible();
-  await expect(page.getByLabel('Visible', { exact: true })).toBeChecked();
+  await expect(page.getByRole('button', { name: 'Visible', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(async () => (await stored()).find(node => node.name === 'Visibility group')?.visible).toBe(false);
   const after = await stored();
   expect(after).toEqual(before.map(node => node.name === 'Visibility group' ? { ...node, visible: false } : node));
   await groupRow.getByRole('button', { name: 'Show Visibility group' }).click();
   await expect(face).toContainText('Unique child text');
-  await page.getByLabel('Visible', { exact: true }).uncheck();
+  await page.getByRole('button', { name: 'Visible', exact: true }).click();
   await expect(face).not.toContainText('Unique child text');
   await expect(childRow.getByRole('button', { name: 'Show Visibility child' })).toBeVisible();
   await page.getByRole('button', { name: 'Undo design edit' }).click();
@@ -37,7 +37,7 @@ test('layer and group visibility controls preserve the design and support undo',
   await childRow.hover();
   await childRow.getByRole('button', { name: 'Hide Visibility child' }).click();
   await expect(face).not.toContainText('Unique child text');
-  await expect(page.getByLabel('Visible', { exact: true })).not.toBeChecked();
-  await page.getByLabel('Visible', { exact: true }).check();
+  await expect(page.getByRole('button', { name: 'Visible', exact: true })).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Visible', exact: true }).click();
   await expect(face).toContainText('Unique child text');
 });
