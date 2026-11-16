@@ -328,7 +328,7 @@ test('stack search, draw, hotseat privacy, hand release and manipulation', async
   await page.mouse.move(table.x + table.width * .58, table.y + table.height * .58, { steps: 8 });
   await page.mouse.up();
   await expect(page.locator('.hand-card')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Table', exact: true }).click();
+  await page.getByRole('button', { name: 'Selection', exact: true }).click();
   await stack.click();
   await page.getByRole('button', { name: 'Shuffle', exact: true }).click();
   await page.getByRole('button', { name: 'Rotate +90° E', exact: true }).click();
@@ -455,6 +455,7 @@ test('dragging layers and pieces uses actual coordinates and respects grid snapp
   let state = await workspace(page);
   expect(state.projects[0].components[0].front.find(n => n.name === 'Card name')).toMatchObject({ x: 38, y: 203 });
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
+  await page.getByRole('button', { name: 'Table', exact: true }).click();
   await page.getByLabel('Snap to grid', { exact: true }).check();
   await page.getByLabel('Grid size (px)', { exact: true }).fill('50');
   state = await workspace(page);

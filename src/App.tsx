@@ -117,7 +117,7 @@ export default function App() {
     } catch (error) { notify(`Unable to open project: ${String(error)}`, true); }
   };
   const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
-  const [playgroundTab, setPlaygroundTab] = useState<'table' | 'players'>('table');
+  const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
   const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, notify);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
   useEffect(() => {

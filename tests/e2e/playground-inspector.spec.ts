@@ -1,0 +1,37 @@
+import { expect, test } from '@playwright/test';
+
+test('Selection and Table isolate object controls and shared settings', async ({ page }) => {
+  await page.goto('/');
+  const inspector = page.locator('#playground-inspector-panel');
+  const selection = inspector.getByRole('button', { name: 'Selection', exact: true });
+  const table = inspector.getByRole('button', { name: 'Table', exact: true });
+  await expect(selection).toHaveClass('active');
+  await expect(inspector.getByRole('heading', { name: 'No component selected' })).toBeVisible();
+  await expect(inspector).toContainText('Select a component on the table or in your hand');
+  await expect(inspector.getByLabel('Show grid', { exact: true })).toHaveCount(0);
+
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
+  await stack.click();
+  await expect(inspector.getByRole('heading', { name: 'Stack selected' })).toBeVisible();
+  await expect(inspector.getByLabel('Rotation', { exact: true })).toBeVisible();
+  await expect(inspector.getByRole('button', { name: 'Shuffle', exact: true })).toBeVisible();
+  await table.click();
+  await expect(inspector.getByRole('heading', { name: 'Table settings' })).toBeVisible();
+  await expect(inspector.getByLabel('Rotation', { exact: true })).toHaveCount(0);
+  const grid = inspector.getByLabel('Show grid', { exact: true });
+  const wasChecked = await grid.isChecked();
+  await grid.setChecked(!wasChecked);
+  await expect(grid).toBeChecked({ checked: !wasChecked });
+  await expect(stack).toHaveClass(/selected/);
+
+  await selection.click();
+  await expect(inspector.getByRole('heading', { name: 'Stack selected' })).toBeVisible();
+  await inspector.getByRole('button', { name: 'Deselect', exact: true }).click();
+  await expect(inspector.getByRole('heading', { name: 'No component selected' })).toBeVisible();
+  await stack.dblclick();
+  await page.locator('.hand-card').click();
+  await expect(inspector.getByRole('heading', { name: 'Component selected' })).toBeVisible();
+  await expect(inspector.getByLabel('Scale', { exact: true })).toBeVisible();
+  await inspector.getByRole('button', { name: /Players/ }).click();
+  await expect(inspector.getByRole('button', { name: 'Add hotseat player', exact: true })).toBeVisible();
+});

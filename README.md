@@ -154,6 +154,8 @@ Use **Toggle component library** in the header to hide or show the library in bo
 
 Notification banners have an **X** button to dismiss them locally. Dismissing an undo notice does not change shared history; dismissing a storage or snapshot error does not enable writes or overwrite unreadable saves. Reload to show an unresolved warning again.
 
+The Playground inspector opens on **Selection**, with settings and actions for selected pieces, stacks or hand cards. When nothing is selected, it prompts you to select a component. **Table** contains shared table settings, while **Players** manages seats. Switching tabs does not change the selection.
+
 Hover the horizontal overflow shadows in the library filters or designer toolbar to reveal scroll arrows. Hold an arrow to scroll continuously; release to stop. Focus an arrow and press Enter or Space to scroll a step.
 
 Drag a component's grip beside its name to reorder the library in either mode; the insertion line shows whether it will move before or after the target. Focus the grip and use Up/Down arrows for keyboard reordering. Filters and search retain the saved project order; moving a filtered item repositions only that item relative to the drop target. Library order is saved, exported and shared in multiplayer, and does not change placed pieces or consume tabletop undo history. Agents can use `{"type":"reorderComponent","id":"COMPONENT_ID","targetId":"TARGET_ID","position":"before"}` (or `"after"`).
