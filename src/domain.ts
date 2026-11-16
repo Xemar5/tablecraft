@@ -35,6 +35,7 @@ export const nodeSchema = z.object({
   dataSource: z.enum(['inherit', 'row', 'field']).default('inherit'),
   dataRow: z.number().int().min(0).max(9999).default(0),
   dataField: z.string().max(100).default(''),
+  visible: z.boolean().default(true),
   visibilityField: z.string().max(10000).default(''),
   visibilityValue: z.string().max(10000).default(''),
 });
@@ -683,6 +684,7 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
     strokeWidth: values.strokeWidth ?? 0, compoundOperation: values.compoundOperation ?? 'union',
     dataSource: values.dataSource ?? 'inherit', dataRow: values.dataRow ?? 0, dataField: values.dataField ?? '',
     nestedFit: values.nestedFit ?? 'stretch',
+    visible: values.visible ?? true,
     visibilityField: values.visibilityField ?? '', visibilityValue: values.visibilityValue ?? '',
     widthMode: values.widthMode ?? 'fixed', heightMode: values.heightMode ?? 'fixed', wrap: values.wrap ?? false,
     paddingTop: values.paddingTop ?? values.padding ?? 0, paddingRight: values.paddingRight ?? values.padding ?? 0,

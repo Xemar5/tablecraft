@@ -11,6 +11,9 @@
 .layer-tree-row {display:flex;align-items:center;min-width:0;padding-right:4px;border-left:2px solid transparent}
 .layer-tree-row .layer-row {min-width:0;flex:1}
 .layer-tree-row .layer-row.active {border-left-color:transparent}
+.layer-visibility {display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;color:#8a9b79;border-radius:4px;opacity:0}
+.layer-tree-row:hover .layer-visibility,.layer-tree-row:focus-within .layer-visibility,.layer-visibility.is-hidden {opacity:1}
+.layer-visibility:hover {background:#e8efdf}
 .tree-disclosure {display:flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:24px;color:#8a9b79;border-radius:4px}
 .tree-disclosure:hover {background:#e8efdf}
 .layer-tree-item.drop-inside>.layer-tree-row {background:#e6f0dc;box-shadow:inset 0 0 0 1px #91ad70}

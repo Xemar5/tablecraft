@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Code2, Database, Download, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Code2, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Redo2, Square, Trash2, Type, Undo2, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
@@ -186,6 +186,9 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           && (!parent || parent.layout === 'absolute') ? expandPathBounds(next) : next;
       }) });
     } catch (error) { notify(error instanceof Error ? error.message : 'Unable to edit path.', true); return Promise.resolve(false); }
+  };
+  const toggleLayerVisibility = (item: DesignNode) => {
+    void update({ [face]: nodes.map(candidate => candidate.id === item.id ? { ...candidate, visible: item.visible === false } : candidate) });
   };
   const addNode = (type: DesignNode['type'], empty = false, shapeKind: DesignNode['shapeKind'] = 'rectangle') => {
     const parentCandidate = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
@@ -476,6 +479,11 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           {item.type === 'text' ? <Type size={14} /> : item.type === 'frame' ? <Frame size={14} /> : item.type === 'image' ? <ImagePlus size={14} /> : item.type === 'component' ? <Layers size={14} /> : <Square size={14} />}
           <span>{item.name}</span>
         </button>
+        <button className={`layer-visibility${item.visible === false ? ' is-hidden' : ''}`}
+          aria-label={`${item.visible === false ? 'Show' : 'Hide'} ${item.name}`} title={`${item.visible === false ? 'Show' : 'Hide'} ${item.name}`}
+          onClick={() => toggleLayerVisibility(item)}>
+          {item.visible === false ? <EyeOff size={14} /> : <Eye size={14} />}
+        </button>
         {hasChildren && <button className="tree-disclosure" aria-label={`${collapsed.has(item.id) ? 'Expand' : 'Collapse'} ${item.name}`}
           onClick={() => setCollapsed(current => { const next = new Set(current); next.has(item.id) ? next.delete(item.id) : next.add(item.id); return next; })}>
           {hasChildren && (collapsed.has(item.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />)}
@@ -670,6 +678,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         </> : node ? <>
           <div className="inspector-section" key={node.id}><div className="section-title"><h3>{selected.length > 1 ? `${selected.length} selected layers` : `${node.type} layer`}</h3><button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button></div>
             <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
+            {selected.length === 1 && <Toggle label="Visible" checked={node.visible !== false} onChange={() => toggleLayerVisibility(node)} />}
             {selected.length === 1 && <><Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
               {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}</>}
             <div className="field-grid"><NumberField label="X" value={node.x} onChange={x => updateNode({ x })} />

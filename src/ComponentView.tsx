@@ -33,6 +33,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
     if (current?.type === 'compound') compoundEditing.add(current.id);
   });
   const render = (node: DesignNode, parent?: DesignNode, contextData = data, sourceOutline = false): React.ReactNode => {
+    if (node.visible === false) return null;
     if (node.visibilityField && (node.visibilityField.includes('{{') ? bind(node.visibilityField, contextData) : contextData[node.visibilityField]) !== node.visibilityValue) return null;
     const flow = !!parent && parent.layout !== 'absolute';
     const text = bind(node.text, contextData);
@@ -98,7 +99,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
       width: `${vectorWidth / node.width * 100}%`, height: `${vectorHeight / node.height * 100}%`, right: 'auto', bottom: 'auto' };
     const vectorBox = `${left} ${top} ${vectorWidth} ${vectorHeight}`;
     if (node.type === 'shape' || node.type === 'compound') {
-      const path = node.type === 'shape' ? pathForShape(node) : pathForCompound(nodes, node);
+      const path = node.type === 'shape' ? pathForShape(node) : pathForCompound(nodes.filter(item => item.visible !== false), node);
       const openPath = node.type === 'shape' && node.shapeKind === 'path' && !node.pathClosed;
       shape = <svg className="vector-shape" style={vectorStyle} viewBox={vectorBox} preserveAspectRatio="none" aria-hidden="true">
         <path d={path} fill={sourceOutline || openPath ? 'none' : node.fill}
