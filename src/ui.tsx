@@ -125,11 +125,13 @@ export function Toggle({ label, checked, onChange, description, disabled = false
     <span className="toggle-track"><span>{checked && <Check size={10} />}</span></span>
   </label>;
 }
-export function Field({ label, children }: { label: string; children: ReactNode }) {
+export function Field({ label, children, icon }: { label: string; children: ReactNode; icon?: ReactNode }) {
   const control = isValidElement<{ 'aria-label'?: string }>(children) &&
     typeof children.type === 'string' && ['input', 'select', 'textarea'].includes(children.type)
     ? cloneElement(children, { 'aria-label': children.props['aria-label'] ?? label }) : children;
-  return <label className="field"><span>{label}</span>{control}</label>;
+  return <label className="field"><span className={icon ? 'field-icon-label' : undefined} title={icon ? label : undefined}>
+    {icon ? <><span aria-hidden="true">{icon}</span><span className="visually-hidden">{label}</span></> : label}
+  </span>{control}</label>;
 }
 export function Notice({ message, children, className = 'error-banner', role = 'alert', hidden = false }: {
   message: string; children?: ReactNode; className?: string; role?: 'alert' | 'status'; hidden?: boolean;
@@ -171,14 +173,14 @@ export function ColorField({ label, value, onChange }: { label: string; value: s
     </div>
   </div>;
 }
-export function NumberField({ label, value, onChange, min, max, step = 1 }: {
-  label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number;
+export function NumberField({ label, value, onChange, min, max, step = 1, icon }: {
+  label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number; icon?: ReactNode;
 }) {
   const [draft, setDraft] = useState(String(value));
   const [editing, setEditing] = useState(false);
   const drag = useRef<{ pointer: number; y: number; value: number }>(null);
   useEffect(() => { if (!editing) setDraft(String(value)); }, [value, editing]);
-  return <Field label={label}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step}
+  return <Field label={label} icon={icon}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step}
     onFocus={() => setEditing(true)}
     onPointerDown={e => {
       if (e.button !== 0) return;

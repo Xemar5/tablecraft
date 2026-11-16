@@ -9,6 +9,8 @@ test('designer shortcuts duplicate subtrees, undo, redo, group, nudge and respec
   await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
   await expect(layers).toHaveCount(initial + 1);
   await layers.last().click();
+  await expect(page.getByRole('heading', { name: 'Transform' })).toBeVisible();
+  await expect(page.getByLabel('Width', { exact: true })).toBeVisible();
   await page.keyboard.press('Control+c');
   await page.keyboard.press('Control+v');
   await expect(layers).toHaveCount(initial + 2);
@@ -33,7 +35,12 @@ test('designer shortcuts duplicate subtrees, undo, redo, group, nudge and respec
   await layers.last().click();
   await page.keyboard.press('Control+g');
   await expect(layers).toHaveCount(initial + 4);
-  await page.keyboard.press('Control+Shift+g');
+  await expect(page.getByRole('button', { name: 'Ungroup selected groups (Ctrl/Cmd+G)' })).toBeVisible();
+  await page.keyboard.press('Control+g');
+  await expect(layers).toHaveCount(initial + 3);
+  await page.keyboard.press('Control+g');
+  await expect(layers).toHaveCount(initial + 4);
+  await page.getByRole('button', { name: 'Ungroup selected groups (Ctrl/Cmd+G)' }).click();
   await expect(layers).toHaveCount(initial + 3);
   await page.keyboard.press('Control+x');
   await expect(layers).toHaveCount(initial + 2);
