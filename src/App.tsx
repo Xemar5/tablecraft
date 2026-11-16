@@ -347,9 +347,9 @@ export default function App() {
     if (sessionRef.current) { leave(); notify('Left the live session. The latest table is saved locally.'); }
     setHome(true); setModal(undefined); setCurtain(undefined); setSelected([]);
   };
-  const createProject = (name: string) => {
+  const createProject = (name: string, description = '') => {
     if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
-    const next: Project = { ...starterProject(), name, components: [], instances: [], players: [] };
+    const next: Project = { ...starterProject(), name, description, components: [], instances: [], players: [] };
     setProject(next); setActor(''); setComponentId(undefined); setSelected([]);
     setSearch(''); setFilter('all'); setMode('playground'); setModal('templates');
   };
@@ -377,6 +377,7 @@ export default function App() {
       setStorageError(null);
     }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></Notice>
     {home && <Home projects={archive.projects} onLoad={openProject} onCreate={createProject}
+      onUpdate={(id, patch) => setWorkspace(current => ({ ...current, archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === id ? { ...p, ...patch } : p) } }))}
       onImport={() => fileInput.current?.click()} onExport={exportProject} onJoin={() => { setConnectionError(''); setModal('session'); }}
       onExportAll={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}
       onDelete={id => {

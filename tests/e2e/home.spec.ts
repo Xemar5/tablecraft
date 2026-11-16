@@ -31,7 +31,7 @@ test('Home actions retain aligned spacing and icons, and New project has a padde
   const name = dialog.getByRole('textbox', { name: 'Project name', exact: true });
   await expect(name).toBeFocused();
   await expect(dialog.locator('form')).toHaveCSS('padding', '24px 26px');
-  await expect(dialog.getByText('You can change the name later.', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('You can change the name and description later.', { exact: true })).toBeVisible();
   const bounds = (await dialog.boundingBox())!;
   const input = (await name.boundingBox())!;
   expect(input.x - bounds.x).toBeGreaterThanOrEqual(26);
