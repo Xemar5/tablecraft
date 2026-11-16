@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { ChevronDown, ChevronRight, Plus } from 'lucide-react';
 import { ComponentThumbnail } from './ComponentView';
 import type { Component } from './domain';
 import { startLibraryDrag } from './libraryDrag';
 
-export function LibraryVariants({ component, components, projectId }: { component: Component; components: Component[]; projectId: string }) {
+export function LibraryVariants({ component, components, projectId, onSpawnAll }: { component: Component; components: Component[]; projectId: string; onSpawnAll: () => void }) {
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState<number[]>([]);
   const anchor = useRef<number | undefined>(undefined);
@@ -40,5 +40,6 @@ export function LibraryVariants({ component, components, projectId }: { componen
         </button>;
       })}
     </div>}
+    {open && <div className="library-item-options"><button onClick={onSpawnAll}><Plus size={11} /> Spawn all variants</button></div>}
   </div>;
 }

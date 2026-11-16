@@ -41,7 +41,7 @@ test('variant selection, ranges, and drag spawn an atomic set without reordering
   const card = page.locator('.library-item').filter({ has: page.getByRole('button', { name: 'Spawn Spirit cards', exact: true }) });
   await card.getByRole('button', { name: 'Variants (6)' }).click();
   const variants = card.getByRole('group', { name: 'Spirit cards variants' }).getByRole('button');
-  await expect(card.locator('.library-item-name small')).toHaveText(/\d+ × \d+ px\s*6 variants/);
+  await expect(card.locator('.library-item-name small')).toHaveText(/^\d+ × \d+ px$/);
   await expect(variants.first().locator('span')).toHaveText(/^1\. \S/);
   const rowBounds = (await variants.first().boundingBox())!;
   const thumbBounds = (await variants.first().locator('.component-thumbnail').boundingBox())!;
@@ -89,6 +89,8 @@ test('cancelled and invalid drags do not spawn, and all variants can still be cl
   }, before);
   expect((await state(page)).instances).toEqual(before.instances);
   await expect(page.getByText('Choose up to 1,000 valid variants to spawn at once.')).toBeVisible();
+  await expect(card.getByRole('button', { name: 'Spawn all variants' })).toHaveCount(0);
+  await card.getByRole('button', { name: /^Variants/ }).click();
   await card.getByRole('button', { name: 'Spawn all variants' }).click();
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 6);
   expect((await state(page)).instances.slice(-6).map(i => i.row)).toEqual([0, 1, 2, 3, 4, 5]);
