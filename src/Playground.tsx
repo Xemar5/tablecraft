@@ -9,7 +9,7 @@ import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
 type Placement = { x: number; y: number; rotation: number };
 type Props = {
-  project: Project; actor: string; owner: string; selected: string[]; setSelected: (ids: string[]) => void;
+  project: Project; actor: string; owner: string; host?: boolean; selected: string[]; setSelected: (ids: string[]) => void;
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
   onSpawn: (component: Component, rows: number[], point: { x: number; y: number }, stacked?: boolean) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
@@ -20,7 +20,7 @@ type Props = {
 };
 const ROLL_MS = 650;
 
-export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
+export function Playground({ project: p, actor, owner, host = false, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -261,7 +261,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     previewSeat(at.x, at.y);
     return true;
   };
-  const canEditSeat = (player: Player) => owner === 'local' || player.owner === owner;
+  // The room host may edit every seat; changes to another player's seat are flagged as host overrides in the UI.
+  const hostOverride = (player: Player) => host && owner !== 'local' && player.owner !== owner;
+  const canEditSeat = (player: Player) => owner === 'local' || player.owner === owner || hostOverride(player);
   const rotateSeat = (player: Player, degrees: number) => {
     if (canEditSeat(player) && player.tableHandUnlocked) void dispatch({ type: 'player', player: { ...player, rotation: ((player.rotation + degrees) % 360 + 360) % 360 } });
   };
@@ -378,26 +380,32 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     }
     void dispatch({ type: 'reorderHand', ids, playerId: actor });
   };
-  /** Hand actions for the active seat's toolbar, or for a seat selected in the inspector. Every toggle is that seat's own setting and only its active player may change it. */
+  /** Hand actions for the active seat's toolbar, or for a seat selected in the inspector. Every toggle is that seat's own setting:
+   * its active player may change it, and the room host may override it for other players' seats (marked as a host override). */
   const handActions = (seat?: Player) => {
     const target = seat ?? currentPlayer;
     const own = !seat || seat.id === actor;
+    const override = !own && !!seat && hostOverride(seat);
     const hand = !seat ? 'my hand' : `${seat.name}'s hand`;
     const tableHand = !seat ? 'my table hand' : `${seat.name}'s table hand`;
     const inactive = own ? undefined : `Switch to ${seat!.name}'s seat to manage this hand`;
     const label = (text: string) => ({ 'aria-label': text, title: inactive ? `${text} (${inactive})` : text });
+    const setting = (text: string) => override
+      ? { 'aria-label': text, title: `${text} (host override: this is ${seat!.name}'s setting)`, className: 'icon-button host-override' }
+      : { ...label(text), className: 'icon-button' };
     const seatPermissions = seat ? handPermissions(p, seat.id) : permissions;
     const seatHeld = seat ? p.instances.filter(i => i.holder === seat.id).length : held.length;
     const faceUp = target?.handFaceUp ?? true, hidden = !!target?.tableHandHidden, unlocked = !!target?.tableHandUnlocked;
-    const set = (patch: Extract<Command, { type: 'handSettings' }>['patch']) => dispatch({ type: 'handSettings', playerId: actor, patch });
+    const set = (patch: Extract<Command, { type: 'handSettings' }>['patch']) => dispatch({ type: 'handSettings', playerId: target?.id ?? actor, patch });
+    const manage = own || override;
     return <>
-      <button className="icon-button" {...label(`Turn cards face up when entering ${hand}`)} aria-pressed={faceUp} disabled={!own} onClick={() => set({ handFaceUp: !faceUp })}><FlipHorizontal2 size={16} /></button>
-      <button className="icon-button" {...label(`${hidden ? 'Show' : 'Hide'} ${tableHand}`)} aria-pressed={hidden} disabled={!own} onClick={() => set({ tableHandHidden: !hidden })}>{hidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+      <button {...setting(`Turn cards face up when entering ${hand}`)} aria-pressed={faceUp} disabled={!manage} onClick={() => set({ handFaceUp: !faceUp })}><FlipHorizontal2 size={16} /></button>
+      <button {...setting(`${hidden ? 'Show' : 'Hide'} ${tableHand}`)} aria-pressed={hidden} disabled={!manage} onClick={() => set({ tableHandHidden: !hidden })}>{hidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
       <button className="icon-button" {...label(seat ? `Shuffle ${hand}` : 'Shuffle hand')} disabled={!own || seatHeld < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
       <button className="icon-button" {...label(seat ? `Reverse ${hand}` : 'Reverse hand')} disabled={!own || seatHeld < 2} onClick={() => dispatch({ type: 'reorderHand', ids: held.map(i => i.id).reverse(), playerId: actor })}><ArrowRightLeft size={16} /></button>
-      <button className="icon-button" {...label(`Allow others to insert into ${hand}`)} aria-pressed={seatPermissions.insert} disabled={!own} onClick={() => set({ allowHandInsert: !permissions.insert })}><ArrowDownToLine size={16} /></button>
-      <button className="icon-button" {...label(`Allow others to take from ${hand}`)} aria-pressed={seatPermissions.take} disabled={!own} onClick={() => set({ allowHandTake: !permissions.take })}><ArrowUpFromLine size={16} /></button>
-      <button className="icon-button" {...label(`${unlocked ? 'Lock' : 'Unlock'} ${tableHand}`)} aria-pressed={unlocked} disabled={!own} onClick={() => set({ tableHandUnlocked: !unlocked })}>{unlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
+      <button {...setting(`Allow others to insert into ${hand}`)} aria-pressed={seatPermissions.insert} disabled={!manage} onClick={() => set({ allowHandInsert: !seatPermissions.insert })}><ArrowDownToLine size={16} /></button>
+      <button {...setting(`Allow others to take from ${hand}`)} aria-pressed={seatPermissions.take} disabled={!manage} onClick={() => set({ allowHandTake: !seatPermissions.take })}><ArrowUpFromLine size={16} /></button>
+      <button {...setting(`${unlocked ? 'Lock' : 'Unlock'} ${tableHand}`)} aria-pressed={unlocked} disabled={!manage} onClick={() => set({ tableHandUnlocked: !unlocked })}>{unlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
       {seat ? <button className="icon-button" aria-label="Switch to this seat" title={own ? 'This is your active seat' : `Switch to ${seat.name}'s seat`} disabled={own} onClick={() => onSwitch(seat)}><Users size={16} /></button>
         : <button className="icon-button" aria-label="Switch seat" title="Switch seat" onClick={() => { setPanel('players'); onShowInspector(); }}><Users size={16} /></button>}
     </>;
@@ -601,7 +609,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             return <button key={player.id} data-seat-id={player.id} aria-pressed={selectedSeatId === player.id} title={player.tableHandUnlocked ? `Drag ${player.name}'s seat` : `Select ${player.name}'s seat`} className={`seat-marker ${player.id === actor ? 'active' : ''} ${selectedSeatId === player.id ? 'seat-selected' : ''}`}
             onPointerDown={e => {
               e.stopPropagation(); seatMoved.current = false;
-              if (!player.tableHandUnlocked || e.button !== 0 || (owner !== 'local' && player.owner !== owner)) return;
+              if (!player.tableHandUnlocked || e.button !== 0 || !canEditSeat(player)) return;
               seatGesture.current = { id: player.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, startX: player.x, startY: player.y, startWorld: worldPoint(e.clientX, e.clientY), rotation: player.rotation };
               e.currentTarget.setPointerCapture(e.pointerId);
             }}
@@ -864,12 +872,12 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                 if (target) movePlayer(player.id, target.id, e.key === 'ArrowUp' ? 'before' : 'after');
               }}><GripVertical size={14} /></button>
             <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{p.settings.turns && turnPlayer?.id === player.id ? 'Current turn · ' : ''}{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
-            {(owner === 'local' || owner === player.owner) && <button className="icon-button" title={`Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
+            {canEditSeat(player) && <button className={`icon-button${hostOverride(player) ? ' host-override' : ''}`} title={hostOverride(player) ? `Edit ${player.name} (host override)` : `Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
           <button className="button full" onClick={() => setSeatEditor({ id: uid('player'), owner, name: `Player ${p.players.length + 1}`, color: ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], ...nextSeatPlacement(p.players) })}><Plus size={15} /> Add hotseat player</button>
         </div>
       </> : panel === 'selection' ? <>
-        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={owner === 'local' || owner === selectedSeat.owner}
+        {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={canEditSeat(selectedSeat)} override={hostOverride(selectedSeat)}
           held={p.instances.filter(i => i.holder === selectedSeat.id).length}
           onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
           onClose={() => setSelectedSeatId(undefined)}
@@ -929,7 +937,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           </div>;
         })}</div></div>
     </Modal>}
-    {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
+    {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}${hostOverride(removingSeat) ? 'Host override: this seat belongs to another player. ' : ''}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setRemovingSeat(undefined)}>Cancel</button><button className="button danger" onClick={() => { const id = removingSeat.id; void dispatch({ type: 'removePlayer', playerId: id }).then(ok => { if (ok) { setSelectedSeatId(seat => seat === id ? undefined : seat); setRemovingSeat(undefined); } }); }}>Remove seat</button></div>
     </Modal>}
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
@@ -945,8 +953,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   </div>;
 }
 
-function SeatInspector({ player, active, editable, held, actions, lastSeat, onChange, onClose, onRemove }: {
-  player: Player; active: boolean; editable: boolean; held: number; actions: React.ReactNode; lastSeat: boolean;
+function SeatInspector({ player, active, editable, override, held, actions, lastSeat, onChange, onClose, onRemove }: {
+  player: Player; active: boolean; editable: boolean; override: boolean; held: number; actions: React.ReactNode; lastSeat: boolean;
   onChange: (patch: Partial<Player>) => void; onClose: () => void; onRemove: () => void;
 }) {
   const removeBlocked = lastSeat ? 'Keep at least one seat at the table.' : active ? 'Switch to another seat before removing this one.' : undefined;
@@ -960,9 +968,10 @@ function SeatInspector({ player, active, editable, held, actions, lastSeat, onCh
   };
   return <div className="inspector-section selected-inspector seat-inspector">
     <div className="section-title"><h3>Seat selected</h3><button className="icon-button" title="Deselect" aria-label="Deselect seat" onClick={onClose}><X size={14} /></button></div>
-    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}{active && <YouTag />}</strong><small>{active ? 'Active seat' : editable ? `${held} in hand` : 'Remote player'}</small></div></div>
+    <div className="selected-component"><span className="mini-avatar seat-avatar" style={{ background: player.color }}>{player.name[0]}</span><div><strong>{player.name}{active && <YouTag />}</strong><small>{active ? 'Active seat' : editable && !override ? `${held} in hand` : 'Remote player'}</small></div></div>
         {actions}
-    <fieldset className="seat-fields" disabled={!editable}>
+    {override && <p className="host-override-note" role="note">Host override: this seat belongs to another player. As the host, only you can change its settings or remove it.</p>}
+    <fieldset className={`seat-fields${override ? ' host-override' : ''}`} disabled={!editable}>
       <Field label="Player name"><input required maxLength={50} value={name} onChange={e => setName(e.target.value)} onBlur={commitName}
         onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); else if (e.key === 'Escape') { cancelName.current = true; e.currentTarget.blur(); } }} /></Field>
       <ColorField deferred label="Player color" value={player.color} onChange={color => onChange({ color })} />
@@ -970,7 +979,7 @@ function SeatInspector({ player, active, editable, held, actions, lastSeat, onCh
       <NumberField deferred label="Seat rotation" value={player.rotation} onChange={rotation => onChange({ rotation })} />
     </fieldset>
     {!editable && <p className="help-text">Only this seat's owner can change its settings.</p>}
-    {editable && <><button className="button danger full" disabled={!!removeBlocked} title={removeBlocked} onClick={onRemove}><Trash2 size={14} /> Remove seat</button>
+    {editable && <><button className={`button danger full${override ? ' host-override' : ''}`} disabled={!!removeBlocked} title={removeBlocked} onClick={onRemove}><Trash2 size={14} /> Remove seat</button>
       {removeBlocked && <p className="help-text">{removeBlocked}</p>}</>}
   </div>;
 }

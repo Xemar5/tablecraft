@@ -14,12 +14,16 @@ const membership = table({ name: 'membership' }, {
 const playground_history = table({ name: 'playground_history' }, {
   code: t.string().primaryKey(), history: t.string(),
 });
-const db = schema({ room, membership, playground_history });
+// The identity that created each room may override other players' seat settings.
+const room_host = table({ name: 'room_host' }, {
+  code: t.string().primaryKey(), identity: t.string(),
+});
+const db = schema({ room, membership, playground_history, room_host });
 export default db;
 
 // Keep the persisted room schema stable; additive history is a private table.
 export const room_state = db.view({ public: true }, t.array(t.object('PlaygroundRoomSnapshot', {
-  code: t.string(), state: t.string(), revision: t.u32(), undoCount: t.u32(), undoNotice: t.string(),
+  code: t.string(), state: t.string(), revision: t.u32(), undoCount: t.u32(), undoNotice: t.string(), host: t.string(),
 })), ctx => {
   const member = ctx.db.membership.identity.find(ctx.sender);
   if (!member) return [];
@@ -27,7 +31,8 @@ export const room_state = db.view({ public: true }, t.array(t.object('Playground
   if (!current) return [];
   const saved = ctx.db.playground_history.code.find(member.code);
   const history = saved ? playgroundHistorySchema.parse(JSON.parse(saved.history)) : emptyPlaygroundHistory();
-  return [{ ...current, undoCount: history.entries.length, undoNotice: history.notice }];
+  const host = ctx.db.room_host.code.find(member.code)?.identity ?? '';
+  return [{ ...current, undoCount: history.entries.length, undoNotice: history.notice, host }];
 });
 
 export const join_room = db.reducer({
@@ -62,7 +67,12 @@ export const join_room = db.reducer({
     const row = {
       code: args.code, state: JSON.stringify(project), revision: (existing?.revision ?? 0) + 1,
     };
-    if (existing) ctx.db.room.code.update(row); else ctx.db.room.insert(row);
+    if (existing) ctx.db.room.code.update(row);
+    else {
+      ctx.db.room.insert(row);
+      const hostRow = { code: args.code, identity };
+      if (ctx.db.room_host.code.find(args.code)) ctx.db.room_host.code.update(hostRow); else ctx.db.room_host.insert(hostRow);
+    }
     const member = { identity: ctx.sender, code: args.code };
     if (ctx.db.membership.identity.find(ctx.sender)) ctx.db.membership.identity.update(member);
     else ctx.db.membership.insert(member);
@@ -83,11 +93,18 @@ export const dispatch = db.reducer({ command: t.string(), actor: t.string() }, (
     const actor = project.players.find(p => p.id === args.actor);
     if (!actor || actor.owner !== identity) throw new Error('Choose one of your own hotseat players.');
     const command = commandSchema.parse(JSON.parse(args.command));
+    const host = ctx.db.room_host.code.find(member.code)?.identity === identity;
+    // Seats belong to their owner; the room host may also change or remove other players' seats but never reassign them.
+    const manages = (playerId: string) => {
+      const owner = project.players.find(p => p.id === playerId)?.owner;
+      return owner === identity || (host && owner !== undefined);
+    };
     if (command.type === 'player') {
       const target = project.players.find(p => p.id === command.player.id);
-      if (command.player.owner !== identity || (target && target.owner !== identity)) throw new Error('You can only edit your own seats.');
+      if (target ? !manages(target.id) || command.player.owner !== target.owner : command.player.owner !== identity) throw new Error('You can only edit your own seats.');
     }
-    if (command.type === 'removePlayer' && project.players.find(p => p.id === command.playerId)?.owner !== identity) throw new Error('You can only remove your own seats.');
+    if (command.type === 'removePlayer' && !manages(command.playerId)) throw new Error('You can only remove your own seats.');
+    if (command.type === 'handSettings' && !manages(command.playerId)) throw new Error('You can only change your own hand settings.');
     const previous = ctx.db.playground_history.code.find(member.code);
     const history = project !== parsed ? { entries: [], notice: migrationNotice }
       : previous ? playgroundHistorySchema.parse(JSON.parse(previous.history)) : emptyPlaygroundHistory();

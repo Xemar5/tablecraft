@@ -5,7 +5,8 @@ export interface ConnectionOptions {
   uri: string; database: string; code: string; host: boolean; project: Project; playerId: string; name: string; color: string;
 }
 export interface LiveSession {
-  connection: DbConnection; identity: string; code: string;
+  /** Identity hex of the player who created the room; empty for rooms created before hosts were recorded. */
+  connection: DbConnection; identity: string; code: string; host: string;
   send: (command: Command, actor: string) => Promise<void>;
   undo: (actor: string) => Promise<void>;
   disconnect: () => void;
@@ -38,7 +39,7 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project, un
                 settled = true;
                 clearTimeout(timeout);
                 resolve({
-                  connection: conn, identity: identity.toHexString(), code: options.code,
+                  connection: conn, identity: identity.toHexString(), code: options.code, host: row.host,
                   send: (command, actor) => conn.reducers.dispatch({ command: JSON.stringify(command), actor }),
                   undo: actor => conn.reducers.undo({ actor }),
                   disconnect: () => { intentional = true; conn.disconnect(); },

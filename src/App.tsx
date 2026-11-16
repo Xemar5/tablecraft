@@ -125,6 +125,13 @@ export default function App() {
   const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
   const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, notify);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
+  // The room host can remove other players' seats; fall back to another owned seat instead of acting as a missing player.
+  useEffect(() => {
+    if (!session || !actor || project.players.some(player => player.id === actor)) return;
+    const own = project.players.find(player => player.owner === session.identity);
+    setActor(own?.id ?? '');
+    if (!own) notify('The host removed your seat. Rejoin the room to take a new seat.', true);
+  }, [session, actor, project.players, notify]);
   useEffect(() => {
     if (storageError) return;
     try { saveWorkspace(archive); } catch (error) { setStorageError(`Unable to save in this browser: ${String(error)}. Export your project to keep your work.`); }
@@ -467,7 +474,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :

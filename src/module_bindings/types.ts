@@ -28,6 +28,7 @@ export const PlaygroundRoomSnapshot = __t.object("PlaygroundRoomSnapshot", {
   revision: __t.u32(),
   undoCount: __t.u32(),
   undoNotice: __t.string(),
+  host: __t.string(),
 });
 export type PlaygroundRoomSnapshot = __Infer<typeof PlaygroundRoomSnapshot>;
 
@@ -37,6 +38,12 @@ export const Room = __t.object("Room", {
   revision: __t.u32(),
 });
 export type Room = __Infer<typeof Room>;
+
+export const RoomHost = __t.object("RoomHost", {
+  code: __t.string(),
+  identity: __t.string(),
+});
+export type RoomHost = __Infer<typeof RoomHost>;
 
 export const RoomState = __t.object("RoomState", {});
 export type RoomState = __Infer<typeof RoomState>;
