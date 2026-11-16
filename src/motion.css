@@ -171,6 +171,16 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
   from { opacity: .4; transform: perspective(900px) rotateY(-16deg) scaleX(.85); }
   to { opacity: 1; transform: perspective(900px) rotateY(0) scaleX(1); }
 }
+.table-piece.rolling > .component-face { animation: die-roll 650ms cubic-bezier(.2, .7, .3, 1); }
+.table-piece.rolling { filter: drop-shadow(0 10px 12px rgba(41, 61, 54, .28)); }
+@keyframes die-roll {
+  0% { rotate: 0deg; scale: 1; }
+  20% { rotate: -160deg; scale: 1.18; }
+  45% { rotate: -300deg; scale: 1.1; }
+  70% { rotate: -350deg; scale: 1.04; }
+  85% { rotate: -366deg; scale: .97; }
+  100% { rotate: -360deg; scale: 1; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

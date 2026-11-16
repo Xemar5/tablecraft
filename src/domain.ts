@@ -56,6 +56,7 @@ export const instanceSchema = z.object({
   rotation: num, scale: num.min(0.1).max(5), flipped: z.boolean(),
   holder: id.nullable(), stack: id.nullable(), order: num, locked: z.boolean(),
   stackReversed: z.boolean().optional(),
+  rolls: z.number().int().min(0).optional(),
 });
 export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
@@ -414,6 +415,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         if (item.locked || c.kind !== 'dice') throw new Error('Only unlocked dice can be rolled.');
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
         item.row = seed % Math.max(c.rows.length, 1);
+        item.rolls = (item.rolls ?? 0) + 1;
       }
       break;
     }

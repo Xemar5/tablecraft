@@ -292,6 +292,9 @@ describe('tabletop commands', () => {
     p = applyCommand(p, { type: 'roll', ids: [piece.id], seed: 42 }, 'player-1');
     expect(p.instances.find(i => i.id === piece.id)?.rotation).toBe(37);
     expect(p.instances.find(i => i.id === piece.id)?.id).toBe(piece.id);
+    expect(p.instances.find(i => i.id === piece.id)?.rolls).toBe(1);
+    p = applyCommand(p, { type: 'roll', ids: [piece.id], seed: 42 }, 'player-1');
+    expect(p.instances.find(i => i.id === piece.id)?.rolls).toBe(2);
   });
   it('releases multiple held pieces atomically and enforces hand ownership', () => {
     let p = starterProject();

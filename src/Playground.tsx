@@ -17,6 +17,8 @@ type Props = {
   panel: 'selection' | 'table' | 'players'; setPanel: (panel: 'selection' | 'table' | 'players') => void;
   panels: ReturnType<typeof usePanelLayout>;
 };
+const ROLL_MS = 650;
+
 export function Playground({ project: p, actor, owner, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
@@ -39,6 +41,36 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number; rotation: number }>();
   const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number; startWorld: { x: number; y: number }; rotation: number }>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string>();
+  const [rolling, setRolling] = useState<Record<string, number>>({});
+  const seenRolls = useRef<Map<string, number>>(null);
+  const rollTimers = useRef(new Map<string, number>());
+  useEffect(() => {
+    const first = !seenRolls.current;
+    const seen = seenRolls.current ??= new Map();
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    for (const item of p.instances) {
+      const rolls = item.rolls ?? 0, previous = seen.get(item.id);
+      seen.set(item.id, rolls);
+      const faces = p.components.find(c => c.id === item.componentId)?.rows.length ?? 0;
+      // Animate every new roll (local or remote), even when it lands on the same face.
+      if (first || previous === undefined || rolls <= previous || faces < 2 || still) continue;
+      window.clearInterval(rollTimers.current.get(item.id));
+      const started = performance.now();
+      let face = item.row;
+      const tick = () => {
+        if (performance.now() - started >= ROLL_MS) {
+          window.clearInterval(rollTimers.current.get(item.id)); rollTimers.current.delete(item.id);
+          setRolling(({ [item.id]: _, ...rest }) => rest);
+          return;
+        }
+        face = (face + 1 + Math.floor(Math.random() * (faces - 1))) % faces;
+        setRolling(current => ({ ...current, [item.id]: face }));
+      };
+      tick();
+      rollTimers.current.set(item.id, window.setInterval(tick, 70));
+    }
+  }, [p.instances, p.components]);
+  useEffect(() => () => rollTimers.current.forEach(timer => window.clearInterval(timer)), []);
   const seatMoved = useRef(false);
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
@@ -616,7 +648,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             const comp = p.components.find(c => c.id === item.componentId)!;
             const members = stackMembers(p, item);
             const position = preview[item.id] ?? item;
-            return <div key={item.id} className={`table-piece ${selected.includes(item.id) ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${preview[item.id] ? `dragging drag-source ${handDrop ? 'mini-drop-source' : ''}` : ''} ${dropHint?.id === item.id && !altDown ? 'stack-drop-target' : ''}`}
+            return <div key={item.id} className={`table-piece ${rolling[item.id] !== undefined ? 'rolling' : ''} ${selected.includes(item.id) ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${preview[item.id] ? `dragging drag-source ${handDrop ? 'mini-drop-source' : ''}` : ''} ${dropHint?.id === item.id && !altDown ? 'stack-drop-target' : ''}`}
               data-testid="table-piece" data-piece-id={item.id}
               style={{ left: position.x, top: position.y, width: comp.width, height: comp.height, zIndex: comp.kind === 'board' ? 0 : p.instances.indexOf(item) + 2,
                 transform: `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})` }}
@@ -626,7 +658,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const ids = members.map(i => i.id); setSelected(e.shiftKey ? [...new Set([...selected, ...ids])] : ids); } }}
               onDoubleClick={e => { e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
               {members.length > 1 && <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>}
-              <ComponentView component={comp} components={p.components} row={item.row} back={visibleBack(item)} />
+              <ComponentView component={comp} components={p.components} row={rolling[item.id] ?? item.row} back={visibleBack(item)} />
               {members.length > 1 && <span className="stack-count"><Layers size={13} /> {members.length}</span>}
               {item.locked && <span className="piece-lock"><LockKeyhole size={15} /></span>}
               {selected.includes(item.id) && <><i className="selection-corner tl" /><i className="selection-corner tr" /><i className="selection-corner bl" /><i className="selection-corner br" /></>}

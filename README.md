@@ -197,7 +197,7 @@ Locked pieces do not show previews. Previews switch to the left when hovering in
 | Search/reorder | Select stack, then **Search stack**; list runs bottom to top |
 | Shuffle/roll | Hover/focus and press `R`; stack controls also offer shuffle/spread |
 | Scale/lock | Selection inspector |
-| Roll a die | Press `R` or select a die and choose **Roll die** (rotation stays unchanged) |
+| Roll a die | Press `R` or select a die and choose **Roll die** (rotation stays unchanged). The die briefly tumbles and cycles through its faces for every player, even when it lands on the same face; reduced-motion settings skip the animation |
 | Play from hand | Drag a held piece onto the table |
 
 Use **Players** to add any number of hotseat seats. Seats are named **Player 1**, **Player 2** and so on by default; the seat you are currently playing is marked with a **You** tag on the table, in **Players** and in the seat inspector. To change a seat's name, color, coordinates or rotation, select the seat on the table or use its edit button in **Players**. Switching local seats shows a pass-the-screen privacy curtain. Remote players own their own seats; each connected client can add more hotseat players. The turn tracker is optional and advisory: it does not prevent other players from manipulating pieces.
