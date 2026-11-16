@@ -468,6 +468,8 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
   const startPiece = (e: React.PointerEvent, item: Instance) => {
     if (tool === 'pan' || e.button === 1) return;
     if (e.button !== 0) return;
+    // Locked pieces ignore plain clicks so a box selection can start over them; Ctrl/Cmd-click still selects them.
+    if (item.locked && !e.ctrlKey && !e.metaKey) return;
     e.stopPropagation();
     const extracting = e.shiftKey && !!item.stack;
     const group = extracting ? [item.id] : stackMembers(p, item).map(i => i.id);
@@ -578,6 +580,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
             setMarquee(rect);
             if (rect.width > 3 || rect.height > 3) {
               const ids = topPieces.filter(item => {
+                if (item.locked) return false;
                 const bounds = viewport.current?.querySelector<HTMLElement>(`[data-piece-id="${CSS.escape(item.id)}"]`)?.getBoundingClientRect();
                 return bounds && bounds.right >= rect.x && bounds.left <= rect.x + rect.width && bounds.bottom >= rect.y && bounds.top <= rect.y + rect.height;
               }).flatMap(item => stackMembers(p, item).map(i => i.id));
@@ -706,7 +709,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
               onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece}
               onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} tabIndex={0} role="button" aria-label={`${comp.name}${members.length > 1 ? `, stack of ${members.length}` : ''}`}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const ids = members.map(i => i.id); setSelected(e.shiftKey ? [...new Set([...selected, ...ids])] : ids); } }}
-              onDoubleClick={e => { e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
+              onDoubleClick={e => { if (item.locked) return; e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
               {members.length > 1 && <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>}
               <ComponentView component={comp} components={p.components} row={rolling[item.id] ?? item.row} back={visibleBack(item)} />
               {members.length > 1 && <span className="stack-count"><Layers size={13} /> {members.length}</span>}
