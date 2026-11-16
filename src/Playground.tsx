@@ -598,10 +598,14 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
           }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}</strong>
-            <div className="preview-shortcuts" aria-label="Piece shortcuts">
-              <small>F — Flip</small><small>Q / E — Rotate −90° / +90°</small><small>R — Shuffle / roll</small>
-              <small>G — Stack selection</small><small>1–0 — Draw cards</small><small>Alt — Hide preview</small>
-            </div></div> : null;
+            <table className="preview-shortcuts" aria-label="Piece shortcuts"><tbody>
+              <tr><th scope="row">Flip</th><td><kbd>F</kbd></td></tr>
+              <tr><th scope="row">Rotate −90° / +90°</th><td><kbd>Q / E</kbd></td></tr>
+              <tr><th scope="row">Shuffle / roll</th><td><kbd>R</kbd></td></tr>
+              <tr><th scope="row">Stack selection</th><td><kbd>G</kbd></td></tr>
+              <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>
+              <tr><th scope="row">Hide preview</th><td><kbd>Alt</kbd></td></tr>
+            </tbody></table></div> : null;
         })()}
         <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
       </div>

@@ -4,6 +4,30 @@ async function size(page: Page, selector: string, dimension: 'width' | 'height')
   return (await page.locator(selector).boundingBox())![dimension];
 }
 
+test('selected designer properties scroll inside the inspector without scrolling the document', async ({ page }) => {
+  await page.setViewportSize({ width: 1135, height: 889 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  await page.getByRole('button', { name: 'Add text', exact: true }).click();
+  const inspector = page.locator('#designer-inspector-panel');
+  await expect(inspector.getByLabel('Text / binding', { exact: true })).toBeVisible();
+  await expect(inspector.locator('h3')).toHaveCount(0);
+  for (const height of [889, 650]) {
+    await page.setViewportSize({ width: 1135, height });
+    const scroll = inspector.locator('.inspector-scroll');
+    await scroll.evaluate(el => { el.scrollTop = 0; });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollHeight - innerHeight)).toBe(0);
+    const header = await page.locator('.app-header').boundingBox();
+    await scroll.hover();
+    await page.mouse.wheel(0, 3000);
+    await expect.poll(() => scroll.evaluate(el => el.scrollTop)).toBeGreaterThan(0);
+    await page.mouse.wheel(0, 3000);
+    await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
+    expect(await page.locator('.app-header').boundingBox()).toEqual(header);
+    await expect(inspector.getByLabel('Alignment', { exact: true })).toBeInViewport();
+  }
+});
+
 test('panel dragging works after opening Home and returning to a project', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => localStorage.removeItem('tablecraft.last-project'));

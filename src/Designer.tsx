@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Code2, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, Move, MoveHorizontal, MoveVertical, Redo2, RotateCw, Scaling, Square, Trash2, Type, Undo2, Ungroup, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, MoveHorizontal, MoveVertical, Redo2, RotateCw, Square, Trash2, Type, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
 import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
@@ -634,7 +634,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <HorizontalScroll contentClassName="inspector-tabs" label="Designer inspector tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></HorizontalScroll>
       <div className="inspector-scroll">
         {tab === 'design' && <div className="inspector-section design-section boolean-section">
-          <div className="design-section-heading"><div><Layers size={15} /><div><h3>Vector operations</h3><p>Combine selected shapes</p></div></div></div>
           <div className="boolean-actions" aria-label="Boolean operations">
           {([
             { operation: 'union', label: 'Union' },
@@ -686,22 +685,20 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>
         </> : node ? <>
           <div className="inspector-section design-section selection-section" key={node.id}>
-            <div className="section-title"><div><h3>Selection</h3><span className="selection-summary">{selected.length > 1 ? `${selected.length} layers` : `${node.type} layer`}</span></div>
+            <div className="selection-header">
+              <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
               <div className="selection-actions">
                 {canUngroup && <button className="button compact-action" title="Ungroup selected groups (Ctrl/Cmd+G)" aria-label="Ungroup selected groups (Ctrl/Cmd+G)" onClick={ungroupSelection}><Ungroup size={14} /><span>Ungroup</span></button>}
                 <button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button>
               </div>
             </div>
-            <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
             {selected.length === 1 && <Toggle label="Visible" checked={node.visible !== false} onChange={() => toggleLayerVisibility(node)} />}
             {selected.length === 1 && <div className="visibility-rules">
-              <div className="subsection-heading"><Eye size={13} /><span>Visibility rule</span></div>
               <Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
               {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}
             </div>}
           </div>
           <div className="inspector-section design-section transform-section">
-            <div className="design-section-heading"><div><Move size={15} /><div><h3>Transform</h3><p>Position and dimensions</p></div></div></div>
             <div className="field-grid transform-grid"><NumberField label="X" icon={<MoveHorizontal size={14} />} value={node.x} onChange={x => updateNode({ x })} />
               <NumberField label="Y" icon={<MoveVertical size={14} />} value={node.y} onChange={y => updateNode({ y })} />
               <NumberField label="Width" icon={<MoveHorizontal size={14} />} value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} />
@@ -720,12 +717,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             </div>
           </div>
           <div className="inspector-section design-section appearance-section" key={`appearance-${node.id}`}>
-            <div className="design-section-heading"><div><Square size={15} /><div><h3>Appearance</h3><p>Fill and transparency</p></div></div></div>
             <ColorField label="Fill color" value={node.fill} onChange={fill => updateNode({ fill })} />
             <NumberField label="Opacity" icon={<Eye size={14} />} value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
           </div>
-          <div className="inspector-section design-section content-section">
-            <div className="design-section-heading"><div><Layers size={15} /><div><h3>Layer details</h3><p>Settings for this layer type</p></div></div></div>
+          {selected.length === 1 && <div className="inspector-section design-section content-section">
             {node.type === 'text' && selected.length === 1 && <>
               <Field label="Text / binding"><textarea value={node.text} onChange={event => updateNode({ text: event.target.value })} rows={3} /></Field>
               <p className="help-text">Mix static text with <code>{'{{column_name}}'}</code>.</p>
@@ -816,7 +811,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               </>}
             </>}
             {selected.length === 1 && node.type === 'frame' && <>
-              <div className="subsection-heading"><Layers size={13} /><span>Frame layout</span></div>
               <Field label="Child layout"><select value={node.layout} onChange={event => updateNode({ layout: event.target.value as DesignNode['layout'] })}><option value="absolute">Absolute</option><option value="row">Horizontal stack</option><option value="column">Vertical stack</option></select></Field>
               <div className="field-grid"><NumberField label="Gap" value={node.gap} min={0} max={200} onChange={gap => updateNode({ gap })} />
                 <Field label="Align children"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></Field></div>
@@ -828,17 +822,16 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 <NumberField label="Left" value={node.paddingLeft ?? node.padding} min={0} max={200} onChange={paddingLeft => updateNode({ paddingLeft })} />
               </div></div>
             </>}
-          </div>
+          </div>}
         </> : <>
           <div className="inspector-section design-section">
-            <div className="design-section-heading"><div><Square size={15} /><div><h3>Component</h3><p>Size and background</p></div></div></div>
             <Field label="Name"><input value={component.name} onChange={event => { if (event.target.value) update({ name: event.target.value }); }} /></Field>
             <div className="field-grid"><NumberField label="Width" value={component.width} min={20} max={2000} onChange={width => update({ width })} /><NumberField label="Height" value={component.height} min={20} max={2000} onChange={height => update({ height })} /></div>
             <ColorField label="Component background" value={component.color} onChange={color => update({ color })} />
           </div>
-          <div className="inspector-section design-section"><div className="design-section-heading"><div><Layers size={15} /><div><h3>Start designing</h3><p>Pick a layer to edit its details</p></div></div></div>
+          <div className="inspector-section design-section">
             <p className="help-text">Select one or more layers to move, edit, group or delete them. Add transparent groups and responsive frames with the toolbar.</p>
-            <div className="tip-card"><Code2 size={20} /><strong>One design. Endless cards.</strong><p>Use {'{{name}}'} in any text or image layer to connect it to your CSV.</p><button className="text-button" onClick={() => { setCsv(component.csv); setDataOpen(true); }}>Connect your data <ChevronRight size={13} /></button></div></div>
+            <p className="help-text">Use {'{{name}}'} in any text or image layer to connect it to your CSV.</p><button className="text-button" onClick={() => { setCsv(component.csv); setDataOpen(true); }}>Connect your data <ChevronRight size={13} /></button></div>
         </>}
       </div>
     </aside>
