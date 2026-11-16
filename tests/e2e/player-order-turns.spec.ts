@@ -11,6 +11,7 @@ test('players can be reordered and End turn passes the turn down the list', asyn
   await page.getByRole('button', { name: 'Add hotseat player', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Save seat', exact: true }).click();
   await expect.poll(() => order(page)).toEqual(['Player 1', 'Player 2', 'Player 3']);
+  for (const grip of await page.locator('.player-reorder').all()) expect((await grip.boundingBox())!.width).toBe(18);
 
   await page.getByRole('button', { name: 'Reorder Player 3', exact: true }).dragTo(page.locator('[data-player-row]').first(), { targetPosition: { x: 20, y: 2 } });
   await expect.poll(() => order(page)).toEqual(['Player 3', 'Player 1', 'Player 2']);
