@@ -20,6 +20,7 @@ test('panel dragging works after opening Home and returning to a project', async
     const initial = await size(page, selector, dimension);
     const box = (await separator.boundingBox())!;
     const horizontal = dimension === 'height';
+    await expect(page.locator(selector)).toHaveCSS(horizontal ? 'border-top-width' : dx > 0 ? 'border-right-width' : 'border-left-width', '0px');
     expect(horizontal ? box.height : box.width).toBe(6);
     const line = await separator.evaluate((element, horizontal) => {
       const style = getComputedStyle(element, '::before');
@@ -37,6 +38,7 @@ test('panel dragging works after opening Home and returning to a project', async
     ['Resize designer layers', '#designer-layers-panel', 30],
     ['Resize designer inspector', '#designer-inspector-panel', -30],
   ] as const) {
+    await expect(page.locator(selector)).toHaveCSS(dx > 0 ? 'border-right-width' : 'border-left-width', '0px');
     const initial = await size(page, selector, 'width');
     const box = (await page.getByRole('separator', { name: label, exact: true }).boundingBox())!;
     await page.mouse.move(box.x + box.width / 2, box.y + 100);

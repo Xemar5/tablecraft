@@ -112,6 +112,9 @@
 @media(max-width:700px){.home-project-heading{flex-wrap:wrap}.home-project-actions{margin-left:0}.home-screen{padding:18px}}
 
 /* Presentation-only splitters; their sizes are managed independently of project data. */
+#component-library-panel,#designer-layers-panel{border-right:0}
+#designer-inspector-panel,#playground-inspector-panel{border-left:0}
+#hand-tray-panel{border-top:0}
 .panel-separator{flex:none;position:relative;z-index:4;background:transparent;touch-action:none;user-select:none;outline:none}
 .panel-separator.vertical{width:6px;cursor:col-resize}
 .panel-separator.horizontal{height:6px;cursor:row-resize}
