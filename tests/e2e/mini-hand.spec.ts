@@ -145,6 +145,7 @@ for (const [index, rotation] of [[0, 0], [1, 90], [3, 180]]) {
   test(`table hand previews and inserts at position ${index} with seat rotation ${rotation}`, async ({ page }) => {
     const { source, held } = await seedHand(page, rotation);
     const mini = page.locator('.seat-marker.active .other-hand');
+    const handBounds = (await mini.boundingBox())!;
     const cards = mini.locator('[data-mini-id]');
     const centers = await cards.evaluateAll(elements => elements.map(el => {
       const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
@@ -169,6 +170,10 @@ for (const [index, rotation] of [[0, 0], [1, 90], [3, 180]]) {
     const ghostWidth = (await page.locator('.mini-drop-preview').boundingBox())!.width;
     expect(ghostWidth).toBeLessThan(box.width / 2);
     await expect(mini.locator(index === 3 ? '.mini-insert-end' : '.mini-insert-before')).toHaveCount(1);
+    const targetBounds = (await mini.boundingBox())!;
+    for (const key of ['x', 'y', 'width', 'height'] as const) {
+      expect(targetBounds[key]).toBeCloseTo(handBounds[key], 2);
+    }
     await page.mouse.up();
     const expected = [...held]; expected.splice(index, 0, source.id);
     await expect.poll(() => handOrder(page)).toEqual(expected);

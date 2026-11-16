@@ -32,7 +32,7 @@
 .other-hand > .mini-drag-source { opacity: .25; }
 .mini-insert-before::before, .mini-insert-end { content: ''; width: 3px; background: #365d46; border-radius: 3px; box-shadow: 0 0 0 2px #e6efdc; pointer-events: none; }
 .mini-insert-before::before { position: absolute; left: -3px; top: -8px; bottom: -8px; z-index: 1; }
-.mini-insert-end { flex: 0 0 3px; margin: -8px 0 -8px 12px; min-height: 60px; }
+.mini-insert-end { position: absolute; right: -3px; top: -8px; bottom: -8px; min-height: 60px; }
 .mini-drop-count { position: absolute; right: -5px; bottom: -5px; background: #365d46; color: white; border-radius: 10px; padding: 2px 5px; font-size: 12px; }
 .hidden-face {
   position: absolute;
