@@ -30,7 +30,12 @@ test('the room host can change other seats with host-override marking while gues
     const take = host.getByRole('toolbar', { name: `${guestName}'s hand actions`, exact: true }).getByRole('button', { name: `Allow others to take from ${guestName}'s hand`, exact: true });
     await expect(take).toBeEnabled();
     await expect(take).toHaveClass(/host-override/);
+    const background = () => take.evaluate(button => getComputedStyle(button).backgroundColor);
+    const off = await background();
     await take.click();
+    // Host-override toggles must still show their on/off state.
+    await expect(take).toHaveAttribute('aria-pressed', 'true');
+    expect(await background()).not.toBe(off);
     await expect(guest.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
     await host.getByLabel('Player name', { exact: true }).fill('Renamed by host');
