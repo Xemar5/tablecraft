@@ -54,10 +54,14 @@ export function darkColor(color: string, shadow = false): string {
   const { h, s, l } = toHsl(rgba);
   // Shadows and dimming overlays stay dark (and a little stronger) instead of turning into glows.
   if ((shadow || rgba.a < 1) && l < 0.42) return fromHsl(h, s * 0.5, l * 0.35, Math.min(1, rgba.a * (shadow ? 2 : 1.4)));
-  // Keep chroma rather than HSL saturation, so near-white tinted paper doesn't turn into olive.
-  const nextL = 0.11 + 0.81 * Math.pow(1 - l, 0.85);
+  // Light ink becomes a soft gray rather than a bright white.
+  const nextL = 0.11 + 0.72 * Math.pow(1 - l, 0.85);
+  // Keep chroma rather than HSL saturation, so near-white tinted paper doesn't turn into olive,
+  // then mute it: tinted neutrals turn gray while strong accents keep some of their color.
   const chroma = s * (1 - Math.abs(2 * l - 1));
-  return fromHsl(h, Math.min(1, chroma / Math.max(0.01, 1 - Math.abs(2 * nextL - 1))), nextL, rgba.a);
+  const t = Math.min(1, Math.max(0, (chroma - 0.08) / 0.32));
+  const muted = chroma * (0.12 + 0.68 * t * t * (3 - 2 * t));
+  return fromHsl(h, Math.min(1, muted / Math.max(0.01, 1 - Math.abs(2 * nextL - 1))), nextL, rgba.a);
 }
 
 export function darkValue(prop: string, value: string): string {
