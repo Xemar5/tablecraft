@@ -54,18 +54,26 @@ test('zooming during a tabletop drag preserves the cursor anchor through movemen
   const { source } = await seedHand(page);
   const piece = page.locator(`[data-piece-id="${source.id}"]`);
   const box = (await piece.boundingBox())!;
-  let x = box.x + box.width / 2 + 40, y = box.y + box.height / 2 + 20;
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  let x = box.x + box.width * .7 + 40, y = box.y + box.height * .3 + 20;
+  await page.mouse.move(box.x + box.width * .7, box.y + box.height * .3);
   await page.mouse.down();
   await page.mouse.move(x, y, { steps: 5 });
   const ghost = page.locator('.board-drag-preview');
-  for (const delta of [-200, -200, 200, 200]) {
+  const table = (await page.locator('.table-viewport').boundingBox())!;
+  const center = { x: table.x + table.width / 2, y: table.y + table.height / 2 };
+  const badge = page.locator('.seat-marker.active .seat-badge');
+  for (const delta of [-200, -200, 200, 200, -200, 200]) {
+    const previousBadge = (await badge.boundingBox())!;
+    const anchor = delta < 0 ? { x, y } : center;
+    const relative = { x: (anchor.x - previousBadge.x) / previousBadge.width, y: (anchor.y - previousBadge.y) / previousBadge.height };
     const before = await page.getByRole('button', { name: 'Fit table', exact: true }).innerText();
     await page.mouse.wheel(0, delta);
     await expect(page.getByRole('button', { name: 'Fit table', exact: true })).not.toHaveText(before);
     const bounds = (await ghost.boundingBox())!;
-    expect(Math.abs(bounds.x + bounds.width / 2 - x)).toBeLessThan(1);
-    expect(Math.abs(bounds.y + bounds.height / 2 - y)).toBeLessThan(1);
+    expect(Math.abs(bounds.x + bounds.width * .7 - x)).toBeLessThan(1);
+    expect(Math.abs(bounds.y + bounds.height * .3 - y)).toBeLessThan(1);
+    const nextBadge = (await badge.boundingBox())!;
+    expect(Math.hypot(nextBadge.x + nextBadge.width * relative.x - anchor.x, nextBadge.y + nextBadge.height * relative.y - anchor.y)).toBeLessThan(1);
     x += 8; y += 6;
     await page.mouse.move(x, y);
   }
@@ -73,7 +81,7 @@ test('zooming during a tabletop drag preserves the cursor anchor through movemen
   await expect(ghost).toHaveCount(0);
   await expect.poll(async () => {
     const bounds = (await piece.boundingBox())!;
-    return Math.hypot(bounds.x + bounds.width / 2 - x, bounds.y + bounds.height / 2 - y);
+    return Math.hypot(bounds.x + bounds.width * .7 - x, bounds.y + bounds.height * .3 - y);
   }).toBeLessThan(1);
 });
 

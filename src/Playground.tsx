@@ -160,12 +160,15 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     if (rect) {
       const g = gesture.current;
       const dragging = g && !g.pan && pointer.current;
-      const focus = dragging || cursor;
-      const anchor = focus ? { x: focus.x - rect.left, y: focus.y - rect.top } : { x: rect.width / 2, y: rect.height / 2 };
+      const anchor = cursor ? { x: cursor.x - rect.left, y: cursor.y - rect.top } : { x: rect.width / 2, y: rect.height / 2 };
       setPan({ x: anchor.x - (anchor.x - pan.x) * z / zoom, y: anchor.y - (anchor.y - pan.y) * z / zoom });
       if (g && dragging) {
-        g.x = dragging.x - (dragging.x - g.x) * z / zoom;
-        g.y = dragging.y - (dragging.y - g.y) * z / zoom;
+        g.x = rect.left + anchor.x + (g.x - rect.left - anchor.x) * z / zoom;
+        g.y = rect.top + anchor.y + (g.y - rect.top - anchor.y) * z / zoom;
+        const angle = -camera * Math.PI / 180;
+        const dx = dragging.x - g.x, dy = dragging.y - g.y;
+        const delta = { x: (dx * Math.cos(angle) - dy * Math.sin(angle)) / z, y: (dx * Math.sin(angle) + dy * Math.cos(angle)) / z };
+        setPreview(Object.fromEntries(Object.entries(g.positions).map(([id, pos]) => [id, { x: pos.x + delta.x, y: pos.y + delta.y }])));
       }
     }
     setZoom(z);
@@ -415,6 +418,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         onPointerLeave={() => { if (!gesture.current) { pointer.current = null; setHovered(undefined); setPreviewItem(undefined); } }}
         onContextMenu={e => e.preventDefault()}
         onWheel={e => {
+          pointer.current = { x: e.clientX, y: e.clientY };
           const item = p.instances.find(i => i.id === hovered && !i.holder);
           if (e.shiftKey && item && p.components.find(c => c.id === item.componentId)?.kind === 'card') {
             e.preventDefault();
