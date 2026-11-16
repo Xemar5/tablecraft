@@ -316,13 +316,13 @@ test('stack search, draw, hotseat privacy, hand release and manipulation', async
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   await page.getByRole('button', { name: /Players 2/ }).click();
-  await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button').first().click();
+  await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button', { name: /Switch to this seat|Active seat/ }).click();
   await expect(page.locator('.privacy-curtain')).toBeVisible();
   await page.getByRole('button', { name: "I'm Player 2. Let's play." }).click();
   await expect(page.locator('.hand-card')).toHaveCount(0);
   await expect(page.getByLabel("Player 1's hand", { exact: true })).toContainText('W I L D W O O D');
   await expect(page.getByLabel("Player 1's hand", { exact: true })).not.toContainText('Forest guardian');
-  await page.locator('.player-row').filter({ hasText: 'Player 1' }).getByRole('button').first().click();
+  await page.locator('.player-row').filter({ hasText: 'Player 1' }).getByRole('button', { name: /Switch to this seat|Active seat/ }).click();
   await page.getByRole('button', { name: "I'm Player 1. Let's play." }).click();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   const handCard = (await page.locator('.hand-card').boundingBox())!;
@@ -487,7 +487,7 @@ test('hidden fronts work for nonflippable pieces and can be made public', async 
   await page.locator(`[data-piece-id="${token.id}"]`).click();
   await page.getByRole('button', { name: /^Draw to hand/ }).click();
   await page.getByRole('button', { name: /Players 2/ }).click();
-  await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button').first().click();
+  await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button', { name: /Switch to this seat|Active seat/ }).click();
   await page.getByRole('button', { name: "I'm Player 2. Let's play." }).click();
   await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.hidden-face')).toHaveCount(1);
   await expect(page.getByLabel("Player 1's hand", { exact: true }).locator('.node-component')).toHaveCount(0);
