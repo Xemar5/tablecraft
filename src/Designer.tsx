@@ -8,6 +8,7 @@ import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots,
 import { download, exportComponentBundle } from './storage';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle, useSmoothHorizontalWheel } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
+import { resizeNode, rotateNode } from './designTransform';
 import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 
@@ -28,6 +29,11 @@ function BooleanIcon({ operation }: { operation: BooleanOperation }) {
 }
 type DragPosition = { x: number; y: number };
 type LayerDrag = { ids: string[]; pointer: number; clientX: number; clientY: number; positions: Record<string, DragPosition>; angles: Record<string, number> };
+type HandleDrag = { id: string; kind: 'resize' | 'rotate'; hx: number; hy: number; pointer: number; clientX: number; clientY: number;
+  start: DesignNode; angle: number; centerX: number; centerY: number; pointerAngle: number };
+const RESIZE_HANDLES = [[-1, -1, 'top-left corner'], [0, -1, 'top edge'], [1, -1, 'top-right corner'], [1, 0, 'right edge'],
+  [1, 1, 'bottom-right corner'], [0, 1, 'bottom edge'], [-1, 1, 'bottom-left corner'], [-1, 0, 'left edge']] as const;
+const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'];
 type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; inverse: DOMMatrix; localX: number; localY: number; point: DesignNode['points'][number] };
 
 function descendantsOf(nodes: DesignNode[], ids: string[]) {
@@ -85,6 +91,17 @@ function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
   let angle = 0;
   while (parent) { angle += parent.rotation; parent = parent.parent ? byId.get(parent.parent) : undefined; }
   return angle * Math.PI / 180;
+}
+
+// Centre and total angle of a visible, fixed-size layer whose ancestors all use absolute layout.
+function transformBox(node: DesignNode, nodes: DesignNode[]) {
+  if ((node.widthMode ?? 'fixed') !== 'fixed' || (node.heightMode ?? 'fixed') !== 'fixed') return undefined;
+  const byId = new Map(nodes.map(item => [item.id, item]));
+  for (let current: DesignNode | undefined = node; current; current = current.parent ? byId.get(current.parent) : undefined) {
+    if (current.visible === false) return undefined;
+  }
+  const center = worldPosition({ ...node, x: node.x + node.width / 2, y: node.y + node.height / 2 }, nodes);
+  return center && { ...center, angle: nodeAngle(node, nodes) + node.rotation * Math.PI / 180 };
 }
 
 export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels }: {
@@ -152,6 +169,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const clipboard = useRef<{ componentId: string; face: Face; nodes: DesignNode[] }>(null);
   const artboard = useRef<HTMLDivElement>(null);
   const dragging = useRef<LayerDrag>(null);
+  const handleDragging = useRef<HandleDrag>(null);
+  const [handlePreview, setHandlePreview] = useState<{ id: string; patch: Partial<DesignNode> }>();
   const pointDragging = useRef<PointDrag>(null);
   const pointSelectionNode = useRef<string | undefined>(undefined);
   const lastAnchorDown = useRef<{ nodeId: string; index: number; time: number } | null>(null);
@@ -532,6 +551,42 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     dragging.current = { ids: activeIds, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, positions, angles };
     artboard.current?.setPointerCapture(event.pointerId);
   };
+  const shownNodes = nodes.map(item => ({
+    ...item, ...(dragPreview?.[item.id] ?? {}), ...(handlePreview?.id === item.id ? handlePreview.patch : {}),
+    ...(pointPreview?.nodeId === item.id ? { points: item.points.map((point, index) => index === pointPreview.pointIndex ? pointPreview.point : point) } : {}),
+  }));
+  const transformTarget = selected.length === 1 ? shownNodes.find(item => item.id === selected[0]) : undefined;
+  const box = transformTarget && transformBox(transformTarget, shownNodes);
+  const beginHandle = (event: PointerEvent<HTMLButtonElement>, kind: HandleDrag['kind'], hx = 0, hy = 0) => {
+    const start = nodes.find(item => item.id === selected[0]);
+    const frame = event.currentTarget.parentElement?.getBoundingClientRect();
+    if (event.button !== 0 || spacePressed.current || !start || !frame) return;
+    event.preventDefault(); event.stopPropagation();
+    const centerX = frame.left + frame.width / 2, centerY = frame.top + frame.height / 2;
+    handleDragging.current = { id: start.id, kind, hx, hy, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, start,
+      angle: nodeAngle(start, nodes), centerX, centerY, pointerAngle: Math.atan2(event.clientY - centerY, event.clientX - centerX) };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveHandle = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = handleDragging.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    event.stopPropagation();
+    const patch = drag.kind === 'rotate'
+      ? { rotation: rotateNode(drag.start, Math.atan2(event.clientY - drag.centerY, event.clientX - drag.centerX) - drag.pointerAngle, event.shiftKey) }
+      : resizeNode(drag.start, drag.hx, drag.hy, (event.clientX - drag.clientX) / zoom, (event.clientY - drag.clientY) / zoom, drag.angle, event.shiftKey);
+    setHandlePreview({ id: drag.id, patch });
+  };
+  const endHandle = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = handleDragging.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    event.stopPropagation();
+    handleDragging.current = null; setHandlePreview(undefined);
+    if (handlePreview?.id !== drag.id) return;
+    try {
+      void update({ [face]: nodes.map(item => item.id === drag.id ? expandPathBounds({ ...item, ...handlePreview.patch }) : item) });
+    } catch (error) { notify(error instanceof Error ? error.message : 'Unable to transform layer.', true); }
+  };
+  const cancelHandle = () => { handleDragging.current = null; setHandlePreview(undefined); };
   return <div ref={designer} className="designer-layout"
     onInputCapture={event => { if (isFormControl(event.target)) beginEdit(event.target); }}
     onPointerDownCapture={event => { if (event.target instanceof HTMLInputElement && ['number', 'range'].includes(event.target.type)) beginEdit(event.target); }}
@@ -635,13 +690,21 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           }}
           onPointerCancel={() => { dragging.current = null; pointDragging.current = null; setDragPreview(undefined); setPointPreview(undefined); }}>
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
-            <ComponentView component={{ ...component, [face]: nodes.map(item => ({
-              ...item, ...(dragPreview?.[item.id] ?? {}),
-              ...(pointPreview?.nodeId === item.id ? { points: item.points.map((point, index) => index === pointPreview.pointIndex ? pointPreview.point : point) } : {}),
-            })) }} components={components}
+            <ComponentView component={{ ...component, [face]: shownNodes }} components={components}
               row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} editableVector onPointDown={pointDown}
               selectedPoint={selectedPoint} onSegmentDown={segmentDown} />
           </div>
+          {box && transformTarget && <div className="transform-box" style={{ left: box.x * zoom, top: box.y * zoom,
+            width: transformTarget.width * zoom, height: transformTarget.height * zoom, transform: `translate(-50%, -50%) rotate(${box.angle}rad)` }}>
+            <span className="transform-rotate-stem" />
+            <button type="button" tabIndex={-1} className="transform-handle transform-rotate" aria-label="Rotate layer" title="Drag to rotate; hold Shift to snap to 15°"
+              onPointerDown={event => beginHandle(event, 'rotate')} onPointerMove={moveHandle} onPointerUp={endHandle} onPointerCancel={cancelHandle} />
+            {RESIZE_HANDLES.map(([hx, hy, label]) => <button type="button" tabIndex={-1} key={label} className={`transform-handle${hx && hy ? ' corner' : ''}`}
+              aria-label={`Resize from ${label}`} title={hx && hy ? 'Drag to resize; hold Shift to keep proportions' : 'Drag to resize'}
+              style={{ left: `${(hx + 1) * 50}%`, top: `${(hy + 1) * 50}%`,
+                cursor: RESIZE_CURSORS[Math.round(((Math.atan2(hy, hx) + box.angle) * 180 / Math.PI % 180 + 180) % 180 / 45) % 4] }}
+              onPointerDown={event => beginHandle(event, 'resize', hx, hy)} onPointerMove={moveHandle} onPointerUp={endHandle} onPointerCancel={cancelHandle} />)}
+          </div>}
         </div>
         <div className="canvas-caption"><span className="live-dot" /> Live component <span>Changes appear on every instance</span></div>
         </div>
