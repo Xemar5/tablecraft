@@ -438,7 +438,7 @@ export default function App() {
         </div>
         <div className="library-footer">{mode === 'playground' && <label className="spawn-quantity">Spawn quantity<input aria-label="Spawn quantity" type="number" min={1} max={1000} value={spawnCount} onChange={e => { if (Number.isFinite(e.target.valueAsNumber)) setSpawnCount(Math.max(1, Math.min(1000, Math.floor(e.target.valueAsNumber)))); }} /></label>}<button className="new-component-button" onClick={() => setModal('templates')}><Plus size={16} /> Create component</button>
           <button className="new-component-button" onClick={() => setModal('link')}><Link size={14} /> Link from another project</button>
-          <div className="library-footer-actions"><button onClick={() => fileInput.current?.click()}><Upload size={13} /> Import</button><button onClick={() => exportProject(project)}><Download size={13} /> Export</button></div></div>
+        </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
       <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
@@ -465,7 +465,12 @@ export default function App() {
         }}>Link component</button></div>)}
         {!source.components.length && <p>No components in this project.</p>}
       </section>)}
-      {!archive.projects.some(p => p.id !== project.id) && <p>Create or import another project from Home first.</p>}
+      {!archive.projects.some(p => p.id !== project.id) && <div className="link-empty-state">
+        <span className="link-empty-icon"><Link size={28} /></span>
+        <h3>No other projects yet</h3>
+        <p>Create or import a project on Home, then return here to link its components.</p>
+        <button className="button primary" onClick={showHome}>Go to Home <ArrowRight size={15} /></button>
+      </div>}
       </div>
     </Modal>}
     {removeLink && <Modal title={`Remove ${removeLink.name}?`} subtitle="This removes the link and its placed pieces from this project, not the original component." onClose={() => setRemoveLink(undefined)}>
