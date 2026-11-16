@@ -22,6 +22,8 @@ export const nodeSchema = z.object({
   wrap: z.boolean().default(false),
   paddingTop: num.min(0).max(200).optional(), paddingRight: num.min(0).max(200).optional(),
   paddingBottom: num.min(0).max(200).optional(), paddingLeft: num.min(0).max(200).optional(),
+  marginTop: num.min(0).max(2000).optional(), marginRight: num.min(0).max(2000).optional(),
+  marginBottom: num.min(0).max(2000).optional(), marginLeft: num.min(0).max(2000).optional(),
   opacity: num.min(0).max(1),
   shapeKind: z.enum(['rectangle', 'ellipse', 'polygon', 'star', 'path']).default('rectangle'),
   points: z.array(vectorPointSchema).max(128).default([]),

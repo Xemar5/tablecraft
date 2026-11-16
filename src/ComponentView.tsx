@@ -40,10 +40,15 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
     const widthMode = node.widthMode ?? 'fixed', heightMode = node.heightMode ?? 'fixed';
     const rowFlow = parent?.layout === 'row', columnFlow = parent?.layout === 'column';
     const fillsMainAxis = flow && ((rowFlow && widthMode === 'fill') || (columnFlow && heightMode === 'fill'));
+    const marginTop = node.marginTop ?? 0, marginRight = node.marginRight ?? 0, marginBottom = node.marginBottom ?? 0, marginLeft = node.marginLeft ?? 0;
+    // Hug and fill axes ignore x/y: absolute children are inset from the parent's edges by their margins instead.
     const style: CSSProperties = {
-      position: flow ? 'relative' : 'absolute', left: flow ? undefined : node.x, top: flow ? undefined : node.y,
-      width: widthMode === 'hug' ? 'max-content' : widthMode === 'fill' ? flow && rowFlow ? undefined : '100%' : node.width,
-      height: heightMode === 'hug' ? 'max-content' : heightMode === 'fill' ? flow && columnFlow ? undefined : '100%' : node.height,
+      position: flow ? 'relative' : 'absolute',
+      left: flow ? undefined : widthMode === 'fixed' ? node.x : marginLeft, right: !flow && widthMode === 'fill' ? marginRight : undefined,
+      top: flow ? undefined : heightMode === 'fixed' ? node.y : marginTop, bottom: !flow && heightMode === 'fill' ? marginBottom : undefined,
+      marginTop: flow ? marginTop : undefined, marginRight: flow ? marginRight : undefined, marginBottom: flow ? marginBottom : undefined, marginLeft: flow ? marginLeft : undefined,
+      width: widthMode === 'hug' ? 'max-content' : widthMode === 'fill' ? flow && !rowFlow ? `calc(100% - ${marginLeft + marginRight}px)` : undefined : node.width,
+      height: heightMode === 'hug' ? 'max-content' : heightMode === 'fill' ? flow && !columnFlow ? `calc(100% - ${marginTop + marginBottom}px)` : undefined : node.height,
       flex: fillsMainAxis ? '1 1 0' : undefined, flexShrink: widthMode === 'fill' || heightMode === 'fill' ? undefined : 0, boxSizing: 'border-box',
       background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? 'transparent' : node.fill,
       color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,

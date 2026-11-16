@@ -93,6 +93,11 @@ function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
   return angle * Math.PI / 180;
 }
 
+function usesPosition(node: DesignNode, nodes: DesignNode[], axis: 'x' | 'y') {
+  if ((axis === 'x' ? node.widthMode ?? 'fixed' : node.heightMode ?? 'fixed') !== 'fixed') return false;
+  return !node.parent || nodes.find(parent => parent.id === node.parent)?.layout === 'absolute';
+}
+
 // Centre and total angle of a visible, fixed-size layer whose ancestors all use absolute layout.
 function transformBox(node: DesignNode, nodes: DesignNode[]) {
   if ((node.widthMode ?? 'fixed') !== 'fixed' || (node.heightMode ?? 'fixed') !== 'fixed') return undefined;
@@ -188,6 +193,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const nodes = component[face];
   const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
   const node = selectedNodes[0];
+  // X/Y only place layers with a fixed size on that axis inside an absolute parent; hug, fill and flow layouts use margins instead.
+  const positionsX = selectedNodes.some(item => usesPosition(item, nodes, 'x')), positionsY = selectedNodes.some(item => usesPosition(item, nodes, 'y'));
   useEffect(() => {
     if (pointSelectionNode.current !== node?.id) { pointSelectionNode.current = node?.id; setSelectedPoint(-1); return; }
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
@@ -546,6 +553,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     setSelected(activeIds);
     const moving = nodes.filter(item => activeIds.includes(item.id));
     if (moving.some(item => item.parent && nodes.find(parent => parent.id === item.parent)?.layout !== 'absolute')) return;
+    if (!moving.some(item => usesPosition(item, nodes, 'x') || usesPosition(item, nodes, 'y'))) return;
     const positions = Object.fromEntries(moving.map(item => [item.id, { x: item.x, y: item.y }]));
     const angles = Object.fromEntries(moving.map(item => [item.id, nodeAngle(item, nodes)]));
     dragging.current = { ids: activeIds, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, positions, angles };
@@ -670,7 +678,9 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             const next: Record<string, DragPosition> = {};
             drag.ids.forEach(id => {
               const angle = drag.angles[id], origin = drag.positions[id];
-              next[id] = { x: Math.round(origin.x + dx * Math.cos(angle) + dy * Math.sin(angle)), y: Math.round(origin.y - dx * Math.sin(angle) + dy * Math.cos(angle)) };
+              const layer = nodes.find(item => item.id === id)!;
+              next[id] = { x: usesPosition(layer, nodes, 'x') ? Math.round(origin.x + dx * Math.cos(angle) + dy * Math.sin(angle)) : origin.x,
+                y: usesPosition(layer, nodes, 'y') ? Math.round(origin.y - dx * Math.sin(angle) + dy * Math.cos(angle)) : origin.y };
             });
             setDragPreview(next);
           }}
@@ -779,8 +789,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             </div>
           </div>
           <div className="inspector-section design-section transform-section">
-            <div className="field-grid transform-grid"><NumberField label="X" icon={<MoveHorizontal size={14} />} value={node.x} onChange={x => updateNode({ x })} />
-              <NumberField label="Y" icon={<MoveVertical size={14} />} value={node.y} onChange={y => updateNode({ y })} />
+            <div className="field-grid transform-grid"><NumberField label="X" icon={<span className="axis-glyph">X</span>} value={node.x} onChange={x => updateNode({ x })}
+                disabled={!positionsX} title={positionsX ? undefined : 'Ignored: this layer is placed by its sizing mode or parent layout'} />
+              <NumberField label="Y" icon={<span className="axis-glyph">Y</span>} value={node.y} onChange={y => updateNode({ y })}
+                disabled={!positionsY} title={positionsY ? undefined : 'Ignored: this layer is placed by its sizing mode or parent layout'} />
               <NumberField label="Width" icon={<MoveHorizontal size={14} />} value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} />
               <NumberField label="Height" icon={<MoveVertical size={14} />} value={node.height} min={1} max={4000} onChange={height => updateNode({ height })} />
               <NumberField label="Rotation" icon={<RotateCw size={14} />} value={node.rotation} onChange={rotation => updateNode({ rotation })} />
@@ -795,6 +807,12 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 {selectedNodes.some(item => (item.heightMode ?? 'fixed') !== (node.heightMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
                 <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
             </div>
+            {(!positionsX || !positionsY) && <div className="padding-editor margin-editor"><span>Margins per edge</span><div className="field-grid">
+              <NumberField label="Margin top" value={node.marginTop ?? 0} min={0} max={2000} onChange={marginTop => updateNode({ marginTop })} />
+              <NumberField label="Margin right" value={node.marginRight ?? 0} min={0} max={2000} onChange={marginRight => updateNode({ marginRight })} />
+              <NumberField label="Margin bottom" value={node.marginBottom ?? 0} min={0} max={2000} onChange={marginBottom => updateNode({ marginBottom })} />
+              <NumberField label="Margin left" value={node.marginLeft ?? 0} min={0} max={2000} onChange={marginLeft => updateNode({ marginLeft })} />
+            </div></div>}
           </div>
           <div className="inspector-section design-section appearance-section" key={`appearance-${node.id}`}>
             <ColorField label="Fill color" value={node.fill} onChange={fill => updateNode({ fill })} />

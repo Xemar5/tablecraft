@@ -190,8 +190,8 @@ export function ColorField({ label, value: committed, onChange, deferred = false
     </div>
   </div>;
 }
-export function NumberField({ label, value, onChange, min, max, step = 1, icon, deferred = false }: {
-  label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number; icon?: ReactNode;
+export function NumberField({ label, value, onChange, min, max, step = 1, icon, deferred = false, disabled = false, title }: {
+  label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number; icon?: ReactNode; disabled?: boolean; title?: string;
   /** Report the value only when typing, stepping or scrubbing finishes. */
   deferred?: boolean;
 }) {
@@ -204,7 +204,7 @@ export function NumberField({ label, value, onChange, min, max, step = 1, icon, 
     const next = drag.current?.next; drag.current = null;
     if (deferred && next !== undefined && next !== value) { committed.current = next; onChange(next); }
   };
-  return <Field label={label} icon={icon}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step}
+  return <Field label={label} icon={icon}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step} disabled={disabled} title={title}
     onFocus={() => setEditing(true)}
     onPointerDown={e => {
       if (e.button !== 0) return;
