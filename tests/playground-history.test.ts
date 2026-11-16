@@ -17,6 +17,16 @@ function table(): Project {
 }
 
 describe('shared Playground history', () => {
+  it('preserves per-hand permissions across tabletop undo without recording permission changes', () => {
+    const before = table();
+    const moved = applyPlaygroundCommand(before, emptyPlaygroundHistory(), { type: 'move', ids: ['a'], patch: { x: 999 } }, 'alice');
+    const configured = applyPlaygroundCommand(moved.project, moved.history, { type: 'handSettings', playerId: 'bob', patch: { allowHandInsert: false, allowHandTake: true } }, 'bob');
+    expect(configured.history).toEqual(moved.history);
+    const undone = undoPlayground(configured.project, configured.history);
+    expect(undone.project.instances).toEqual(before.instances);
+    expect(undone.project.players.find(player => player.id === 'bob')).toMatchObject({ allowHandInsert: false, allowHandTake: true });
+    expect(undone.project.players.find(player => player.id === 'alice')?.allowHandTake).toBeUndefined();
+  });
   it('keeps library ordering outside tabletop undo without clearing existing history', () => {
     const before = table();
     before.components.push({ ...before.components[0], id: 'other' });

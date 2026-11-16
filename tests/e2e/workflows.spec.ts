@@ -195,7 +195,12 @@ test('visible hands accept cards by default and allow taking only when enabled',
   await page.mouse.move(table!.x + table!.width * .75, table!.y + table!.height * .5, { steps: 10 });
   await page.mouse.up();
   await expect(otherCard).toBeVisible();
-  await page.getByRole('button', { name: "Allow taking from other players' hands", exact: true }).click();
+  await seat.click();
+  await page.getByRole('button', { name: "I'm Player 2. Let's play.", exact: false }).click();
+  await page.getByRole('button', { name: 'Allow others to take from my hand', exact: true }).click();
+  await page.locator('[data-seat-id="player-1"]').click();
+  await page.getByRole('button', { name: "I'm You. Let's play.", exact: false }).click();
+  await expect(page.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await otherCard.hover();
   await expect(otherCard).toHaveCSS('outline-width', '3px');
   await page.mouse.move(cardBox!.x + cardBox!.width / 2, cardBox!.y + cardBox!.height / 2);

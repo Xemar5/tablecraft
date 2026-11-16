@@ -133,9 +133,9 @@ describe('tabletop commands', () => {
     expect(inserted.instances.find(i => i.id === card.id)?.holder).toBe('player-2');
     expect(() => applyCommand(inserted, { type: 'transferToHand', ids: [card.id], playerId: 'player-1' }, 'player-1')).toThrow('Taking');
     expect(() => applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-2')).toThrow('disabled');
-    p = applyCommand(p, { type: 'settings', patch: { allowHandInsert: false, allowHandTake: true } }, 'player-1');
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandInsert: false, allowHandTake: true } }, 'player-2');
     expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1')).toThrow('Inserting');
-    p = applyCommand(p, { type: 'settings', patch: { allowHandInsert: true } }, 'player-1');
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandInsert: true } }, 'player-2');
     expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' })).toThrow('active player');
     p = applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1');
     expect(p.instances.find(i => i.id === card.id)?.holder).toBe('player-2');
@@ -159,7 +159,7 @@ describe('tabletop commands', () => {
   });
   it('keeps own reordering available with both permissions off and preserves faces', () => {
     let p = starterProject();
-    p.settings.allowHandInsert = false; p.settings.allowHandTake = false;
+    p.players[0].allowHandInsert = false; p.players[0].allowHandTake = false;
     p = applyCommand(p, { type: 'drawMany', id: p.instances.find(i => i.stack)!.id, count: 3, playerId: 'player-1' }, 'player-1');
     const held = p.instances.filter(i => i.holder).sort((a, b) => a.order - b.order);
     held[2].flipped = true;
@@ -173,10 +173,28 @@ describe('tabletop commands', () => {
     expect(() => applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1')).toThrow('Inserting');
     p.settings.allowOtherHands = true;
     p = applyCommand(p, { type: 'transferToHand', ids: [card.id], playerId: 'player-2' }, 'player-1');
-    p.settings.allowHandTake = false;
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandTake: false } }, 'player-2');
     expect(() => applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1')).toThrow('Taking');
-    p.settings.allowHandTake = true;
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandTake: true } }, 'player-2');
     expect(applyCommand(p, { type: 'playVisibleHand', id: card.id, x: 1, y: 2 }, 'player-1').instances.find(i => i.id === card.id)?.holder).toBeNull();
+  });
+  it('only lets the active player configure their hand and checks every source independently', () => {
+    let p = starterProject();
+    p.players.push({ ...p.players[1], id: 'player-3' });
+    const cards = p.instances.filter(i => i.componentId === p.components[0].id && !i.stack).slice(0, 2);
+    cards[0].holder = 'player-2'; cards[1].holder = 'player-3';
+    expect(() => applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandTake: true } }, 'player-1')).toThrow('active hand');
+    expect(() => applyCommand(p, { type: 'handSettings', playerId: 'player-1', patch: { allowHandTake: true } })).toThrow('active hand');
+    expect(() => applyCommand(p, { type: 'settings', patch: { allowHandTake: true } }, 'player-1')).toThrow('per-hand');
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch: { allowHandTake: true, allowHandInsert: false } }, 'player-2');
+    expect(p.players[0].allowHandTake).toBeUndefined();
+    expect(p.players[2].allowHandTake).toBeUndefined();
+    const transfer = { type: 'transferToHand' as const, ids: cards.map(i => i.id), playerId: 'player-1' };
+    expect(() => applyCommand(p, transfer, 'player-1')).toThrow('Taking');
+    expect(() => applyCommand(p, { type: 'transferToHand', ids: [cards[1].id], playerId: 'player-2' }, 'player-3')).toThrow('Inserting');
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-3', patch: { allowHandTake: true } }, 'player-3');
+    const next = applyCommand(p, transfer, 'player-1');
+    expect(next.instances.filter(i => transfer.ids.includes(i.id)).every(i => i.holder === 'player-1')).toBe(true);
   });
   it('flips a stack as a view without mutating member order or faces, and draws from its visible top', () => {
     let p = starterProject();

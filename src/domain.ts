@@ -60,6 +60,7 @@ export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
   id, owner: z.string().max(200), name: z.string().min(1).max(50), color,
   x: num, y: num, rotation: num,
+  allowHandInsert: z.boolean().optional(), allowHandTake: z.boolean().optional(),
 });
 export type Player = z.infer<typeof playerSchema>;
 export const projectSchema = z.object({
@@ -75,9 +76,9 @@ export const projectSchema = z.object({
   }),
 });
 export type Project = z.infer<typeof projectSchema>;
-export const handPermissions = (p: Project) => ({
-  insert: p.settings.allowHandInsert ?? p.settings.allowOtherHands ?? true,
-  take: p.settings.allowHandTake ?? p.settings.allowOtherHands ?? false,
+export const handPermissions = (p: Project, playerId: string) => ({
+  insert: p.players.find(player => player.id === playerId)?.allowHandInsert ?? p.settings.allowHandInsert ?? p.settings.allowOtherHands ?? true,
+  take: p.players.find(player => player.id === playerId)?.allowHandTake ?? p.settings.allowHandTake ?? p.settings.allowOtherHands ?? false,
 });
 export const archiveSchema = z.object({
   format: z.literal('tablecraft'), version: z.literal(1), projects: z.array(projectSchema).max(100),
@@ -114,6 +115,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dropFromHand'), id, targetId: id, stackId: id }),
   z.object({ type: z.literal('reorderHand'), ids: z.array(id), playerId: id }),
   z.object({ type: z.literal('player'), player: playerSchema }),
+  z.object({ type: z.literal('handSettings'), playerId: id, patch: playerSchema.pick({ allowHandInsert: true, allowHandTake: true }) }),
   z.object({ type: z.literal('settings'), patch: projectSchema.shape.settings.partial() }),
   z.object({ type: z.literal('rename'), name: z.string().min(1).max(100) }),
 ]);
@@ -440,8 +442,8 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (!p.settings.hands) throw new Error('Enable hands before transferring components.');
       if (!actor || !p.players.some(player => player.id === actor) || !p.players.some(player => player.id === command.playerId)) throw new Error('Choose a valid active player and destination.');
       const items = command.ids.map(get);
-      if (command.playerId !== actor && !handPermissions(p).insert && items.some(i => i.holder !== command.playerId)) throw new Error('Inserting into other players’ hands is disabled.');
-      if (items.some(i => i.holder && i.holder !== actor) && !handPermissions(p).take) throw new Error('Taking from other players’ hands is disabled.');
+      if (command.playerId !== actor && !handPermissions(p, command.playerId).insert && items.some(i => i.holder !== command.playerId)) throw new Error('Inserting into this player’s hand is disabled.');
+      if (items.some(i => i.holder && i.holder !== actor && !handPermissions(p, i.holder).take)) throw new Error('Taking from this player’s hand is disabled.');
       if (new Set(command.ids).size !== items.length) throw new Error('Choose each component once.');
       items.forEach(item => {
         if (item.locked || !component(item).hand) throw new Error('Only unlocked components that support hands can be transferred.');
@@ -460,9 +462,10 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     }
     case 'playVisibleHand': {
-      if (!p.settings.hands || !handPermissions(p).take) throw new Error('Taking from other players’ hands is disabled.');
+      if (!p.settings.hands) throw new Error('Enable hands before playing components.');
       if (!actor || !p.players.some(player => player.id === actor)) throw new Error('Choose a valid active player.');
       const item = get(command.id);
+      if (item.holder && item.holder !== actor && !handPermissions(p, item.holder).take) throw new Error('Taking from this player’s hand is disabled.');
       if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
       if (command.targetId) {
         const target = get(command.targetId), members = stackMembers(p, target);
@@ -633,6 +636,12 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       items.forEach((i, order) => { editable(i); i.order = order; });
       break;
     }
+    case 'handSettings': {
+      const player = p.players.find(player => player.id === command.playerId);
+      if (!actor || actor !== command.playerId || !player) throw new Error('Change permissions for your active hand only.');
+      Object.assign(player, command.patch);
+      break;
+    }
     case 'player': {
       const index = p.players.findIndex(player => player.id === command.player.id);
       if (index < 0) p.players.push(command.player);
@@ -640,6 +649,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     }
     case 'settings':
+      if (command.patch.allowOtherHands !== undefined || command.patch.allowHandInsert !== undefined || command.patch.allowHandTake !== undefined) throw new Error('Change hand permissions using the per-hand settings.');
       Object.assign(p.settings, command.patch);
       if (p.players.length) p.settings.turn %= p.players.length;
       break;

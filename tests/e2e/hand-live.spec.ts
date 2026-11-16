@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('live table hands synchronize independent permissions, indexed transfers and undo', async ({ browser, storageState }) => {
+test('live table hands enforce per-hand permissions, indexed transfers and undo', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
   const a = await first.newPage(), b = await second.newPage();
   try {
@@ -30,8 +30,9 @@ test('live table hands synchronize independent permissions, indexed transfers an
     await expect(a.locator('.hand-card')).toHaveCount(2);
     const otherCard = otherSeat.locator('[data-mini-id]');
     await expect(otherCard).toHaveAttribute('data-grabbable', 'false');
-    await a.getByRole('button', { name: "Allow taking from other players' hands", exact: true }).click();
-    await expect(b.getByRole('button', { name: "Allow taking from other players' hands", exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await b.getByRole('button', { name: 'Allow others to take from my hand', exact: true }).click();
+    await expect(a.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await expect(b.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
     await expect(otherCard).toHaveAttribute('data-grabbable', 'true');
     const cards = a.locator('.seat-marker.active [data-mini-id]');
     const centers = await cards.evaluateAll(elements => elements.map(el => {
@@ -48,7 +49,8 @@ test('live table hands synchronize independent permissions, indexed transfers an
     await a.getByRole('button', { name: 'Undo playground action', exact: true }).click();
     await expect(b.locator('.hand-card')).toHaveCount(1);
     await expect(a.locator('.hand-card')).toHaveCount(2);
-    await b.getByRole('button', { name: "Allow inserting into other players' hands", exact: true }).click();
-    await expect(a.getByRole('button', { name: "Allow inserting into other players' hands", exact: true })).toHaveAttribute('aria-pressed', 'false');
+    await b.getByRole('button', { name: 'Allow others to insert into my hand', exact: true }).click();
+    await expect(a.getByRole('button', { name: 'Allow others to insert into my hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(b.getByRole('button', { name: 'Allow others to insert into my hand', exact: true })).toHaveAttribute('aria-pressed', 'false');
   } finally { await first.close(); await second.close(); }
 });
