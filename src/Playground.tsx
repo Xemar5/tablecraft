@@ -76,7 +76,12 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     return () => element.removeEventListener('wheel', scroll);
   }, [p.settings.hands, handVisible]);
   useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Alt') setAltDown(e.type === 'keydown'); };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Alt') {
+        setAltDown(e.type === 'keydown');
+        if (e.type === 'keydown') setHandDrop(undefined);
+      }
+    };
     const blur = () => { setAltDown(false); setHovered(undefined); setPreviewItem(undefined); pointer.current = null; };
     window.addEventListener('keydown', key); window.addEventListener('keyup', key); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); window.removeEventListener('blur', blur); };
@@ -155,11 +160,27 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     }
     return undefined;
   };
-  const seatAt = (x: number, y: number) => document.elementsFromPoint(x, y)
-    .map(element => element.closest<HTMLElement>('[data-seat-id]')?.dataset.seatId)
-    .find(id => !!id);
-  const tableHandInsertion = (x: number, y: number, moving: Instance[]) => {
-    if (!p.settings.hands || !moving.length || moving.some(i => i.locked || !p.components.find(c => c.id === i.componentId)?.hand)) return undefined;
+  const seatAt = (x: number, y: number) => {
+    const direct = document.elementsFromPoint(x, y)
+      .map(element => element.closest<HTMLElement>('[data-seat-id]')?.dataset.seatId)
+      .find(id => !!id);
+    if (direct) return direct;
+    const bounds = viewport.current?.getBoundingClientRect();
+    if (!bounds || x < bounds.left || x > bounds.right || y < bounds.top || y > bounds.bottom) return undefined;
+    let nearest: { id: string; distance: number } | undefined;
+    for (const seat of viewport.current?.querySelectorAll<HTMLElement>('[data-seat-id]') ?? []) {
+      for (const element of [seat, ...seat.querySelectorAll<HTMLElement>('.other-hand,[data-mini-id]')]) {
+        const rect = element.getBoundingClientRect();
+        const dx = Math.max(rect.left - x, 0, x - rect.right);
+        const dy = Math.max(rect.top - y, 0, y - rect.bottom);
+        const distance = Math.hypot(dx, dy);
+        if (dx <= 28 && dy <= 28 && (!nearest || distance < nearest.distance)) nearest = { id: seat.dataset.seatId!, distance };
+      }
+    }
+    return nearest?.id;
+  };
+  const tableHandInsertion = (x: number, y: number, moving: Instance[], alt = false) => {
+    if (alt || !p.settings.hands || !moving.length || moving.some(i => i.locked || !p.components.find(c => c.id === i.componentId)?.hand)) return undefined;
     const playerId = seatAt(x, y), player = p.players.find(player => player.id === playerId);
     if (!player || (player.id !== actor && !permissions.insert && moving.some(i => i.holder !== player.id)) ||
       (moving.some(i => i.holder && i.holder !== actor) && !permissions.take)) return undefined;
@@ -172,8 +193,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     });
     return { playerId: player.id, index: index < 0 ? cards.length : index, ids, x, y };
   };
-  const insertIntoTableHand = (x: number, y: number, moving: Instance[]) => {
-    const drop = tableHandInsertion(x, y, moving);
+  const insertIntoTableHand = (x: number, y: number, moving: Instance[], alt: boolean) => {
+    const drop = tableHandInsertion(x, y, moving, alt);
     if (!drop) return false;
     void dispatch({ type: 'transferToHand', ids: drop.ids, playerId: drop.playerId, index: drop.index });
     return true;
@@ -182,7 +203,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     [...stackMembers(p, target), ...moving].every(i => !i.locked) &&
     canStack([...stackMembers(p, target), ...moving].map(i => p.components.find(c => c.id === i.componentId)!));
   const showDropHint = (x: number, y: number, moving: Instance[], alt: boolean) => {
-    const hand = tableHandInsertion(x, y, moving);
+    const hand = tableHandInsertion(x, y, moving, alt);
     setHandDrop(hand);
     const target = targetAt(x, y, moving.map(i => i.id));
     setAltDown(alt);
@@ -314,10 +335,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       const moving = Object.keys(g.positions).map(id => p.instances.find(i => i.id === id)!).sort((a, b) => a.order - b.order);
       const tray = document.querySelector('.hand-tray')?.getBoundingClientRect();
       const inside = (r?: DOMRect) => r && e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-      if (insertIntoTableHand(e.clientX, e.clientY, moving)) {
+      if (insertIntoTableHand(e.clientX, e.clientY, moving, e.altKey)) {
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
-      if (seatAt(e.clientX, e.clientY) && moving.length) {
+      if (!e.altKey && seatAt(e.clientX, e.clientY) && moving.length) {
         notify('This hand cannot accept the selected components.', true);
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
@@ -456,10 +477,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                     if (!g || g.id !== i.id || g.pointer !== e.pointerId) return;
                     e.stopPropagation(); tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined);
                     if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
-                    if (insertIntoTableHand(e.clientX, e.clientY, [i])) return;
+                    if (insertIntoTableHand(e.clientX, e.clientY, [i], e.altKey)) return;
                     const tray = handScroller.current?.getBoundingClientRect();
                     const targetSeat = seatAt(e.clientX, e.clientY);
-                    if (targetSeat) { notify('Inserting into this hand is disabled.', true); return; }
+                    if (!e.altKey && targetSeat) { notify('Inserting into this hand is disabled.', true); return; }
                     const destination = tray && e.clientX >= tray.left && e.clientX <= tray.right && e.clientY >= tray.top && e.clientY <= tray.bottom ? actor : undefined;
                     if (destination) {
                       if (destination !== i.holder) {
@@ -556,8 +577,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
             const moving = selected.includes(item.id) ? held.filter(i => selected.includes(i.id)) : [item];
             const movingIds = moving.map(i => i.id);
-            if (insertIntoTableHand(e.clientX, e.clientY, moving)) return;
-            if (seatAt(e.clientX, e.clientY)) { notify('Inserting into this hand is disabled.', true); return; }
+            if (insertIntoTableHand(e.clientX, e.clientY, moving, e.altKey)) return;
+            if (!e.altKey && seatAt(e.clientX, e.clientY)) { notify('Inserting into this hand is disabled.', true); return; }
             const index = handInsertion(e.clientX, e.clientY, movingIds);
             if (index !== undefined) {
               const ids = held.filter(i => !movingIds.includes(i.id)).map(i => i.id);

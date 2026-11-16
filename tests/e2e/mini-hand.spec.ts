@@ -27,6 +27,49 @@ async function handOrder(page: Page) {
   });
 }
 
+for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
+  test(`table hand accepts drops 20px beyond its ${edge} edge`, async ({ page }) => {
+    const { source, held } = await seedHand(page);
+    const mini = page.locator('.seat-marker.active .other-hand');
+    const bounds = await mini.evaluate(element => {
+      const rects = [element, ...element.querySelectorAll('[data-mini-id]')].map(el => el.getBoundingClientRect());
+      return { left: Math.min(...rects.map(r => r.left)), right: Math.max(...rects.map(r => r.right)),
+        top: Math.min(...rects.map(r => r.top)), bottom: Math.max(...rects.map(r => r.bottom)) };
+    });
+    const x = edge === 'left' ? bounds.left - 20 : edge === 'right' ? bounds.right + 20 : (bounds.left + bounds.right) / 2;
+    const y = edge === 'top' ? bounds.top - 20 : edge === 'bottom' ? bounds.bottom + 20 : (bounds.top + bounds.bottom) / 2;
+    const box = (await page.locator(`[data-piece-id="${source.id}"]`).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(x, y, { steps: 10 });
+    await expect(mini).toHaveClass(/hand-drop-target/);
+    await page.mouse.up();
+    await expect.poll(async () => (await handOrder(page)).length).toBe(held.length + 1);
+  });
+}
+
+for (const origin of ['table', 'tray', 'mini'] as const) {
+  test(`Alt bypasses table hands when dragging from ${origin}`, async ({ page }) => {
+    const { source, held } = await seedHand(page);
+    const locator = origin === 'table' ? page.locator(`[data-piece-id="${source.id}"]`)
+      : origin === 'tray' ? page.locator(`[data-hand-id="${held[0]}"]`) : page.locator(`[data-mini-id="${held[0]}"]`);
+    const box = (await locator.boundingBox())!;
+    const seat = (await page.locator('.seat-marker.active').boundingBox())!;
+    await page.mouse.move(box.x + (origin === 'mini' ? 7 : box.width / 2), box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(seat.x + seat.width / 2, seat.y + seat.height / 2, { steps: 10 });
+    await expect(page.locator('.mini-drop-preview')).toHaveCount(1);
+    await page.keyboard.down('Alt');
+    await expect(page.locator('.mini-drop-preview')).toHaveCount(0);
+    await page.mouse.move(seat.x + seat.width / 2 + 1, seat.y + seat.height / 2);
+    await expect(page.locator('.hand-drop-target')).toHaveCount(0);
+    await page.mouse.up();
+    await page.keyboard.up('Alt');
+    await expect.poll(async () => (await handOrder(page)).length).toBe(origin === 'table' ? 3 : 2);
+    await expect(page.locator(`[data-piece-id="${origin === 'table' ? source.id : held[0]}"]`)).toBeVisible();
+  });
+}
+
 for (const [index, rotation] of [[0, 0], [1, 90], [3, 180]]) {
   test(`table hand previews and inserts at position ${index} with seat rotation ${rotation}`, async ({ page }) => {
     const { source, held } = await seedHand(page, rotation);
