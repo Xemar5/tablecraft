@@ -73,6 +73,7 @@
 .library-item-name strong,.library-item-name small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .library-item-label>.icon-button{flex-shrink:0}
 .color-field{min-width:0}
+.field-grid>.color-field{grid-column:1/-1}
 .color-alpha{display:flex;align-items:center;gap:6px;min-width:0;font-size:10px;color:var(--muted)}
 .color-alpha input[type=range]{flex:1;min-width:0;width:0;height:20px;padding:0;accent-color:var(--green)}
 .color-alpha output{min-width:32px;text-align:right;font-variant-numeric:tabular-nums}

@@ -12,6 +12,9 @@ test('selected designer properties scroll inside the inspector without scrolling
   const inspector = page.locator('#designer-inspector-panel');
   await expect(inspector.getByLabel('Text / binding', { exact: true })).toBeVisible();
   await expect(inspector.locator('h3')).toHaveCount(0);
+  const textColor = await inspector.locator('.color-field').filter({ has: page.getByLabel('Text color alpha', { exact: true }) }).boundingBox();
+  const fontSize = await inspector.getByLabel('Font size', { exact: true }).boundingBox();
+  expect(textColor!.width).toBeGreaterThan(fontSize!.width * 1.5);
   for (const height of [889, 650]) {
     await page.setViewportSize({ width: 1135, height });
     const scroll = inspector.locator('.inspector-scroll');
