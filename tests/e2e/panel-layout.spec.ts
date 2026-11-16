@@ -19,9 +19,16 @@ test('panel dragging works after opening Home and returning to a project', async
     const separator = page.getByRole('separator', { name: label, exact: true });
     const initial = await size(page, selector, dimension);
     const box = (await separator.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    const horizontal = dimension === 'height';
+    expect(horizontal ? box.height : box.width).toBe(6);
+    const line = await separator.evaluate((element, horizontal) => {
+      const style = getComputedStyle(element, '::before');
+      return horizontal ? style.height : style.width;
+    }, horizontal);
+    expect(line).toBe('2px');
+    await page.mouse.move(box.x + (horizontal ? box.width / 2 : 1), box.y + (horizontal ? 1 : box.height / 2));
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 4 });
+    await page.mouse.move(box.x + (horizontal ? box.width / 2 : 1) + dx, box.y + (horizontal ? 1 : box.height / 2) + dy, { steps: 4 });
     await page.mouse.up();
     await expect.poll(() => size(page, selector, dimension)).toBe(initial + 40);
   }

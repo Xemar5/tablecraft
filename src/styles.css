@@ -112,9 +112,12 @@
 @media(max-width:700px){.home-project-heading{flex-wrap:wrap}.home-project-actions{margin-left:0}.home-screen{padding:18px}}
 
 /* Presentation-only splitters; their sizes are managed independently of project data. */
-.panel-separator{flex:none;position:relative;z-index:4;background:var(--line);touch-action:none;user-select:none;outline:none}
+.panel-separator{flex:none;position:relative;z-index:4;background:transparent;touch-action:none;user-select:none;outline:none}
 .panel-separator.vertical{width:6px;cursor:col-resize}
 .panel-separator.horizontal{height:6px;cursor:row-resize}
-.panel-separator:hover,.panel-separator:focus-visible{background:#83a76a}
+.panel-separator::before{content:'';position:absolute;background:var(--line);pointer-events:none}
+.panel-separator.vertical::before{width:2px;left:2px;top:0;bottom:0}
+.panel-separator.horizontal::before{height:2px;top:2px;left:0;right:0}
+.panel-separator:hover::before,.panel-separator:focus-visible::before{background:#83a76a}
 .panel-separator:focus-visible{box-shadow:inset 0 0 0 2px #365d46}
 .hand-tray .hand-cards{max-height:100%}
