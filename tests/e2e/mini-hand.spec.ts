@@ -28,6 +28,28 @@ async function handOrder(page: Page) {
   });
 }
 
+test('wheel zoom follows the cursor inward and the table center outward', async ({ page }) => {
+  const { source } = await seedHand(page);
+  const piece = page.locator(`[data-piece-id="${source.id}"]`);
+  const box = (await piece.boundingBox())!;
+  const x = box.x + box.width * .7, y = box.y + box.height * .3;
+  const table = (await page.locator('.table-viewport').boundingBox())!;
+  const center = { x: table.x + table.width / 2, y: table.y + table.height / 2 };
+  await page.mouse.move(x, y);
+  for (const delta of [-200, -200, 200, 200]) {
+    const previous = (await piece.boundingBox())!;
+    const anchor = delta < 0 ? { x, y } : center;
+    const relative = { x: (anchor.x - previous.x) / previous.width, y: (anchor.y - previous.y) / previous.height };
+    const before = await page.getByRole('button', { name: 'Fit table', exact: true }).innerText();
+    await page.mouse.wheel(0, delta);
+    await expect(page.getByRole('button', { name: 'Fit table', exact: true })).not.toHaveText(before);
+    await expect.poll(async () => {
+      const bounds = (await piece.boundingBox())!;
+      return Math.hypot(bounds.x + bounds.width * relative.x - anchor.x, bounds.y + bounds.height * relative.y - anchor.y);
+    }).toBeLessThan(1);
+  }
+});
+
 test('zooming during a tabletop drag preserves the cursor anchor through movement and drop', async ({ page }) => {
   const { source } = await seedHand(page);
   const piece = page.locator(`[data-piece-id="${source.id}"]`);

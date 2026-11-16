@@ -129,13 +129,14 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     if (viewport.current) observer.observe(viewport.current);
     return () => observer.disconnect();
   }, [fit]);
-  const changeZoom = (next: number) => {
+  const changeZoom = (next: number, cursor?: { x: number; y: number }) => {
     const z = Math.max(.15, Math.min(2, next));
     const rect = viewport.current?.getBoundingClientRect();
     if (rect) {
       const g = gesture.current;
       const dragging = g && !g.pan && pointer.current;
-      const anchor = dragging ? { x: dragging.x - rect.left, y: dragging.y - rect.top } : { x: rect.width / 2, y: rect.height / 2 };
+      const focus = dragging || cursor;
+      const anchor = focus ? { x: focus.x - rect.left, y: focus.y - rect.top } : { x: rect.width / 2, y: rect.height / 2 };
       setPan({ x: anchor.x - (anchor.x - pan.x) * z / zoom, y: anchor.y - (anchor.y - pan.y) * z / zoom });
       if (g && dragging) {
         g.x = dragging.x - (dragging.x - g.x) * z / zoom;
@@ -390,7 +391,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           if (e.shiftKey && item && p.components.find(c => c.id === item.componentId)?.kind === 'card') {
             e.preventDefault();
             void dispatch({ type: 'transform', ids: stackMembers(p, item).map(i => i.id), rotation: e.deltaY > 0 ? 15 : -15 });
-          } else { if (e.ctrlKey) e.preventDefault(); changeZoom(zoom * (e.deltaY > 0 ? .92 : 1.08)); }
+          } else { if (e.ctrlKey) e.preventDefault(); changeZoom(zoom * (e.deltaY > 0 ? .92 : 1.08), e.deltaY > 0 ? undefined : { x: e.clientX, y: e.clientY }); }
         }}
         onPointerDown={e => {
           if (e.button === 1 || tool === 'pan') {
