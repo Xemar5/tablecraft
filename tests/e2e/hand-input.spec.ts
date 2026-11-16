@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('hand-entry face toggle controls repeated keyboard draws', async ({ page }) => {
   await page.goto('/');
-  const toggle = page.getByRole('button', { name: 'Turn cards face up when entering a hand', exact: true });
+  const toggle = page.getByRole('button', { name: 'Turn cards face up when entering my hand', exact: true });
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
   await stack.hover();

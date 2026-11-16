@@ -62,6 +62,7 @@ export const playerSchema = z.object({
   id, owner: z.string().max(200), name: z.string().min(1).max(50), color,
   x: num, y: num, rotation: num,
   allowHandInsert: z.boolean().optional(), allowHandTake: z.boolean().optional(),
+  handFaceUp: z.boolean().optional(), tableHandHidden: z.boolean().optional(), tableHandUnlocked: z.boolean().optional(),
 });
 export type Player = z.infer<typeof playerSchema>;
 export const projectSchema = z.object({
@@ -116,7 +117,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dropFromHand'), id, targetId: id, stackId: id }),
   z.object({ type: z.literal('reorderHand'), ids: z.array(id), playerId: id }),
   z.object({ type: z.literal('player'), player: playerSchema }),
-  z.object({ type: z.literal('handSettings'), playerId: id, patch: playerSchema.pick({ allowHandInsert: true, allowHandTake: true }) }),
+  z.object({ type: z.literal('handSettings'), playerId: id, patch: playerSchema.pick({ allowHandInsert: true, allowHandTake: true, handFaceUp: true, tableHandHidden: true, tableHandUnlocked: true }) }),
   z.object({ type: z.literal('settings'), patch: projectSchema.shape.settings.partial() }),
   z.object({ type: z.literal('rename'), name: z.string().min(1).max(100) }),
 ]);
@@ -640,7 +641,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     }
     case 'handSettings': {
       const player = p.players.find(player => player.id === command.playerId);
-      if (!actor || actor !== command.playerId || !player) throw new Error('Change permissions for your active hand only.');
+      if (!actor || actor !== command.playerId || !player) throw new Error('Change settings for your active hand only.');
       Object.assign(player, command.patch);
       break;
     }

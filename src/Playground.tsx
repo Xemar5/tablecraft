@@ -36,20 +36,17 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
   const [previewOnLeft, setPreviewOnLeft] = useState(false);
-  const [seatsUnlocked, setSeatsUnlocked] = useState(false);
   const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number }>();
   const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number }>(null);
   const seatMoved = useRef(false);
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
-  const [handHidden, setHandHidden] = useState(false);
-  const [faceUpInHand, setFaceUpInHand] = useState(true);
   const dispatch = useCallback((command: Command) => {
     if (command.type === 'draw' || command.type === 'drawMany' || command.type === 'drawSelection' || command.type === 'transferToHand') {
-      return dispatchCommand({ ...command, faceUp: faceUpInHand });
+      return dispatchCommand({ ...command, faceUp: p.players.find(player => player.id === command.playerId)?.handFaceUp ?? true });
     }
     return dispatchCommand(command);
-  }, [dispatchCommand, faceUpInHand]);
+  }, [dispatchCommand, p.players]);
   const [handDrag, setHandDrag] = useState<{ id: string; x: number; y: number }>();
   const [insertion, setInsertion] = useState<number>();
   const [dropHint, setDropHint] = useState<{ id: string; x: number; y: number }>();
@@ -293,8 +290,9 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     }
     void dispatch({ type: 'reorderHand', ids, playerId: actor });
   };
-  /** Hand actions for the active seat's toolbar, or for a seat selected in the inspector. Hand commands only apply to the active seat. */
+  /** Hand actions for the active seat's toolbar, or for a seat selected in the inspector. Every toggle is that seat's own setting and only its active player may change it. */
   const handActions = (seat?: Player) => {
+    const target = seat ?? currentPlayer;
     const own = !seat || seat.id === actor;
     const hand = !seat ? 'my hand' : `${seat.name}'s hand`;
     const tableHand = !seat ? 'my table hand' : `${seat.name}'s table hand`;
@@ -302,14 +300,16 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
     const label = (text: string) => ({ 'aria-label': text, title: inactive ? `${text} (${inactive})` : text });
     const seatPermissions = seat ? handPermissions(p, seat.id) : permissions;
     const seatHeld = seat ? p.instances.filter(i => i.holder === seat.id).length : held.length;
+    const faceUp = target?.handFaceUp ?? true, hidden = !!target?.tableHandHidden, unlocked = !!target?.tableHandUnlocked;
+    const set = (patch: Extract<Command, { type: 'handSettings' }>['patch']) => dispatch({ type: 'handSettings', playerId: actor, patch });
     return <>
-      <button className="icon-button" aria-label="Turn cards face up when entering a hand" title="Turn cards face up when entering a hand" aria-pressed={faceUpInHand} onClick={() => setFaceUpInHand(!faceUpInHand)}><FlipHorizontal2 size={16} /></button>
-      <button className="icon-button" {...label(`${own && handHidden ? 'Show' : 'Hide'} ${tableHand}`)} aria-pressed={own && handHidden} disabled={!own} onClick={() => setHandHidden(!handHidden)}>{own && handHidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
+      <button className="icon-button" {...label(`Turn cards face up when entering ${hand}`)} aria-pressed={faceUp} disabled={!own} onClick={() => set({ handFaceUp: !faceUp })}><FlipHorizontal2 size={16} /></button>
+      <button className="icon-button" {...label(`${hidden ? 'Show' : 'Hide'} ${tableHand}`)} aria-pressed={hidden} disabled={!own} onClick={() => set({ tableHandHidden: !hidden })}>{hidden ? <EyeOff size={16} /> : <Eye size={16} />}</button>
       <button className="icon-button" {...label(seat ? `Shuffle ${hand}` : 'Shuffle hand')} disabled={!own || seatHeld < 2} onClick={shuffleHand}><Shuffle size={16} /></button>
       <button className="icon-button" {...label(seat ? `Reverse ${hand}` : 'Reverse hand')} disabled={!own || seatHeld < 2} onClick={() => dispatch({ type: 'reorderHand', ids: held.map(i => i.id).reverse(), playerId: actor })}><ArrowRightLeft size={16} /></button>
-      <button className="icon-button" {...label(`Allow others to insert into ${hand}`)} aria-pressed={seatPermissions.insert} disabled={!own} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandInsert: !permissions.insert } })}><ArrowDownToLine size={16} /></button>
-      <button className="icon-button" {...label(`Allow others to take from ${hand}`)} aria-pressed={seatPermissions.take} disabled={!own} onClick={() => dispatch({ type: 'handSettings', playerId: actor, patch: { allowHandTake: !permissions.take } })}><ArrowUpFromLine size={16} /></button>
-      <button className="icon-button" aria-label={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} title={seatsUnlocked ? 'Lock table hands' : 'Unlock table hands'} aria-pressed={seatsUnlocked} onClick={() => setSeatsUnlocked(!seatsUnlocked)}>{seatsUnlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
+      <button className="icon-button" {...label(`Allow others to insert into ${hand}`)} aria-pressed={seatPermissions.insert} disabled={!own} onClick={() => set({ allowHandInsert: !permissions.insert })}><ArrowDownToLine size={16} /></button>
+      <button className="icon-button" {...label(`Allow others to take from ${hand}`)} aria-pressed={seatPermissions.take} disabled={!own} onClick={() => set({ allowHandTake: !permissions.take })}><ArrowUpFromLine size={16} /></button>
+      <button className="icon-button" {...label(`${unlocked ? 'Lock' : 'Unlock'} ${tableHand}`)} aria-pressed={unlocked} disabled={!own} onClick={() => set({ tableHandUnlocked: !unlocked })}>{unlocked ? <UnlockKeyhole size={16} /> : <LockKeyhole size={16} />}</button>
       {seat ? <button className="icon-button" aria-label="Switch to this seat" title={own ? 'This is your active seat' : `Switch to ${seat.name}'s seat`} disabled={own} onClick={() => onSwitch(seat)}><Users size={16} /></button>
         : <button className="icon-button" aria-label="Switch seat" title="Switch seat" onClick={() => { setPanel('players'); onShowInspector(); }}><Users size={16} /></button>}
     </>;
@@ -501,10 +501,10 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);
             const remaining = playerHeld.filter(i => !handDrop?.ids.includes(i.id));
             const canTake = player.id === actor || handPermissions(p, player.id).take;
-            return <button key={player.id} data-seat-id={player.id} aria-pressed={selectedSeatId === player.id} title={seatsUnlocked ? `Drag ${player.name}'s seat` : `Select ${player.name}'s seat`} className={`seat-marker ${player.id === actor ? 'active' : ''} ${selectedSeatId === player.id ? 'seat-selected' : ''}`}
+            return <button key={player.id} data-seat-id={player.id} aria-pressed={selectedSeatId === player.id} title={player.tableHandUnlocked ? `Drag ${player.name}'s seat` : `Select ${player.name}'s seat`} className={`seat-marker ${player.id === actor ? 'active' : ''} ${selectedSeatId === player.id ? 'seat-selected' : ''}`}
             onPointerDown={e => {
               e.stopPropagation(); seatMoved.current = false;
-              if (!seatsUnlocked || e.button !== 0 || (owner !== 'local' && player.owner !== owner)) return;
+              if (!player.tableHandUnlocked || e.button !== 0 || (owner !== 'local' && player.owner !== owner)) return;
               seatGesture.current = { id: player.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, startX: player.x, startY: player.y };
               e.currentTarget.setPointerCapture(e.pointerId);
             }}
@@ -580,7 +580,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                   }}
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined); }}
                   onClick={e => { e.stopPropagation(); if (player.id === actor) selectHandCard(i.id, e); }}>
-                  <ComponentThumbnail component={comp} components={p.components} row={i.row} back={i.flipped} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
+                  <ComponentThumbnail component={comp} components={p.components} row={i.row} back={i.flipped} hidden={player.id === actor ? !!player.tableHandHidden : comp.hideInHand} width={44} />
                   {handDrop?.playerId === player.id && handDrop.index === remaining.length && remaining.at(-1)?.id === i.id && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
                 </div>;
               })}
@@ -702,7 +702,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         const comp = p.components.find(c => c.id === item.componentId)!;
         const player = p.players.find(player => player.id === handDrop.playerId)!;
         return <div className="hand-drag-preview mini-drop-preview" aria-hidden="true" style={{ left: handDrop.x, top: handDrop.y, transform: `translate(-50%, -50%) rotate(${camera + player.rotation}deg) scale(${zoom})` }}>
-          <ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
+          <ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} hidden={player.id === actor ? !!player.tableHandHidden : comp.hideInHand} width={44} />
           {handDrop.ids.length > 1 && <span className="mini-drop-count">{handDrop.ids.length}</span>}
         </div>;
       })()}

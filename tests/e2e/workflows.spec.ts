@@ -41,7 +41,7 @@ test('playground draws repeatedly, flips hands, duplicates stacks and toggles th
 
 test('flipped stacks draw from the visible top without rewriting their underlying faces', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Turn cards face up when entering a hand', exact: true }).click();
+  await page.getByRole('button', { name: 'Turn cards face up when entering my hand', exact: true }).click();
   const before = (await workspace(page)).projects[0];
   const deck = before.instances.find(i => i.stack)!;
   const members = before.instances.filter(i => i.stack === deck.stack).sort((a, b) => a.order - b.order);

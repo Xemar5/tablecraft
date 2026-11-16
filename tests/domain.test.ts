@@ -196,6 +196,17 @@ describe('tabletop commands', () => {
     const next = applyCommand(p, transfer, 'player-1');
     expect(next.instances.filter(i => transfer.ids.includes(i.id)).every(i => i.holder === 'player-1')).toBe(true);
   });
+  it('stores face-up, table-hand visibility and seat lock preferences per player', () => {
+    let p = starterProject();
+    const patch = { handFaceUp: false, tableHandHidden: true, tableHandUnlocked: true };
+    expect(() => applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch }, 'player-1')).toThrow('active hand');
+    p = applyCommand(p, { type: 'handSettings', playerId: 'player-2', patch }, 'player-2');
+    expect(p.players[1]).toMatchObject(patch);
+    expect(p.players[0]).not.toHaveProperty('handFaceUp');
+    expect(p.players[0]).not.toHaveProperty('tableHandHidden');
+    expect(p.players[0]).not.toHaveProperty('tableHandUnlocked');
+    expect(validateProject(p).players[1]).toMatchObject(patch);
+  });
   it('flips a stack as a view without mutating member order or faces, and draws from its visible top', () => {
     let p = starterProject();
     const deck = p.instances.find(i => i.stack)!;
