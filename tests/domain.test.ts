@@ -491,3 +491,25 @@ describe('removing seats', () => {
     expect(Math.min(...rows)).toBe(100);
   });
 });
+describe('seat order and turns', () => {
+  it('reorders seats while keeping the current turn with the same player', () => {
+    let p = starterProject();
+    p = applyCommand(p, { type: 'player', player: { ...p.players[0], id: 'player-3', name: 'Player 3' } });
+    p = applyCommand(p, { type: 'settings', patch: { turns: true, turn: 1 } });
+    const next = applyCommand(p, { type: 'reorderPlayers', ids: ['player-2', 'player-3', 'player-1'] });
+    expect(next.players.map(player => player.id)).toEqual(['player-2', 'player-3', 'player-1']);
+    expect(next.settings.turn).toBe(0);
+    for (const ids of [['player-1', 'player-2'], ['player-1', 'player-1', 'player-2'], ['player-1', 'player-2', 'missing']])
+      expect(() => applyCommand(p, { type: 'reorderPlayers', ids })).toThrow('every seat once');
+  });
+
+  it('ends the turn by passing it to the next seat in order, wrapping around', () => {
+    let p = starterProject();
+    expect(() => applyCommand(p, { type: 'endTurn' })).toThrow('turn tracker');
+    p = applyCommand(p, { type: 'settings', patch: { turns: true } });
+    p = applyCommand(p, { type: 'endTurn' });
+    expect(p.settings.turn).toBe(1);
+    p = applyCommand(p, { type: 'endTurn' });
+    expect(p.settings.turn).toBe(0);
+  });
+});

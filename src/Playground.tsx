@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, handPermissions, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
@@ -31,6 +31,17 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [query, setQuery] = useState('');
   const [seatEditor, setSeatEditor] = useState<Player>();
   const [removingSeat, setRemovingSeat] = useState<Player>();
+  const [playerDrag, setPlayerDrag] = useState<string>();
+  const [playerDrop, setPlayerDrop] = useState<{ id: string; position: 'before' | 'after' }>();
+  const turnPlayer = p.players.length ? p.players[p.settings.turn % p.players.length] : undefined;
+  const nextTurnPlayer = p.players.length ? p.players[(p.settings.turn + 1) % p.players.length] : undefined;
+  const endTurn = () => { void dispatch({ type: 'endTurn' }); };
+  const movePlayer = (id: string, targetId: string, position: 'before' | 'after') => {
+    if (id === targetId) return;
+    const ids = p.players.map(player => player.id).filter(other => other !== id);
+    ids.splice(ids.indexOf(targetId) + (position === 'after' ? 1 : 0), 0, id);
+    void dispatch({ type: 'reorderPlayers', ids });
+  };
   const [selectedSeatId, setSelectedSeatId] = useState<string>();
   const selectedSeat = p.players.find(player => player.id === selectedSeatId);
   useEffect(() => { if (selected.length) setSelectedSeatId(undefined); }, [selected]);
@@ -677,6 +688,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           <span /><button className={p.settings.grid ? 'active-subtle' : ''} title="Toggle grid" aria-label="Toggle grid" onClick={() => dispatch({ type: 'settings', patch: { grid: !p.settings.grid } })}><Grid2X2 size={18} /></button>
           <button className={p.settings.snap ? 'active-subtle' : ''} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
         </div>
+        {p.settings.turns && turnPlayer && <div className="turn-pill" role="status" aria-label="Turn" onPointerDown={e => e.stopPropagation()}>
+          <span className="turn-pill-avatar" style={{ background: turnPlayer.color }}>{turnPlayer.name.slice(0, 1).toUpperCase()}</span>
+          <span className="turn-pill-name"><span className="turn-pill-label"><strong>{turnPlayer.name}</strong>'s turn</span>{turnPlayer.id === actor && <YouTag />}</span>
+          <button className="button primary" title={`Pass the turn to ${nextTurnPlayer?.name}`} onClick={endTurn}>End turn <ChevronRight size={13} /></button>
+        </div>}
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
         {activePreviewId && !altDown && (() => {
           const item = p.instances.find(i => i.id === activePreviewId && !i.locked && (!i.holder || i.holder === actor));
@@ -796,8 +812,32 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
       <div className="inspector-scroll">{panel === 'players' ? <>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">Hotseat</span></div>
           <p className="help-text">No fixed player limit. Add seats for everyone sharing this screen.</p>
-          <div className="player-list">{p.players.map(player => <div key={player.id} className={`player-row ${actor === player.id ? 'active' : ''}`}>
-            <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
+          <div className="player-list">{p.players.map((player, index) => <div key={player.id} data-player-row={player.id}
+            className={`player-row ${actor === player.id ? 'active' : ''}${playerDrag === player.id ? ' player-dragging' : ''}${playerDrop?.id === player.id ? ` player-drop-${playerDrop.position}` : ''}`}
+            onDragOver={e => {
+              if (!playerDrag || playerDrag === player.id) return;
+              e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+              const rect = e.currentTarget.getBoundingClientRect();
+              setPlayerDrop({ id: player.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+            }}
+            onDragLeave={e => { if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setPlayerDrop(undefined); }}
+            onDrop={e => {
+              if (!playerDrag) return;
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              movePlayer(playerDrag, player.id, e.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
+              setPlayerDrag(undefined); setPlayerDrop(undefined);
+            }}>
+            <button className="icon-button player-reorder" draggable aria-label={`Reorder ${player.name}`} title="Drag to reorder; use Up/Down arrows when focused"
+              onDragStart={e => { e.dataTransfer.setData('text/plain', player.id); e.dataTransfer.effectAllowed = 'move'; setPlayerDrag(player.id); }}
+              onDragEnd={() => { setPlayerDrag(undefined); setPlayerDrop(undefined); }}
+              onKeyDown={e => {
+                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+                e.preventDefault();
+                const target = p.players[index + (e.key === 'ArrowUp' ? -1 : 1)];
+                if (target) movePlayer(player.id, target.id, e.key === 'ArrowUp' ? 'before' : 'after');
+              }}><GripVertical size={14} /></button>
+            <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{p.settings.turns && turnPlayer?.id === player.id ? 'Current turn · ' : ''}{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
             {(owner === 'local' || owner === player.owner) && <button className="icon-button" title={`Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
           <button className="button full" onClick={() => setSeatEditor({ id: uid('player'), owner, name: `Player ${p.players.length + 1}`, color: ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], x: 600 + p.players.length * 120, y: 1000, rotation: 0 })}><Plus size={15} /> Add hotseat player</button>
@@ -837,7 +877,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
           {p.settings.snap && <NumberField deferred label="Grid size (px)" value={p.settings.gridSize} min={5} max={200} onChange={gridSize => dispatch({ type: 'settings', patch: { gridSize } })} />}
           <Toggle label="Player hands" description="Keep a little mystery" checked={p.settings.hands} onChange={hands => dispatch({ type: 'settings', patch: { hands } })} />
           <Toggle label="Turn tracker" checked={p.settings.turns} onChange={turns => dispatch({ type: 'settings', patch: { turns } })} />
-          {p.settings.turns && <div className="turn-tracker"><span>UP NEXT</span><strong>{p.players[p.settings.turn % Math.max(p.players.length, 1)]?.name ?? 'Add a player'}</strong><button className="button full primary" onClick={() => dispatch({ type: 'settings', patch: { turn: (p.settings.turn + 1) % Math.max(p.players.length, 1) } })}>End turn <ChevronRight size={15} /></button></div>}
+          {p.settings.turns && <div className="turn-tracker"><span>UP NEXT</span><strong>{turnPlayer?.name ?? 'Add a player'}</strong><button className="button full primary" onClick={endTurn}>End turn <ChevronRight size={15} /></button></div>}
         </div>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><button className="text-button" onClick={() => setPanel('players')}>Manage</button></div>
           <div className="avatar-stack">{p.players.slice(0, 7).map(player => <button key={player.id} title={player.name} onClick={() => onSwitch(player)} style={{ background: player.color }}>{player.name[0]}</button>)}<button className="add-avatar" aria-label="Manage players" onClick={() => setPanel('players')}><Plus size={14} /></button></div>

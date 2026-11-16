@@ -119,6 +119,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('reorderHand'), ids: z.array(id), playerId: id }),
   z.object({ type: z.literal('player'), player: playerSchema }),
   z.object({ type: z.literal('removePlayer'), playerId: id }),
+  z.object({ type: z.literal('reorderPlayers'), ids: z.array(id).min(1) }),
+  z.object({ type: z.literal('endTurn') }),
   z.object({ type: z.literal('handSettings'), playerId: id, patch: playerSchema.pick({ allowHandInsert: true, allowHandTake: true, handFaceUp: true, tableHandHidden: true, tableHandUnlocked: true }) }),
   z.object({ type: z.literal('settings'), patch: projectSchema.shape.settings.partial() }),
   z.object({ type: z.literal('rename'), name: z.string().min(1).max(100) }),
@@ -676,6 +678,19 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       p.settings.turn %= p.players.length;
       break;
     }
+    case 'reorderPlayers': {
+      const players = command.ids.map(id => p.players.find(player => player.id === id));
+      if (new Set(command.ids).size !== p.players.length || players.length !== p.players.length || players.some(player => !player)) throw new Error('Reorder must contain every seat once.');
+      const current = p.players[p.settings.turn % p.players.length]?.id;
+      p.players = players as Player[];
+      p.settings.turn = Math.max(0, p.players.findIndex(player => player.id === current));
+      break;
+    }
+    case 'endTurn':
+      if (!p.settings.turns) throw new Error('Turn on the turn tracker first.');
+      if (!p.players.length) throw new Error('Add a player first.');
+      p.settings.turn = (p.settings.turn + 1) % p.players.length;
+      break;
     case 'settings':
       if (command.patch.allowOtherHands !== undefined || command.patch.allowHandInsert !== undefined || command.patch.allowHandTake !== undefined) throw new Error('Change hand permissions using the per-hand settings.');
       Object.assign(p.settings, command.patch);
