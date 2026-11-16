@@ -92,7 +92,11 @@
 .empty-hand { flex: 1 1 auto; min-width: 0; max-width: 430px; margin: 0 auto; justify-content: center; text-align: center; }
 input[type="number"] { min-height: 28px; line-height: normal; }
 input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px; }
-.seat-marker { touch-action: none; }
+.seat-marker { touch-action: none; padding: 0; }
+.seat-badge { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 20px; border-radius: inherit; background: #f1f3eb; }
+.seat-marker.active .seat-badge { background: #e6eddb; }
+.seat-badge > span:last-child { font-size: 10px; margin-left: auto; }
+.other-hand { z-index: 0; }
 .hand-entry { position: relative; gap: 3px; }
 .hand-card, .hand-card:hover { transform: none; flex-shrink: 0; }
 .hand-card .component-thumbnail { transform: none; margin-right: 0; }

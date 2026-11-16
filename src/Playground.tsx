@@ -132,7 +132,16 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const changeZoom = (next: number) => {
     const z = Math.max(.15, Math.min(2, next));
     const rect = viewport.current?.getBoundingClientRect();
-    if (rect) setPan({ x: rect.width / 2 - (rect.width / 2 - pan.x) * z / zoom, y: rect.height / 2 - (rect.height / 2 - pan.y) * z / zoom });
+    if (rect) {
+      const g = gesture.current;
+      const dragging = g && !g.pan && pointer.current;
+      const anchor = dragging ? { x: dragging.x - rect.left, y: dragging.y - rect.top } : { x: rect.width / 2, y: rect.height / 2 };
+      setPan({ x: anchor.x - (anchor.x - pan.x) * z / zoom, y: anchor.y - (anchor.y - pan.y) * z / zoom });
+      if (g && dragging) {
+        g.x = dragging.x - (dragging.x - g.x) * z / zoom;
+        g.y = dragging.y - (dragging.y - g.y) * z / zoom;
+      }
+    }
     setZoom(z);
   };
   const worldDelta = (dx: number, dy: number) => {
@@ -453,12 +462,12 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             onPointerCancel={() => { seatGesture.current = null; setSeatPosition(undefined); }}
             onClick={() => { if (!seatMoved.current) onSwitch(player); seatMoved.current = false; }}
             style={{ left: seatPosition?.id === player.id ? seatPosition.x : player.x, top: seatPosition?.id === player.id ? seatPosition.y : player.y, '--player-color': player.color, transform: `translate(-50%, -50%) rotate(${player.rotation}deg)` } as React.CSSProperties}>
-            <span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
-            <span>{playerHeld.length} cards</span>
+            <div className="seat-badge"><span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>
+            <span>{playerHeld.length} cards</span></div>
             <div className={`other-hand ${player.id === actor || permissions.take ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} style={{ outlineOffset: 20 / zoom }} aria-label={`${player.name}'s hand`}>
               {playerHeld.map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
-                return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && (player.id === actor || permissions.take)} className={`${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
+                return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && (player.id === actor || permissions.take)} className={`${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) || handDrag?.id === i.id ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
                   onPointerDown={e => {
                     e.stopPropagation();
                     if ((player.id !== actor && !permissions.take) || i.locked || e.button !== 0) return;

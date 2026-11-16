@@ -11,6 +11,7 @@ async function seedHand(page: Page, rotation = 0) {
   const source = project.instances.find(i => i.stack === deck.stack)!;
   Object.assign(source, { stack: null, x: 600, y: 450, rotation: 0 });
   project.instances = project.instances.filter(i => i.holder || i.id === source.id);
+  project.settings.snap = false;
   const archive: Archive = { format: 'tablecraft', version: 1, projects: [project] };
   await page.addInitScript(({ archive, id }) => {
     localStorage.setItem('tablecraft.workspace.v1', JSON.stringify(archive));
@@ -26,6 +27,49 @@ async function handOrder(page: Page) {
     return archive.projects[0].instances.filter(i => i.holder === 'player-1').sort((a, b) => a.order - b.order).map(i => i.id);
   });
 }
+
+test('zooming during a tabletop drag preserves the cursor anchor through movement and drop', async ({ page }) => {
+  const { source } = await seedHand(page);
+  const piece = page.locator(`[data-piece-id="${source.id}"]`);
+  const box = (await piece.boundingBox())!;
+  let x = box.x + box.width / 2 + 40, y = box.y + box.height / 2 + 20;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x, y, { steps: 5 });
+  const ghost = page.locator('.board-drag-preview');
+  for (const delta of [-200, -200, 200, 200]) {
+    const before = await page.getByRole('button', { name: 'Fit table', exact: true }).innerText();
+    await page.mouse.wheel(0, delta);
+    await expect(page.getByRole('button', { name: 'Fit table', exact: true })).not.toHaveText(before);
+    const bounds = (await ghost.boundingBox())!;
+    expect(Math.abs(bounds.x + bounds.width / 2 - x)).toBeLessThan(1);
+    expect(Math.abs(bounds.y + bounds.height / 2 - y)).toBeLessThan(1);
+    x += 8; y += 6;
+    await page.mouse.move(x, y);
+  }
+  await page.mouse.up();
+  await expect(ghost).toHaveCount(0);
+  await expect.poll(async () => {
+    const bounds = (await piece.boundingBox())!;
+    return Math.hypot(bounds.x + bounds.width / 2 - x, bounds.y + bounds.height / 2 - y);
+  }).toBeLessThan(1);
+});
+
+test('mini-hand source stays faded outside all hands until the drag ends', async ({ page }) => {
+  const { held } = await seedHand(page);
+  const card = page.locator(`[data-mini-id="${held[0]}"]`);
+  const box = (await card.boundingBox())!;
+  const table = (await page.locator('.table-viewport').boundingBox())!;
+  await page.mouse.move(box.x + 7, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(table.x + 50, table.y + 60, { steps: 8 });
+  await expect(page.locator('.hand-drop-target')).toHaveCount(0);
+  await expect(card).toHaveCSS('opacity', '0.25');
+  await page.mouse.move(10, 10, { steps: 5 });
+  await expect(card).toHaveCSS('opacity', '0.25');
+  await page.mouse.up();
+  await expect(card).toHaveCSS('opacity', '1');
+});
 
 for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
   test(`table hand accepts drops 20px beyond its ${edge} edge`, async ({ page }) => {
@@ -43,6 +87,8 @@ for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
     await page.mouse.down();
     await page.mouse.move(x, y, { steps: 10 });
     await expect(mini).toHaveClass(/hand-drop-target/);
+    await expect(mini).toHaveCSS('z-index', '0');
+    await expect(page.locator('.seat-marker.active .seat-badge')).toHaveCSS('z-index', '1');
     await page.mouse.up();
     await expect.poll(async () => (await handOrder(page)).length).toBe(held.length + 1);
   });
