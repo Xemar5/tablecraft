@@ -1,4 +1,4 @@
-﻿import { expect, test } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import type { Archive } from '../../src/domain';
 
 test('a selected stack offers draw one and draw all, and its preview shows the stack size', async ({ page }) => {
@@ -11,7 +11,7 @@ test('a selected stack offers draw one and draw all, and its preview shows the s
   await expect(page.getByLabel(`Stack of ${size}`, { exact: true })).toBeVisible();
   await expect(page.locator('.hover-preview .preview-stack-count')).toHaveText(String(size));
   await deck.click();
-  await expect(page.getByRole('button', { name: 'Draw to hand', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Draw to hand/ })).toHaveCount(0);
   await page.mouse.move(5, 5);
   await page.getByRole('button', { name: /^Draw one/ }).click();
   await expect(page.locator('.hand-card')).toHaveCount(1);
@@ -26,7 +26,7 @@ test('a selected stack offers draw one and draw all, and its preview shows the s
 
   const single = (await project()).instances.find(i => !i.holder && !i.stack && (initial.components.find(c => c.id === i.componentId)?.hand))!;
   await page.locator(`[data-piece-id="${single.id}"]`).click();
-  await expect(page.getByRole('button', { name: 'Draw to hand', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Draw to hand/ })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Draw all', exact: true })).toHaveCount(0);
   await page.locator(`[data-piece-id="${single.id}"]`).hover();
   await expect(page.locator('.hover-preview .preview-stack-count')).toHaveCount(0);

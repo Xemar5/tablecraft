@@ -485,7 +485,7 @@ test('hidden fronts work for nonflippable pieces and can be made public', async 
   const state = await workspace(page);
   const token = state.projects[0].instances.find(i => i.componentId === state.projects[0].components[1].id)!;
   await page.locator(`[data-piece-id="${token.id}"]`).click();
-  await page.getByRole('button', { name: 'Draw to hand', exact: true }).click();
+  await page.getByRole('button', { name: /^Draw to hand/ }).click();
   await page.getByRole('button', { name: /Players 2/ }).click();
   await page.locator('.player-row').filter({ hasText: 'Player 2' }).getByRole('button').first().click();
   await page.getByRole('button', { name: "I'm Player 2. Let's play." }).click();
@@ -630,7 +630,7 @@ test('multiplayer synchronizes atomic hand and stack interactions', async ({ bro
   await deck.click();
   await b.keyboard.press('e');
   await expect(a.locator(`[data-piece-id="${topId}"]`)).toHaveAttribute('style', /rotate\(90deg\)/);
-  await b.getByRole('button', { name: 'Draw to hand', exact: true }).click();
+  await b.getByRole('button', { name: /^Draw to hand/ }).click();
   await expect(b.locator('.hand-card')).toHaveCount(12);
   await expect(a.getByLabel("Bob's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(12);
   await expect(a.locator('.stack-count')).toHaveCount(0);
@@ -775,7 +775,7 @@ test('multi-selection transforms, moves, clones, draws and deletes all selected 
   await first.hover(); await page.keyboard.press('Control+d');
   await expect(page.locator('.table-piece.selected')).toHaveCount(2);
   await expect.poll(async () => (await workspace(page)).projects[0].instances.length).toBe(p.instances.length + 2);
-  await page.getByRole('button', { name: 'Draw to hand', exact: true }).click();
+  await page.getByRole('button', { name: /^Draw to hand/ }).click();
   await expect(page.locator('.hand-card')).toHaveCount(2);
   await page.mouse.move(10, 70); await page.keyboard.press('Delete');
   await expect(page.locator('.hand-card')).toHaveCount(0);

@@ -398,6 +398,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
         const count = e.key === '0' ? 10 : Number(e.key);
         dispatch(count === 1 ? { type: 'draw', id: shortcutPiece.id, playerId: actor } : { type: 'drawMany', id: shortcutPiece.id, playerId: actor, count });
       }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'l' && shortcutPiece) { e.preventDefault(); dispatch({ type: 'move', ids: shortcutIds, patch: { locked: !shortcutPiece.locked } }); }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); dispatch({ type: 'delete', ids: shortcutIds }); setSelected([]); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); clone(shortcutIds); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selected.length) {
@@ -689,7 +690,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
               <tr><th scope="row">Rotate −90° / +90°</th><td><kbd>Q / E</kbd></td></tr>
               <tr><th scope="row">Shuffle / roll</th><td><kbd>R</kbd></td></tr>
               <tr><th scope="row">Stack selection</th><td><kbd>G</kbd></td></tr>
-              <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>
+              <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>`r`n              <tr><th scope="row">Lock / unlock</th><td><kbd>L</kbd></td></tr>
               <tr><th scope="row">Hide preview</th><td><kbd>Alt</kbd></td></tr>
             </tbody></table></div> : null;
         })()}
@@ -812,13 +813,13 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             <button disabled={!selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable)} onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>
             <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
             <button onClick={() => rotate(90)}><RotateCw size={17} /><span>Rotate +90°<kbd>E</kbd></span></button>
-            <button onClick={() => clone()}><Copy size={17} /><span>Clone</span></button>
+            <button onClick={() => clone()}><Copy size={17} /><span>Clone<kbd>Ctrl D</kbd></span></button>
             {wholeStack ? <>
               <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
               <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Layers size={17} /><span>Draw all</span></button>
-            </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand</span></button>}
-            <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}</span></button>
-            <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete</span></button>
+            </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
+            <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
+            <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
           <div className="field-grid"><NumberField deferred label="Rotation" value={piece.rotation} onChange={rotation => dispatch({ type: 'transform', ids: selected, rotation: rotation - piece.rotation })} /><NumberField deferred label="Scale" value={piece.scale} min={.1} max={5} step={.1} onChange={scale => dispatch({ type: 'transform', ids: selected, scaleFactor: scale / piece.scale })} /></div>
           {selected.length > 1 && <button className="button full" onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={15} /> Stack selected pieces</button>}

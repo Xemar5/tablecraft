@@ -34,9 +34,9 @@ test('scaled previews have no empty horizontal overflow and locked pieces have n
   await token.hover();
   await expect(preview).toBeVisible();
   const shortcuts = preview.getByRole('table', { name: 'Piece shortcuts' });
-  await expect(shortcuts.getByRole('row')).toHaveCount(6);
-  await expect(shortcuts.getByRole('rowheader')).toHaveText(['Flip', 'Rotate −90° / +90°', 'Shuffle / roll', 'Stack selection', 'Draw cards', 'Hide preview']);
-  await expect(shortcuts.getByRole('cell')).toHaveText(['F', 'Q / E', 'R', 'G', '1–0', 'Alt']);
+  await expect(shortcuts.getByRole('row')).toHaveCount(7);
+  await expect(shortcuts.getByRole('rowheader')).toHaveText(['Flip', 'Rotate −90° / +90°', 'Shuffle / roll', 'Stack selection', 'Draw cards', 'Lock / unlock', 'Hide preview']);
+  await expect(shortcuts.getByRole('cell')).toHaveText(['F', 'Q / E', 'R', 'G', '1–0', 'L', 'Alt']);
   const columns = await shortcuts.locator('tr').evaluateAll(rows => rows.map(row => [...row.querySelectorAll('th,td')].map(cell => cell.getBoundingClientRect().x)));
   expect(columns.every(([description, key]) => description === columns[0][0] && key === columns[0][1] && key > description)).toBe(true);
   await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
@@ -49,12 +49,12 @@ test('scaled previews have no empty horizontal overflow and locked pieces have n
   await expect.poll(async () => (await thumbnail.boundingBox())!.width).toBeLessThan(initialWidth);
   await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
   await token.click();
-  await page.getByRole('button', { name: 'Lock', exact: true }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock/ }).click();
   await token.hover();
   await expect(preview).toHaveCount(0);
   await token.focus();
   await expect(preview).toHaveCount(0);
-  await page.getByRole('button', { name: 'Unlock', exact: true }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Unlock/ }).click();
   await token.hover();
   await expect(preview).toBeVisible();
 });
