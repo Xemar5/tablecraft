@@ -15,6 +15,10 @@ type Props = {
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
   onSpawn: (component: Component, rows: number[], point: { x: number; y: number }, stacked?: boolean) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
+  /** Online without a seat: the table is read-only, but pieces can still be selected and inspected. */
+  viewer?: boolean;
+  /** Online seat actions: leave your seat to watch, or take a brand-new seat. */
+  onWatch?: () => void; onNewSeat?: () => void;
   inspectorVisible: boolean; layersVisible?: boolean; handVisible: boolean;
   /** Your profile defaults, used for the first seat you add. */
   defaultSeat?: { name: string; color: string };
@@ -23,8 +27,10 @@ type Props = {
   panels: ReturnType<typeof usePanelLayout>;
 };
 const ROLL_MS = 650;
+const VIEWER_NOTICE = 'You are watching as a viewer. Take a seat in Players to play.';
+const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: p, actor, owner, host = false, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
+export function Playground({ project: p, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -114,11 +120,12 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
   const dispatch = useCallback((command: Command) => {
+    if (viewer && !(host && SEAT_COMMANDS.has(command.type))) { notify(VIEWER_NOTICE, true); return Promise.resolve(false); }
     if (command.type === 'draw' || command.type === 'drawMany' || command.type === 'drawSelection' || command.type === 'transferToHand') {
       return dispatchCommand({ ...command, faceUp: p.players.find(player => player.id === command.playerId)?.handFaceUp ?? true });
     }
     return dispatchCommand(command);
-  }, [dispatchCommand, p.players]);
+  }, [dispatchCommand, p.players, viewer, host, notify]);
   const [handDrag, setHandDrag] = useState<{ id: string; x: number; y: number }>();
   const [insertion, setInsertion] = useState<number>();
   const [dropHint, setDropHint] = useState<{ id: string; x: number; y: number }>();
@@ -288,11 +295,16 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     previewSeat(at.x, at.y);
     return true;
   };
-  // The room host may edit every seat, and the active player may edit the other hotseat seats on this device (offline or owned by
-  // this client online). Changes to any seat other than the active one are flagged as overrides in the UI.
-  const hostOverride = (player: Player) => host && owner !== 'local' && player.owner !== owner;
-  const canEditSeat = (player: Player) => owner === 'local' || player.owner === owner || hostOverride(player);
-  const seatOverride = (player: Player): SeatOverride | undefined => player.id === actor || !canEditSeat(player) ? undefined : hostOverride(player) ? 'host' : 'hotseat';
+  // Offline, the active player may edit every hotseat seat on this device. Online, players edit their own seat and empty seats
+  // (viewers cannot), and the room host may edit every seat. Changes to a seat someone else plays, or to another hotseat
+  // seat, are flagged as overrides in the UI.
+  const online = owner !== 'local';
+  const hostOverride = (player: Player) => host && online && !!player.owner && player.owner !== owner;
+  const canEditSeat = (player: Player) => !online || player.owner === owner || (!player.owner && (!viewer || host)) || hostOverride(player);
+  const seatStatus = (player: Player) => !online ? actor === player.id ? 'Active seat' : 'Switch to this seat'
+    : player.owner === owner ? 'Your seat' : player.owner ? 'Taken by another player' : 'Empty seat · Click to take it';
+  const seatOverride = (player: Player): SeatOverride | undefined => player.id === actor || !canEditSeat(player) ? undefined
+    : hostOverride(player) ? 'host' : online ? undefined : 'hotseat';
   const rotateSeat = (player: Player, degrees: number) => {
     if (canEditSeat(player) && player.tableHandUnlocked) void dispatch({ type: 'player', player: { ...player, rotation: ((player.rotation + degrees) % 360 + 360) % 360 } });
   };
@@ -448,6 +460,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
       const shortcutPiece = hoveredPiece ?? piece;
       const draggedHandPiece = handDrag && p.instances.find(i => i.id === handDrag.id && i.holder === actor);
       if (e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f') { if (focusSelection()) e.preventDefault(); return; }
+      if (viewer) return;
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'f' && (draggedHandPiece || shortcutPiece)) {
         // A flipped stack can replace its top DOM node. Keep the active drag on the stable viewport.
         if (gesture.current && viewport.current && !gesture.current.pan) viewport.current.setPointerCapture(gesture.current.pointer);
@@ -501,12 +514,12 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     // Locked pieces ignore plain clicks so a box selection can start over them; Ctrl/Cmd-click still selects them.
     if (item.locked && !e.ctrlKey && !e.metaKey) return;
     e.stopPropagation();
-    const extracting = e.shiftKey && !!item.stack;
+    const extracting = !viewer && e.shiftKey && !!item.stack;
     const group = extracting ? [item.id] : stackMembers(p, item).map(i => i.id);
     const extending = !extracting && (e.shiftKey || e.ctrlKey || e.metaKey);
     const ids = extracting ? group : extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
     setSelected(ids);
-    if (!ids.includes(item.id)) return;
+    if (viewer || !ids.includes(item.id)) return;
     if (item.locked) { void dispatch({ type: 'front', ids: group }); return; }
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
     const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), positions, front: group };
@@ -643,7 +656,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
             const seatSpot = seatPosition?.id === player.id ? seatPosition : settling[player.id]?.to ?? player;
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);
             const remaining = playerHeld.filter(i => !handDrop?.ids.includes(i.id));
-            const canTake = player.id === actor || handPermissions(p, player.id).take;
+            const canTake = !viewer && (player.id === actor || handPermissions(p, player.id).take);
             return <button key={player.id} data-seat-id={player.id} aria-pressed={selectedSeatId === player.id} title={player.tableHandUnlocked ? `Drag ${player.name}'s seat` : `Select ${player.name}'s seat`} className={`seat-marker ${player.id === actor ? 'active' : ''} ${selectedSeatId === player.id ? 'seat-selected' : ''}`}
             onPointerDown={e => {
               e.stopPropagation(); seatMoved.current = false;
@@ -744,7 +757,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
               onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece}
               onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} tabIndex={0} role="button" aria-label={`${comp.name}${members.length > 1 ? `, stack of ${members.length}` : ''}`}
               onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); const ids = members.map(i => i.id); setSelected(e.shiftKey ? [...new Set([...selected, ...ids])] : ids); } }}
-              onDoubleClick={e => { if (item.locked) return; e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
+              onDoubleClick={e => { if (item.locked || viewer) return; e.stopPropagation(); if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); }}>
               {members.length > 1 && <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>}
               <ComponentView component={comp} components={p.components} row={rolling[item.id] ?? item.row} back={visibleBack(item)} />
               {members.length > 1 && <span className="stack-count"><Layers size={13} /> {members.length}</span>}
@@ -763,7 +776,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
         {p.settings.turns && turnPlayer && <div className="turn-pill" role="status" aria-label="Turn" onPointerDown={e => e.stopPropagation()}>
           <span className="turn-pill-avatar" style={{ background: turnPlayer.color }}>{turnPlayer.name.slice(0, 1).toUpperCase()}</span>
           <span className="turn-pill-name"><span className="turn-pill-label"><strong>{turnPlayer.name}</strong>'s turn</span>{turnPlayer.id === actor && <YouTag />}</span>
-          <button className="button primary" title={`Pass the turn to ${nextTurnPlayer?.name}`} onClick={endTurn}>End turn <ChevronRight size={13} /></button>
+          <button className="button primary" title={`Pass the turn to ${nextTurnPlayer?.name}`} disabled={viewer} onClick={endTurn}>End turn <ChevronRight size={13} /></button>
         </div>}
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><ZoomPresets levels={[.25, .5, .75, 1, 1.5, 2]} zoom={zoom} onSelect={level => changeZoom(level)}><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} />{Math.round(zoom * 100)}%</button></ZoomPresets><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
         {activePreviewId && !altDown && (() => {
@@ -783,9 +796,9 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
               <tr><th scope="row">Hide preview</th><td><kbd>Alt</kbd></td></tr>
             </tbody></table></div> : null;
         })()}
-        <div className="table-hint">Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</div>
+        <div className="table-hint">{viewer ? <>Watching as a viewer <span /> Click pieces to inspect them <span /> Take a seat in Players to play</> : <>Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</>}</div>
       </div>
-      {p.settings.hands && handVisible && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
+      {p.settings.hands && handVisible && !viewer && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}>
         <HorizontalScroll target={handScroller} contentClassName="hand-cards" className="hand-cards-scroll" label="Hand cards">{held.length ? held.map(item => {
          const comp = p.components.find(c => c.id === item.componentId)!;
           const draggingIds = handDrag ? selected.includes(handDrag.id) ? selected : [handDrag.id] : [];
@@ -882,8 +895,8 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     <aside id="playground-inspector-panel" className="inspector playground-inspector" style={{ width: panels.sizes.playgroundInspector, minWidth: 0, flex: `0 0 ${panels.sizes.playgroundInspector}px` }} hidden={!inspectorVisible}>
       <HorizontalScroll contentClassName="inspector-tabs" label="Table inspector tabs"><button className={panel === 'selection' ? 'active' : ''} onClick={() => setPanel('selection')}><MousePointer2 size={14} /> Selection</button><button className={panel === 'table' ? 'active' : ''} onClick={() => setPanel('table')}><Settings2 size={14} /> Table</button><button className={panel === 'players' ? 'active' : ''} onClick={() => setPanel('players')}><Users size={14} /> Players <span>{p.players.length}</span></button></HorizontalScroll>
       <div className="inspector-scroll">{panel === 'players' ? <>
-        <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">Hotseat</span></div>
-          <p className="help-text">No fixed player limit. Add seats for everyone sharing this screen.</p>
+        <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">{online ? viewer ? 'Watching' : 'Live' : 'Hotseat'}</span></div>
+          <p className="help-text">{online ? viewer ? 'You are watching. Pick an empty seat to start playing.' : 'Switch to any empty seat, or leave yours to watch.' : 'No fixed player limit. Add seats for everyone sharing this screen.'}</p>
           <div className="player-list">{p.players.map((player, index) => <div key={player.id} data-player-row={player.id}
             className={`player-row ${actor === player.id ? 'active' : ''}${playerDrag === player.id ? ' player-dragging' : ''}${playerDrop?.id === player.id ? ` player-drop-${playerDrop.position}` : ''}`}
             onDragOver={e => {
@@ -909,14 +922,16 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
                 const target = p.players[index + (e.key === 'ArrowUp' ? -1 : 1)];
                 if (target) movePlayer(player.id, target.id, e.key === 'ArrowUp' ? 'before' : 'after');
               }}><GripVertical size={14} /></button>
-            <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{p.settings.turns && turnPlayer?.id === player.id ? 'Current turn · ' : ''}{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
+            <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{p.settings.turns && turnPlayer?.id === player.id ? 'Current turn · ' : ''}{seatStatus(player)}</small></span></button>
             {canEditSeat(player) && <button className={`icon-button${seatOverride(player) ? ' host-override' : ''}`} title={seatOverride(player) ? `Edit ${player.name} (${seatOverride(player)} override)` : `Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
-          <button className="button full" onClick={() => {
-            const first = !p.players.some(player => player.owner === owner);
-            setSeatEditor({ id: uid('player'), owner, name: (first && defaultSeat?.name) || `Player ${p.players.length + 1}`,
+          {(!viewer || host) && <button className="button full" onClick={() => {
+            const first = !online && !p.players.length;
+            setSeatEditor({ id: uid('player'), owner: online ? '' : owner, name: (first && defaultSeat?.name) || `Player ${p.players.length + 1}`,
               color: first && defaultSeat ? defaultSeat.color : ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], ...nextSeatPlacement(p.players) });
-          }}><Plus size={15} /> Add hotseat player</button>
+          }}><Plus size={15} /> {online ? 'Add empty seat' : 'Add hotseat player'}</button>}
+          {online && (viewer ? onNewSeat && <button className="button full primary" onClick={onNewSeat}><Plus size={15} /> Take a new seat</button>
+            : onWatch && <button className="button full" onClick={onWatch}><Eye size={15} /> Leave seat and watch</button>)}
         </div>
       </> : panel === 'selection' ? <>
         {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={canEditSeat(selectedSeat)} override={seatOverride(selectedSeat)}
@@ -927,6 +942,11 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
           actions={<div className="seat-hand-actions" role="toolbar" aria-label={`${selectedSeat.name}'s hand actions`}>{handActions(selectedSeat)}</div>} /> :
         piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
+          {viewer ? <div className="viewer-inspect">
+            <p className="viewer-note" role="note"><Eye size={14} /> You are watching. Inspect freely; take a seat in Players to move or change pieces.</p>
+            <div className="stack-actions"><button className="button" onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={14} /> Focus</button>
+              {items.length > 1 && <button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>}</div>
+          </div> : <>
           <div className="action-grid">
             <button disabled={!selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable)} onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>
             <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
@@ -946,16 +966,17 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
             <button className="button" disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={14} /> Shuffle</button>
             <button className="button full" onClick={() => dispatch({ type: 'unstack', id: piece.id })}><Layers size={14} /> Spread stack</button></div>}
           {c.kind === 'dice' && <button className="button full" onClick={() => dispatch({ type: 'roll', ids: [piece.id], seed: crypto.getRandomValues(new Uint32Array(1))[0] })}><Dices size={16} /> Roll die</button>}
+          </>}
         </div> : <div className="inspector-section table-intro"><div className="intro-icon"><MousePointer2 size={23} /></div><h3>No component selected</h3><p>Select a component on the table or in your hand to see its settings and actions.</p></div>}
       </> : <>
-        <div className="inspector-section"><div className="section-title"><h3>Table settings</h3><Settings2 size={14} /></div>
+        <fieldset className="inspector-section table-settings" disabled={viewer}><div className="section-title"><h3>Table settings</h3><Settings2 size={14} /></div>
           <Toggle label="Show grid" checked={p.settings.grid} onChange={grid => dispatch({ type: 'settings', patch: { grid } })} />
           <Toggle label="Snap to grid" checked={p.settings.snap} onChange={snap => dispatch({ type: 'settings', patch: { snap } })} />
           {p.settings.snap && <NumberField deferred label="Grid size (px)" value={p.settings.gridSize} min={5} max={200} onChange={gridSize => dispatch({ type: 'settings', patch: { gridSize } })} />}
           <Toggle label="Player hands" description="Keep a little mystery" checked={p.settings.hands} onChange={hands => dispatch({ type: 'settings', patch: { hands } })} />
           <Toggle label="Turn tracker" checked={p.settings.turns} onChange={turns => dispatch({ type: 'settings', patch: { turns } })} />
           {p.settings.turns && <div className="turn-tracker"><span>UP NEXT</span><strong>{turnPlayer?.name ?? 'Add a player'}</strong><button className="button full primary" onClick={endTurn}>End turn <ChevronRight size={15} /></button></div>}
-        </div>
+        </fieldset>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><button className="text-button" onClick={() => setPanel('players')}>Manage</button></div>
           <div className="avatar-stack">{p.players.slice(0, 7).map(player => <button key={player.id} title={player.name} onClick={() => onSwitch(player)} style={{ background: player.color }}>{player.name[0]}</button>)}<button className="add-avatar" aria-label="Manage players" onClick={() => setPanel('players')}><Plus size={14} /></button></div>
           <p className="help-text">{p.players.length} players. One shared imagination.</p>
@@ -971,8 +992,8 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
           if (!`${name} ${comp.name}`.toLowerCase().includes(query.toLowerCase())) return null;
           const reorder = (offset: number) => { const ids = all.map(i => i.id); [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }); };
           return <div className="stack-search-row" key={i.id}><ComponentThumbnail component={comp} components={p.components} row={i.row} back={visibleBack(i)} width={43} /><div><strong>{name}</strong><small>{index === all.length - 1 ? 'Top of stack' : `Position ${index + 1}`} · {comp.name}</small></div>
-            <button className="icon-button" aria-label={`Move ${name} down`} disabled={!index || !i.stack} onClick={() => reorder(-1)}><ArrowDown size={16} /></button><button className="icon-button" aria-label={`Move ${name} up`} disabled={index === all.length - 1 || !i.stack} onClick={() => reorder(1)}><ArrowUp size={16} /></button>
-            <button className="button" disabled={!comp.hand || !p.settings.hands} onClick={() => {
+            <button className="icon-button" aria-label={`Move ${name} down`} disabled={viewer || !index || !i.stack} onClick={() => reorder(-1)}><ArrowDown size={16} /></button><button className="icon-button" aria-label={`Move ${name} up`} disabled={viewer || index === all.length - 1 || !i.stack} onClick={() => reorder(1)}><ArrowUp size={16} /></button>
+            <button className="button" disabled={viewer || !comp.hand || !p.settings.hands} onClick={() => {
               const ids = all.map(item => item.id).filter(id => id !== i.id); ids.push(i.id);
               if (i.stack) void dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }).then(ok => { if (ok) void dispatch({ type: 'draw', id: i.id, playerId: actor }); });
               else void dispatch({ type: 'draw', id: i.id, playerId: actor });
@@ -989,7 +1010,7 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
         <ColorField label="Player color" value={seatEditor.color} onChange={color => setSeatEditor({ ...seatEditor, color })} />
         <div className="field-grid"><NumberField label="Seat X" value={seatEditor.x} onChange={x => setSeatEditor({ ...seatEditor, x })} /><NumberField label="Seat Y" value={seatEditor.y} onChange={y => setSeatEditor({ ...seatEditor, y })} /></div>
         <NumberField label="Seat rotation" value={seatEditor.rotation} onChange={rotation => setSeatEditor({ ...seatEditor, rotation })} />
-        <p className="help-text">Seats and hands persist with the playground. The same SpaceTimeDB identity returns to its saved seats.</p>
+        <p className="help-text">Seats and hands persist with the playground. {online ? 'In live rooms a seat is freed when its player leaves; anyone can take an empty seat.' : 'Online players can take these seats when you host the table.'}</p>
         <div className="modal-actions"><button className="button primary" type="submit">Save seat</button></div>
       </form>
     </Modal>}

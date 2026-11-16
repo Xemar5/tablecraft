@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { Armchair, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { archiveSchema, canStack, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
@@ -85,7 +85,7 @@ export default function App() {
       element.removeEventListener('scroll', measure);
     };
   }, []);
-  const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link'>();
+  const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link' | 'seat'>();
   const [removeLink, setRemoveLink] = useState<Component>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number }>();
   const [session, setSession] = useState<LiveSession>();
@@ -136,12 +136,13 @@ export default function App() {
     if (!saveSettings(next)) notify('Unable to save settings in this browser. They apply until you reload.', true);
   };
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
-  // The room host can remove other players' seats; fall back to another owned seat instead of acting as a missing player.
+  // Online, the acting seat is whichever seat this identity occupies; without one the player watches as a viewer.
   useEffect(() => {
-    if (!session || !actor || project.players.some(player => player.id === actor)) return;
-    const own = project.players.find(player => player.owner === session.identity);
-    setActor(own?.id ?? '');
-    if (!own) notify('The host removed your seat. Rejoin the room to take a new seat.', true);
+    if (!session) return;
+    const own = project.players.find(player => player.owner === session.identity)?.id ?? '';
+    if (own === actor) return;
+    if (actor && !own && !project.players.some(player => player.id === actor)) notify('Your seat was removed. You are now watching as a viewer.', true);
+    setActor(own);
   }, [session, actor, project.players, notify]);
   useEffect(() => {
     if (storageError) return;
@@ -231,6 +232,7 @@ export default function App() {
       });
     });
   }, [actor, projectId, notify]);
+  const viewer = !!session && !actor;
   const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
   const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
   const undo = useCallback(() => {
@@ -256,17 +258,31 @@ export default function App() {
       if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]')) return;
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
       event.preventDefault();
-      if (undoCount) undo();
+      if (undoCount && !viewer) undo();
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [home, mode, modal, curtain, undoCount, undo]);
+  }, [home, mode, modal, curtain, undoCount, undo, viewer]);
   const edit = (id: string) => { setComponentId(id); setMode('designer'); };
+  const takeSeat = async (playerId: string) => {
+    const live = sessionRef.current;
+    if (!live) return false;
+    try { await live.takeSeat(playerId, playerName.trim() || settings.name.trim(), settings.color); return true; }
+    catch (error) { notify(error instanceof Error ? error.message : String(error), true); return false; }
+  };
   const switchPlayer = (player: Player) => {
-    if (session && player.owner !== session.identity) { notify('This seat belongs to another connected player.', true); return; }
+    if (session) {
+      if (player.owner === session.identity) return;
+      if (player.owner) { notify(`${player.name}'s seat is taken by another player.`, true); return; }
+      void takeSeat(player.id).then(ok => { if (ok) { setSelected([]); notify(`You took ${player.name}'s seat.`); } });
+      return;
+    }
     if (player.id !== actor) { setCurtain(player); setSelected([]); }
   };
+  const watch = () => { void takeSeat('').then(ok => { if (ok) { setSelected([]); notify('You left your seat and are now watching.'); } }); };
+  const newSeat = () => { void takeSeat(uid('player')).then(ok => { if (ok) { setSelected([]); notify('You took a new seat at the table.'); } }); };
   const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }, stacked = false) => {
+    if (viewer) { notify('You are watching as a viewer. Take a seat in Players to play.', true); return; }
     if (component.kind === 'dice') { rows = [0]; stacked = false; }
     if (!rows.length || rows.length > 1000 || rows.some(row => !Number.isSafeInteger(row) || row < 0 || row >= Math.max(component.rows.length, 1))) {
       notify('Choose up to 1,000 valid variants to spawn at once.', true); return;
@@ -342,19 +358,18 @@ export default function App() {
       if (!/^[A-Z0-9-]{4,40}$/.test(roomCode)) throw new Error('Use 4-40 uppercase letters, digits or hyphens for the room code.');
       const { connectRoom } = await import('./multiplayer');
       const live = await connectRoom({
-        uri, database, code: roomCode, host, project, playerId: uid('player'), name: playerName.trim(), color: settings.color,
+        uri, database, code: roomCode, host, project, playerId: host ? actor : '', name: playerName.trim(), color: settings.color,
       }, (next, history) => { setProject(next); setLiveUndo(history); }, message => notify(message, true), () => {
         sessionRef.current = undefined; setSession(undefined); notify('Disconnected. Your latest table is saved locally.', true);
       });
       sessionRef.current = live; setSession(live);
       const row = [...live.connection.db.roomState.iter()][0];
-      if (row) {
-        const liveProject: Project = JSON.parse(row.state);
-        const ownPlayer = liveProject.players.find(p => p.owner === live.identity);
-        if (ownPlayer) setActor(ownPlayer.id);
-      }
-      if (fromHome) { setMode('playground'); setSelected([]); setCurtain(undefined); }
-      setModal(undefined); notify(`Connected to ${roomCode}. Welcome to the table.`);
+      const ownPlayer = row ? (JSON.parse(row.state) as Project).players.find(p => p.owner === live.identity) : undefined;
+      setActor(ownPlayer?.id ?? '');
+      setCurtain(undefined); setSelected([]);
+      if (fromHome) setMode('playground');
+      if (ownPlayer) { setModal(undefined); notify(`Connected to ${roomCode}. Welcome to the table.`); }
+      else { setMode('playground'); setModal('seat'); notify(`Connected to ${roomCode}. Pick a seat or watch.`); }
     } catch (error) { setConnectionError(error instanceof Error ? error.message : String(error)); }
     finally { setConnecting(false); }
   };
@@ -386,8 +401,8 @@ export default function App() {
       {!home && <>
       <div className="project-heading compact-project"><h1>{project.name}</h1></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
-      {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain} onClick={undo}><Undo2 size={18} /></button>}
-      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-label={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
+      {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain || viewer} onClick={undo}><Undo2 size={18} /></button>}
+      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-label={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
       </>}
             {home && <div className="header-actions">{settingsButton}</div>}
     </header>
@@ -484,7 +499,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
@@ -494,6 +509,23 @@ export default function App() {
     </main>
     <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}
+    {modal === 'seat' && session && <Modal title="Pick your seat" subtitle="Take an empty seat to play, or watch the table as a viewer. You can switch any time from the Players tab." wide onClose={() => setModal(undefined)}>
+      <div className="seat-picker">
+        <div className="seat-picker-list">{project.players.map(player => {
+          const mine = player.owner === session.identity;
+          return <div className={`seat-option${mine ? ' mine' : ''}${player.owner && !mine ? ' taken' : ''}`} key={player.id}>
+            <span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span>
+            <span className="seat-option-name"><strong>{player.name}</strong><small>{mine ? 'Your seat' : player.owner ? 'Taken by another player' : 'Empty seat'}</small></span>
+            <button className="button seat-option-button" disabled={!!player.owner} aria-label={`Take ${player.name}'s seat`} onClick={() => { void takeSeat(player.id).then(ok => { if (ok) { setModal(undefined); notify(`You took ${player.name}'s seat.`); } }); }}><Armchair size={13} /> {mine ? 'Seated' : 'Take seat'}</button>
+          </div>;
+        })}
+        {!project.players.length && <p className="link-source-empty">This table has no seats yet. Take a new one to start playing.</p>}</div>
+        <div className="seat-picker-actions">
+          <button className="button" onClick={() => { void takeSeat('').then(ok => { if (ok) setModal(undefined); }); }}><Eye size={15} /> Watch as viewer</button>
+          <button className="button primary" onClick={() => { void takeSeat(uid('player')).then(ok => { if (ok) { setModal(undefined); notify('You took a new seat at the table.'); } }); }}><Plus size={15} /> Take a new seat</button>
+        </div>
+      </div>
+    </Modal>}
     {modal === 'link' && <Modal title="Link from another project" subtitle="Linked designs are read-only here. Their saved snapshot travels with this project." wide onClose={() => setModal(undefined)}>
       <div className="link-project-list">{archive.projects.filter(p => p.id !== project.id).map(source => <section key={source.id} className="link-source" aria-label={source.name}>
         <header className="link-source-header"><span className="link-source-icon"><Leaf size={18} /></span><span><strong>{source.name}</strong><small>{source.components.length} component{source.components.length === 1 ? '' : 's'}</small></span></header>

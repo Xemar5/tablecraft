@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { starterProject } from '../../src/templates';
+import { fillServer, pickSeat } from './liveSeat';
 
 test('live project links share readonly snapshots without requiring the source workspace', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
@@ -17,9 +18,11 @@ test('live project links share readonly snapshots without requiring the source w
     for (const [page, host] of [[a, true], [b, false]] as const) {
       if (!host) await page.goto('/');
       await page.getByRole('button', { name: /Invite players/ }).click();
+      await fillServer(page);
       await page.getByLabel('Room code', { exact: true }).fill(code);
       await page.getByRole('button', { name: host ? 'Host this table' : 'Join room', exact: true }).click();
-      await expect(page.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+      if (host) await expect(page.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+      else await pickSeat(page);
     }
     await a.getByRole('button', { name: 'Link from another project', exact: true }).click();
     await a.getByRole('button', { name: 'Link Spirit cards from Source artwork', exact: true }).click();

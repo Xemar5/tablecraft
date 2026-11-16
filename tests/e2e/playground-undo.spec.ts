@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Project } from '../../src/domain';
+import { settleJoin } from './liveSeat';
 
 async function state(page: Page): Promise<Project> {
   // Joining appends the remote project alongside this browser's original local workspace.
@@ -7,14 +8,20 @@ async function state(page: Page): Promise<Project> {
 }
 const undoButton = (page: Page) => page.getByRole('button', { name: 'Undo playground action', exact: true });
 
-async function connect(page: Page, code: string, host: boolean, name: string) {
+const server = process.env.TABLECRAFT_TEST_SERVER ?? 'http://127.0.0.1:3000';
+const database = process.env.TABLECRAFT_TEST_DATABASE ?? 'tablecraft-studio';
+
+async function connect(page: Page, code: string, host: boolean, name: string, seat: 'new' | { seat: string } = 'new') {
   await page.goto('/');
   if (await page.getByRole('region', { name: 'Project home' }).count()) await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
   await page.getByRole('button', { name: /Invite players/ }).click();
   await page.getByLabel('Your name', { exact: true }).fill(name);
+  await page.getByLabel('SpaceTimeDB server', { exact: true }).fill(server);
+  await page.getByLabel('Database name', { exact: true }).fill(database);
   await page.getByLabel('Room code', { exact: true }).fill(code);
   await page.getByRole('button', { name: host ? 'Host this table' : 'Join room', exact: true }).click();
-  await expect(page.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+  await settleJoin(page, seat);
+
 }
 
 test('offline toolbar and Ctrl/Cmd+Z undo while typing, dialogs and Designer keep their own shortcuts', async ({ page }) => {
@@ -68,7 +75,7 @@ test('live undo is global, serialized, preserves joins, and rejects spoofed acto
     await a.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
     await expect(undoButton(b)).toBeEnabled();
     await b.reload();
-    await connect(b, code, false, 'Bob');
+    await connect(b, code, false, 'Bob', { seat: 'Bob' });
     await expect(undoButton(b)).toBeEnabled();
     await expect.poll(async () => (await state(b)).players).toEqual(before.players);
     // A joining player must neither clear undo nor disappear when it is used.
@@ -104,12 +111,12 @@ test('live undo is global, serialized, preserves joins, and rejects spoofed acto
 
     await a.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
     await expect(undoButton(b)).toBeEnabled();
-    const rejection = await b.evaluate(async ({ code, project }) => {
+    const rejection = await b.evaluate(async ({ code, project, server, database }) => {
       // Use Bob's stored authenticated token, but claim Alice's actor ID.
       const modulePath = '/src/multiplayer.ts';
       const { connectRoom } = await import(/* @vite-ignore */ modulePath);
       const live = await connectRoom({
-        uri: 'http://127.0.0.1:3000', database: 'tablecraft-studio', code, host: false,
+        uri: server, database, code, host: false,
         project, playerId: 'unused-actor', name: 'Bob', color: '#ffffff',
       }, () => {}, () => {}, () => {});
       try {
@@ -118,8 +125,8 @@ test('live undo is global, serialized, preserves joins, and rejects spoofed acto
       } catch (error) {
         return String(error);
       } finally { live.disconnect(); }
-    }, { code, project: await state(b) });
-    expect(rejection).toContain('Choose one of your own hotseat players');
+    }, { code, project: await state(b), server, database });
+    expect(rejection).toContain('Undo as your own seat');
     await expect.poll(async () => (await state(a)).instances.length).toBe(before.instances.length + 1);
     await undoButton(b).click();
     await expect.poll(async () => (await state(a)).instances.length).toBe(before.instances.length);

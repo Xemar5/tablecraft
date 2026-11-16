@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { pickSeat } from './liveSeat';
 
 test('live table hands enforce per-hand permissions, indexed transfers and undo', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
@@ -12,7 +13,8 @@ test('live table hands enforce per-hand permissions, indexed transfers and undo'
       await page.getByLabel('Database name', { exact: true }).fill(process.env.TABLECRAFT_TEST_DATABASE ?? 'tablecraft-studio');
       await page.getByLabel('Room code', { exact: true }).fill(code);
       await page.getByRole('button', { name: host ? 'Host this table' : 'Join room', exact: true }).click();
-      await expect(page.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+      if (host) await expect(page.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+      else await pickSeat(page, { seat: 'Player 2' });
     }
     const otherId = await b.locator('.seat-marker.active').getAttribute('data-seat-id');
     const otherSeat = a.locator(`[data-seat-id="${otherId}"]`);

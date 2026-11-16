@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fillServer, pickSeat, settleJoin } from './liveSeat';
 import type { Archive } from '../../src/domain';
 
 async function workspace(page: Page): Promise<Archive> {
@@ -383,15 +384,17 @@ test('two real SpaceTimeDB clients share pieces, live designs, hands and returni
   await a.goto('/');
   await a.getByRole('button', { name: 'Invite players', exact: false }).click();
   await a.getByLabel('Your name', { exact: true }).fill('Alice');
+  await fillServer(a);
   await a.getByLabel('Room code', { exact: true }).fill(code);
   await a.getByRole('button', { name: 'Host this table' }).click();
   await expect(a.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
   await b.goto('/');
   await b.getByRole('button', { name: 'Invite players', exact: false }).click();
   await b.getByLabel('Your name', { exact: true }).fill('Bob');
+  await fillServer(b);
   await b.getByLabel('Room code', { exact: true }).fill(code);
   await b.getByRole('button', { name: 'Join room', exact: true }).click();
-  await expect(b.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+  await pickSeat(b);
   await expect(a.locator('.seat-marker')).toHaveCount(3);
   await b.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
   await expect(a.getByText('23 pieces on the table', { exact: true })).toBeVisible();
@@ -416,9 +419,10 @@ test('two real SpaceTimeDB clients share pieces, live designs, hands and returni
   await expect(a.getByLabel("Bob's hand", { exact: true })).toContainText('W I L D W O O D');
   await b.reload();
   await b.getByRole('button', { name: 'Invite players', exact: false }).click();
+  await fillServer(b);
   await b.getByLabel('Room code', { exact: true }).fill(code);
   await b.getByRole('button', { name: 'Join room', exact: true }).click();
-  await expect(b.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+  await settleJoin(b, { seat: 'Bob' });
   await expect(b.locator('.hand-card')).toHaveCount(1);
   await expect(b.locator('.seat-marker')).toHaveCount(3);
   await expect(b.locator('.hand-tray')).toHaveAttribute('aria-label', "Bob's hand tray");
@@ -432,15 +436,17 @@ test('two real SpaceTimeDB clients share pieces, live designs, hands and returni
   await a.getByRole('button', { name: 'Load', exact: true }).click();
   await expect(a.locator('.project-heading h1')).toHaveText('Multiplayer restore');
   await a.getByRole('button', { name: 'Invite players', exact: false }).click();
+  await fillServer(a);
   await a.getByLabel('Room code', { exact: true }).fill(`${code}-RESTORE`);
   await a.getByRole('button', { name: 'Host this table' }).click();
   await expect(a.locator('.connection-badge')).toHaveText('Live session');
   await b.locator('.connection-badge').click();
   await b.getByRole('button', { name: 'Leave session & keep local copy' }).click();
   await b.getByRole('button', { name: 'Invite players', exact: false }).click();
+  await fillServer(b);
   await b.getByLabel('Room code', { exact: true }).fill(`${code}-RESTORE`);
   await b.getByRole('button', { name: 'Join room', exact: true }).click();
-  await expect(b.locator('.connection-badge')).toHaveText('Live session');
+  await settleJoin(b, { seat: 'Bob' });
   await expect(b.locator('.hand-card')).toHaveCount(1);
   await expect(b.locator('.seat-marker')).toHaveCount(3);
   await expect(b.locator('.hand-tray')).toHaveAttribute('aria-label', "Bob's hand tray");
@@ -601,15 +607,17 @@ test('multiplayer synchronizes atomic hand and stack interactions', async ({ bro
   await a.goto('/');
   await a.getByRole('button', { name: /Invite players/ }).click();
   await a.getByLabel('Your name', { exact: true }).fill('Alice');
+  await fillServer(a);
   await a.getByLabel('Room code', { exact: true }).fill(code);
   await a.getByRole('button', { name: 'Host this table' }).click();
   await expect(a.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
   await b.goto('/');
   await b.getByRole('button', { name: /Invite players/ }).click();
   await b.getByLabel('Your name', { exact: true }).fill('Bob');
+  await fillServer(b);
   await b.getByLabel('Room code', { exact: true }).fill(code);
   await b.getByRole('button', { name: 'Join room', exact: true }).click();
-  await expect(b.locator('.connection-badge')).toHaveText('Live session', { timeout: 20000 });
+  await pickSeat(b);
   const deck = b.locator('.table-piece').filter({ has: b.locator('.stack-count') });
   await deck.hover();
   await b.keyboard.press('2');
