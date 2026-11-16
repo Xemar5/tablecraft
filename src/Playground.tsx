@@ -53,6 +53,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number }>();
   const marqueeGesture = useRef<{ x: number; y: number; ids: string[] }>(null);
   const handGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
+  const handSelectionAnchor = useRef<string>(undefined);
+  const handClickSuppressed = useRef(false);
   const tableHandGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
   const gesture = useRef<{ pointer: number; x: number; y: number; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number } }>(null);
   const piece = p.instances.find(i => i.id === selected.at(-1));
@@ -64,6 +66,29 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
   if (searchedItems[0]?.stackReversed) searchedItems.reverse();
   const topPieces = p.instances.filter(i => !i.holder && (!i.stack || visibleStackMembers(p, i).at(-1)?.id === i.id));
   const selectedPieces = p.instances.filter(i => selected.includes(i.id));
+  const selectHandCard = (id: string, event: React.MouseEvent) => {
+    if (handClickSuppressed.current) { handClickSuppressed.current = false; return; }
+    const anchor = held.findIndex(i => i.id === handSelectionAnchor.current);
+    const index = held.findIndex(i => i.id === id);
+    if (event.shiftKey && anchor >= 0 && selected.some(id => held.some(i => i.id === id))) {
+      const range = held.slice(Math.min(anchor, index), Math.max(anchor, index) + 1).map(i => i.id);
+      setSelected(event.ctrlKey || event.metaKey ? [...new Set([...selected, ...range])] : range);
+    } else {
+      handSelectionAnchor.current = id;
+      setSelected(event.ctrlKey || event.metaKey
+        ? selected.includes(id) ? selected.filter(key => key !== id) : [...selected.filter(key => held.some(i => i.id === key)), id]
+        : [id]);
+    }
+  };
+  useEffect(() => {
+    const clear = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('[data-hand-id],[data-mini-id]')) return;
+      handSelectionAnchor.current = undefined;
+      if (selected.some(id => held.some(i => i.id === id))) setSelected([]);
+    };
+    document.addEventListener('pointerdown', clear, true);
+    return () => document.removeEventListener('pointerdown', clear, true);
+  }, [selected, held, setSelected]);
   const activePreviewId = handDrag?.id ?? (gesture.current && !gesture.current.pan ? Object.keys(gesture.current.positions).at(-1) : undefined) ?? previewItem;
   useEffect(() => {
     const element = handScroller.current;
@@ -472,11 +497,11 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
             <div className={`other-hand ${canTake ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} style={{ outlineOffset: 20 / zoom }} aria-label={`${player.name}'s hand`}>
               {playerHeld.map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
-                return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && canTake} className={`${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) || handDrag?.id === i.id ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
+                return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && canTake} className={`${player.id === actor && selected.includes(i.id) ? 'hand-selected' : ''} ${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) || handDrag?.id === i.id ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
                   onPointerDown={e => {
                     e.stopPropagation();
                     if (!canTake || i.locked || e.button !== 0) return;
-                    setSelected([i.id]);
+                    handClickSuppressed.current = false;
                     tableHandGesture.current = { pointer: e.pointerId, id: i.id, x: e.clientX, y: e.clientY };
                     e.currentTarget.setPointerCapture(e.pointerId);
                   }}
@@ -484,6 +509,8 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                     const g = tableHandGesture.current;
                     if (!g || g.id !== i.id || g.pointer !== e.pointerId || Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
                     e.stopPropagation();
+                    handClickSuppressed.current = true;
+                    setSelected([i.id]);
                     setHandDrag({ id: i.id, x: e.clientX, y: e.clientY });
                     showDropHint(e.clientX, e.clientY, [i], e.altKey);
                   }}
@@ -517,7 +544,7 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
                     }
                   }}
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined); }}
-                  onClick={e => e.stopPropagation()}>
+                  onClick={e => { e.stopPropagation(); if (player.id === actor) selectHandCard(i.id, e); }}>
                   <ComponentThumbnail component={comp} components={p.components} row={i.row} back={i.flipped} hidden={player.id === actor ? handHidden : comp.hideInHand} width={44} />
                 </div>;
               })}
@@ -572,15 +599,16 @@ export function Playground({ project: p, actor, owner, selected, setSelected, in
          const comp = p.components.find(c => c.id === item.componentId)!;
           const draggingIds = handDrag ? selected.includes(handDrag.id) ? selected : [handDrag.id] : [];
           const remaining = held.filter(i => !draggingIds.includes(i.id));
-          return <div key={item.id} className={`hand-entry ${draggingIds.includes(item.id) ? 'hand-drag-source' : ''} ${insertion !== undefined && remaining[insertion]?.id === item.id ? 'hand-insert-before' : ''}`}><button data-hand-id={item.id} className={`hand-card ${selected.includes(item.id) ? 'hand-selected' : ''}`} title="Drag onto the table to play or onto another card to reorder" aria-label={`Drag ${comp.name} to the table or reorder it in hand`} onClick={e => {
-            if (e.shiftKey || e.ctrlKey || e.metaKey) setSelected(selected.includes(item.id) ? selected.filter(id => id !== item.id) : [...selected, item.id]);
-          }} onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece} onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} onPointerDown={e => {
+          return <div key={item.id} className={`hand-entry ${draggingIds.includes(item.id) ? 'hand-drag-source' : ''} ${insertion !== undefined && remaining[insertion]?.id === item.id ? 'hand-insert-before' : ''}`}><button data-hand-id={item.id} aria-pressed={selected.includes(item.id)} className={`hand-card ${selected.includes(item.id) ? 'hand-selected' : ''}`} title="Drag onto the table to play or onto another card to reorder" aria-label={`Drag ${comp.name} to the table or reorder it in hand`} onClick={e => selectHandCard(item.id, e)} onPointerEnter={e => enterPiece(e, item.id)} onPointerLeave={leavePiece} onFocus={() => { setHovered(item.id); setPreviewItem(item.id); }} onBlur={() => { setHovered(undefined); setPreviewItem(undefined); }} onPointerDown={e => {
             if (e.button !== 0) return;
+            handClickSuppressed.current = false;
             handGesture.current = { pointer: e.pointerId, id: item.id, x: e.clientX, y: e.clientY };
             e.currentTarget.setPointerCapture(e.pointerId);
           }} onPointerMove={e => {
             const g = handGesture.current;
             if (g && g.pointer === e.pointerId && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) {
+              handClickSuppressed.current = true;
+              if (!selected.includes(item.id)) { setSelected([item.id]); handSelectionAnchor.current = item.id; }
               setHandDrag({ id: item.id, x: e.clientX, y: e.clientY });
               setInsertion(handInsertion(e.clientX, e.clientY, selected.includes(item.id) ? held.filter(i => selected.includes(i.id)).map(i => i.id) : [item.id]));
               showDropHint(e.clientX, e.clientY, selected.includes(item.id) ? held.filter(i => selected.includes(i.id)) : [item], e.altKey);

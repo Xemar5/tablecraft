@@ -217,6 +217,33 @@ test('visible hands accept cards by default and allow taking only when enabled',
   await expect.poll(async () => (await workspace(page)).projects[0].instances.filter(i => i.holder === 'player-2').length).toBe(0);
 });
 
+test('hand selection supports plain clicks, ranges, toggles and clearing outside', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).hover();
+  await page.keyboard.press('5');
+  const cards = page.locator('.hand-card');
+  const selected = page.locator('.hand-card.hand-selected');
+  await cards.nth(1).click();
+  await expect(cards.nth(1)).toHaveAttribute('aria-pressed', 'true');
+  await expect(selected).toHaveCount(1);
+  await cards.nth(4).click({ modifiers: ['Shift'] });
+  await expect(selected).toHaveCount(4);
+  await cards.nth(2).click({ modifiers: ['Shift'] });
+  await expect(selected).toHaveCount(2);
+  await cards.nth(0).click({ modifiers: ['Control'] });
+  await expect(selected).toHaveCount(3);
+  await cards.nth(1).click({ modifiers: ['Control'] });
+  await expect(selected).toHaveCount(2);
+  await cards.nth(4).click();
+  await expect(selected).toHaveCount(1);
+  await expect(cards.nth(4)).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('.hand-toolbar').click({ position: { x: 5, y: 5 } });
+  await expect(selected).toHaveCount(0);
+  await cards.nth(2).click({ modifiers: ['Shift'] });
+  await expect(selected).toHaveCount(1);
+  await expect(cards.nth(2)).toHaveAttribute('aria-pressed', 'true');
+});
+
 test('selected hand cards move and stack as a group', async ({ page }) => {
   await page.goto('/');
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
