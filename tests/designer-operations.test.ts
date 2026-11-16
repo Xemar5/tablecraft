@@ -44,15 +44,16 @@ describe('designer subtree operations', () => {
     expect(result.nodes[0].y).toBeCloseTo(50);
   });
 
-  it('rejects unsafe flow, clipping and sibling reorder cases', () => {
+  it('rejects unsafe flow and sibling reorder cases and ungroups overflowing children in place', () => {
     const frame = makeNode('frame', { layout: 'row', fill: 'transparent' });
     const child = makeNode('shape', { parent: frame.id });
     expect(() => groupLayers([frame, child], [child.id])).toThrow('flow');
     expect(() => ungroupLayers([frame, child], [frame.id])).toThrow('absolute');
     const [a, b, c] = [makeNode('shape'), makeNode('shape'), makeNode('shape')];
     expect(() => groupLayers([a, b, c], [a.id, c.id])).toThrow('consecutive');
-    const clip = makeNode('frame', { width: 30, height: 30, fill: 'transparent' });
-    expect(() => ungroupLayers([clip, { ...child, parent: clip.id }], [clip.id])).toThrow('clipped');
+    const small = makeNode('frame', { x: 5, y: 7, width: 30, height: 30, radius: 8, fill: 'transparent' });
+    const overflowing = { ...child, parent: small.id, x: 20, y: -10, width: 100, height: 60 };
+    expect(ungroupLayers([small, overflowing], [small.id]).nodes[0]).toMatchObject({ parent: null, x: 25, y: -3 });
   });
 
   it('creates live compounds and round-trips editable source subtrees', () => {

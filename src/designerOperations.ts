@@ -84,10 +84,6 @@ export function ungroupLayers(nodes: DesignNode[], ids: string[]): { nodes: Desi
       throw new Error('Ungrouping requires fixed-size absolute layouts to preserve placement.');
     }
     if (group.opacity !== 1 || group.fill !== 'transparent') throw new Error('Ungrouping requires a transparent, opaque frame to preserve its appearance.');
-    if (group.radius !== 0 || children.some(child => {
-      const box = bounds(child);
-      return box.left < -1e-8 || box.top < -1e-8 || box.right > group.width + 1e-8 || box.bottom > group.height + 1e-8;
-    })) throw new Error('Ungrouping this frame would change clipped content.');
   }
   const byId = new Map(groups.map(group => [group.id, group]));
   const children = nodes.filter(node => node.parent && groupIds.has(node.parent));

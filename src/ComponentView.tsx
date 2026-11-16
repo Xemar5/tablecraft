@@ -58,7 +58,7 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
       justifyContent: node.type === 'text' ? 'center' : undefined,
       textAlign: node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : 'center',
       outline: selectedIds.includes(node.id) ? '2px solid #c5e497' : undefined,
-      overflow: node.type === 'component' ? 'hidden' : node.type === 'shape' && node.shapeKind === 'path' ? 'visible' : undefined,
+      overflow: node.type === 'component' ? 'hidden' : node.type === 'frame' || (node.type === 'shape' && node.shapeKind === 'path') ? 'visible' : undefined,
     };
     let nested: React.ReactNode;
     if (node.type === 'component') {
