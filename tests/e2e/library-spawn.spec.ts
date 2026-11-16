@@ -74,7 +74,7 @@ test('cancelled and invalid drags do not spawn, and all variants can still be cl
   await page.goto('/');
   const before = await state(page);
   const card = page.locator('.library-item').filter({ has: page.getByRole('button', { name: 'Spawn Spirit cards', exact: true }) });
-  await card.getByRole('button', { name: 'Spawn Spirit cards', exact: true }).dragTo(page.locator('.library-footer'));
+  await card.getByRole('button', { name: 'Spawn Spirit cards', exact: true }).dragTo(page.locator('.library-heading'));
   expect((await state(page)).instances).toEqual(before.instances);
   const viewport = page.locator('.table-viewport');
   await viewport.evaluate(el => {

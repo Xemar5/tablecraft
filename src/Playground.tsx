@@ -6,6 +6,7 @@ import { canStack, handPermissions, nextSeatPlacement, stackMembers, uid, visibl
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
+import { PlaygroundLayers } from './PlaygroundLayers';
 
 type Placement = { x: number; y: number; rotation: number };
 type Props = {
@@ -13,14 +14,14 @@ type Props = {
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
   onSpawn: (component: Component, rows: number[], point: { x: number; y: number }, stacked?: boolean) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
-  inspectorVisible: boolean; handVisible: boolean;
+  inspectorVisible: boolean; layersVisible?: boolean; handVisible: boolean;
   onShowInspector: () => void;
   panel: 'selection' | 'table' | 'players'; setPanel: (panel: 'selection' | 'table' | 'players') => void;
   panels: ReturnType<typeof usePanelLayout>;
 };
 const ROLL_MS = 650;
 
-export function Playground({ project: p, actor, owner, host = false, selected, setSelected, inspectorVisible, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
+export function Playground({ project: p, actor, owner, host = false, selected, setSelected, inspectorVisible, layersVisible = true, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -538,6 +539,11 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     gesture.current = null; setPreview({}); setDropHint(undefined);
   };
   return <div className="playground-layout">
+    {layersVisible && <><aside id="playground-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
+      <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{topPieces.length}</span></div>
+      <PlaygroundLayers project={p} selected={selected} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
+    </aside>
+    <PanelSeparator label="Resize table layers" controls="playground-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
     <section className="table-section" onPointerMoveCapture={e => {
       if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id]')) positionPreview(e.clientX);
     }}>

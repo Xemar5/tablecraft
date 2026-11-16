@@ -1,20 +1,19 @@
 import { expect, test } from '@playwright/test';
 
-test('library footer omits file actions and empty linking offers Home navigation', async ({ page }) => {
+test('library header offers linking and adding, the footer is gone, and empty linking offers Home navigation', async ({ page }) => {
   await page.goto('/');
-  const footer = page.locator('.library-footer');
-  await expect(footer.getByRole('button', { name: 'Import', exact: true })).toHaveCount(0);
-  await expect(footer.getByRole('button', { name: 'Export', exact: true })).toHaveCount(0);
-  const linkButton = footer.getByRole('button', { name: 'Link from another project', exact: true });
-  for (const width of [1280, 800]) {
-    await page.setViewportSize({ width, height: 800 });
-    const footerBounds = await footer.boundingBox();
-    const buttonBounds = await linkButton.boundingBox();
-    expect(footerBounds).not.toBeNull();
-    expect(buttonBounds).not.toBeNull();
-    expect(footerBounds!.y + footerBounds!.height - buttonBounds!.y - buttonBounds!.height).toBeGreaterThanOrEqual(14);
+  await expect(page.locator('.library-footer')).toHaveCount(0);
+  const heading = page.locator('.library-heading');
+  for (const mode of ['Playground', 'Component designer']) {
+    await page.getByRole('button', { name: mode, exact: true }).click();
+    await expect(heading.getByRole('button', { name: 'Add component', exact: true })).toBeVisible();
+    await expect(heading.getByRole('button', { name: 'Link from another project', exact: true })).toBeVisible();
   }
-  await footer.getByRole('button', { name: 'Link from another project', exact: true }).click();
+  const link = (await heading.getByRole('button', { name: 'Link from another project', exact: true }).boundingBox())!;
+  const add = (await heading.getByRole('button', { name: 'Add component', exact: true }).boundingBox())!;
+  expect(link.x).toBeLessThan(add.x);
+  expect(Math.abs(link.y + link.height / 2 - add.y - add.height / 2)).toBeLessThan(2);
+  await heading.getByRole('button', { name: 'Link from another project', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Link from another project', exact: true });
   await expect(dialog.getByRole('heading', { name: 'No other projects yet', exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Go to Home', exact: true }).click();

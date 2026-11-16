@@ -109,9 +109,9 @@ function transformBox(node: DesignNode, nodes: DesignNode[]) {
   return center && { ...center, angle: nodeAngle(node, nodes) + node.rotation * Math.PI / 180 };
 }
 
-export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels }: {
+export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels, layersVisible = true }: {
   component: Component; components: Component[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
-  tab: 'design' | 'behavior'; setTab: (tab: 'design' | 'behavior') => void; panels: ReturnType<typeof usePanelLayout>;
+  tab: 'design' | 'behavior'; setTab: (tab: 'design' | 'behavior') => void; panels: ReturnType<typeof usePanelLayout>; layersVisible?: boolean;
 }) {
   const [component, setComponent] = useState(incoming);
   const pending = useRef(0);
@@ -599,7 +599,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     onInputCapture={event => { if (isFormControl(event.target)) beginEdit(event.target); }}
     onPointerDownCapture={event => { if (event.target instanceof HTMLInputElement && ['number', 'range'].includes(event.target.type)) beginEdit(event.target); }}
     onPointerUp={event => endEdit(event.target)} onPointerCancel={event => endEdit(event.target)} onBlur={event => endEdit(event.target)}>
-    <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
+    <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }} hidden={!layersVisible}>
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
       <HorizontalScroll contentClassName="face-tabs" label="Component faces"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
         <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></HorizontalScroll>
@@ -608,7 +608,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       </div>
       <div className="layer-footer"><button onClick={() => { setCsv(component.csv); setDataOpen(true); }}><Database size={16} /><span>Data bindings<small>{component.rows.length} rows connected</small></span><ChevronRight size={14} /></button></div>
     </aside>
-    <PanelSeparator label="Resize designer layers" controls="designer-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} />
+    {layersVisible && <PanelSeparator label="Resize designer layers" controls="designer-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} />}
     <section className="designer-canvas">
       <div className={`designer-toolbar-scroll${toolbarEdges.left ? ' overflow-left' : ''}${toolbarEdges.right ? ' overflow-right' : ''}`}>
       <ScrollArrows target={toolbar} {...toolbarEdges} label="designer toolbar" />

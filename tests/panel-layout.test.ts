@@ -16,4 +16,9 @@ describe('panel sizing', () => {
     expect(resolved.limits.hand.max).toBe(180);
     expect(clampPanel(900, 90, 180)).toBe(180);
   });
+  it('fits the layers panel in both modes only while it is visible', () => {
+    expect(resolvePanelSizes(sizes, 1400, 650, 'playground', true, true).limits.layers).toBeDefined();
+    expect(resolvePanelSizes(sizes, 1400, 650, 'playground', true, true, false).limits.layers).toBeUndefined();
+    expect(resolvePanelSizes(sizes, 1400, 650, 'designer', true, true, false).limits.layers).toBeUndefined();
+  });
 });

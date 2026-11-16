@@ -32,10 +32,11 @@ function readSizes(): { sizes: Sizes; error?: string } {
 }
 
 // Keep preferred sizes independently of the temporary viewport-constrained sizes.
-export function resolvePanelSizes(preferred: Sizes, width: number, height: number, mode: 'designer' | 'playground', libraryVisible: boolean, inspectorVisible: boolean) {
+export function resolvePanelSizes(preferred: Sizes, width: number, height: number, mode: 'designer' | 'playground', libraryVisible: boolean, inspectorVisible: boolean, layersVisible = true) {
   const active: PanelName[] = [
     ...(libraryVisible ? ['library' as const] : []),
-    ...(mode === 'designer' ? ['layers' as const, 'designerInspector' as const] : inspectorVisible ? ['playgroundInspector' as const] : []),
+    ...(layersVisible ? ['layers' as const] : []),
+    ...(mode === 'designer' ? ['designerInspector' as const] : inspectorVisible ? ['playgroundInspector' as const] : []),
   ];
   const sizes = { ...preferred };
   const budget = Math.max(0, width - 200 - active.length * 6);
@@ -62,7 +63,7 @@ export function resolvePanelSizes(preferred: Sizes, width: number, height: numbe
   return { sizes, limits };
 }
 
-export function usePanelLayout(mode: 'designer' | 'playground', libraryVisible: boolean, inspectorVisible: boolean, notify: (message: string, error?: boolean) => void) {
+export function usePanelLayout(mode: 'designer' | 'playground', libraryVisible: boolean, inspectorVisible: boolean, layersVisible: boolean, notify: (message: string, error?: boolean) => void) {
   const [initial] = useState(readSizes);
   const [preferred, setPreferred] = useState(initial.sizes);
   const [bounds, setBounds] = useState({ width: 1440, height: 900 });
@@ -80,7 +81,7 @@ export function usePanelLayout(mode: 'designer' | 'playground', libraryVisible: 
     observer.observe(element);
     return () => observer.disconnect();
   }, [container]);
-  const { sizes, limits } = resolvePanelSizes(preferred, bounds.width, bounds.height, mode, libraryVisible, inspectorVisible);
+  const { sizes, limits } = resolvePanelSizes(preferred, bounds.width, bounds.height, mode, libraryVisible, inspectorVisible, layersVisible);
   const resize = (name: PanelName, value: number) => {
     const limit = limits[name];
     if (!limit) return;

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, Link, LoaderCircle, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Search, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Search, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { archiveSchema, canStack, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
@@ -58,6 +58,7 @@ export default function App() {
   const [selected, setSelected] = useState<string[]>([]);
   const [libraryVisible, setLibraryVisible] = useState(true);
   const [inspectorVisible, setInspectorVisible] = useState(true);
+  const [layersVisible, setLayersVisible] = useState(true);
   const [handVisible, setHandVisible] = useState(true);
   const [actor, setActor] = useState(initialProject.players[0]?.id ?? '');
   const [curtain, setCurtain] = useState<Player>();
@@ -123,7 +124,7 @@ export default function App() {
   };
   const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
   const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
-  const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, notify);
+  const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, layersVisible, notify);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
   // The room host can remove other players' seats; fall back to another owned seat instead of acting as a missing player.
   useEffect(() => {
@@ -375,7 +376,7 @@ export default function App() {
       <div className="project-heading compact-project"><h1>{project.name}</h1><button className="icon-button" aria-label="Project settings" onClick={() => { setProjectName(project.name); setModal('projects'); }}><ChevronDown size={16} /></button></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
       {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain} onClick={undo}><Undo2 size={18} /></button>}
-      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
+      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title="Toggle layers panel" aria-label="Toggle layers panel" aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
       </>}
     </header>
     <Notice key={`${session?.code ?? 'offline'}:${project.id}`} message={undoNotice} role="status" hidden={home || mode !== 'playground'} />
@@ -405,7 +406,7 @@ export default function App() {
       })} />}
     <main className="main-layout" ref={panels.container} style={home ? { display: 'none' } : undefined}>
       <aside id="component-library-panel" className="library-panel" style={{ width: panels.sizes.library, minWidth: 0, flex: `0 0 ${panels.sizes.library}px` }} hidden={!libraryVisible}>
-        <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></div>
+        <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><span className="library-heading-actions"><button className="icon-button" aria-label="Link from another project" title="Link from another project" onClick={() => setModal('link')}><Link size={16} /></button><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></span></div>
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
         <div className={`library-filter-scroll${filterEdges.left ? ' overflow-left' : ''}${filterEdges.right ? ' overflow-right' : ''}`}>
           <ScrollArrows target={filterStrip} {...filterEdges} label="library filters" />
@@ -469,16 +470,13 @@ export default function App() {
         </div>)}
           {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
         </div>
-        <div className="library-footer"><button className="new-component-button" onClick={() => setModal('templates')}><Plus size={16} /> Create component</button>
-          <button className="new-component-button" onClick={() => setModal('link')}><Link size={14} /> Link from another project</button>
-        </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
-        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
+        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>

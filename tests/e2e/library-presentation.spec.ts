@@ -71,23 +71,23 @@ test('library drag ordering persists across modes, filters and reloads without s
   await expect(names).toHaveText(reordered);
 });
 
-test('create component stays in the fixed library footer in both modes', async ({ page }) => {
+test('layers panel toggles in both modes with its own icon, separate from the library toggle', async ({ page }) => {
   await page.goto('/');
-  for (const mode of ['Playground', 'Component designer']) {
+  const libraryToggle = page.getByRole('button', { name: 'Toggle component library', exact: true });
+  const layersToggle = page.getByRole('button', { name: 'Toggle layers panel', exact: true });
+  expect(await libraryToggle.locator('svg').getAttribute('class')).not.toEqual(await layersToggle.locator('svg').getAttribute('class'));
+  for (const [mode, id] of [['Playground', '#playground-layers-panel'], ['Component designer', '#designer-layers-panel']] as const) {
     await page.getByRole('button', { name: mode, exact: true }).click();
-    const create = page.locator('.library-footer').getByRole('button', { name: 'Create component', exact: true });
-    const list = page.locator('.component-library');
-    await expect(create).toBeVisible();
-    await expect(list.getByRole('button', { name: 'Create component', exact: true })).toHaveCount(0);
-    await list.evaluate(el => { el.scrollTop = 0; });
-    const initial = await create.boundingBox();
-    await list.evaluate(el => { el.scrollTop = el.scrollHeight; });
-    await expect(create).toBeInViewport();
-    expect(await create.boundingBox()).toEqual(initial);
-    await create.click();
-    await expect(page.getByRole('dialog')).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    const panel = page.locator(id);
+    await expect(panel).toBeVisible();
+    const library = (await page.locator('#component-library-panel').boundingBox())!;
+    expect((await panel.boundingBox())!.x).toBeGreaterThan(library.x + library.width - 1);
+    await layersToggle.click();
+    await expect(layersToggle).toHaveAttribute('aria-pressed', 'false');
+    await expect(panel).toBeHidden();
+    await expect(page.locator('#component-library-panel')).toBeVisible();
+    await layersToggle.click();
+    await expect(panel).toBeVisible();
   }
 });
 
