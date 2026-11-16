@@ -155,6 +155,17 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const pointDragging = useRef<PointDrag>(null);
   const pointSelectionNode = useRef<string | undefined>(undefined);
   const lastAnchorDown = useRef<{ nodeId: string; index: number; time: number } | null>(null);
+  // Continuous edits from one control (typing, sliders, scrubbing, held nudges) share a single undo entry.
+  const editSession = useRef<{ target: unknown; recorded: boolean } | null>(null);
+  const beginEdit = (target: unknown) => { if (editSession.current?.target !== target) editSession.current = { target, recorded: false }; };
+  const endEdit = (target: unknown) => { if (editSession.current?.target === target) editSession.current = null; };
+  const isFormControl = (target: EventTarget) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  useEffect(() => {
+    const element = designer.current; if (!element) return;
+    const change = (event: Event) => endEdit(event.target);
+    element.addEventListener('change', change);
+    return () => element.removeEventListener('change', change);
+  }, []);
   const nodes = component[face];
   const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
   const node = selectedNodes[0];
@@ -172,7 +183,9 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     return success;
   };
   const update = (patch: Partial<Component>, removedDataRow?: number) => {
-    setHistory(h => [...h.slice(-39), structuredClone(component)]);
+    const session = editSession.current?.target === 'nudge' || editSession.current?.target === document.activeElement ? editSession.current : null;
+    if (!session?.recorded) setHistory(h => [...h.slice(-39), structuredClone(component)]);
+    if (session) session.recorded = true;
     setFuture([]);
     return commit({ ...component, ...patch }, removedDataRow);
   };
@@ -306,11 +319,13 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     setSelectedPoint(index);
   };
   const undo = () => {
+    editSession.current = null;
     const previous = history.at(-1); if (!previous) return;
     setHistory(history.slice(0, -1)); setFuture([...future, component]);
     setSelected(current => current.filter(id => previous[face].some(item => item.id === id))); void commit(previous);
   };
   const redo = () => {
+    editSession.current = null;
     const next = future.at(-1); if (!next) return;
     setFuture(future.slice(0, -1)); setHistory([...history, component]);
     setSelected(current => current.filter(id => next[face].some(item => item.id === id))); void commit(next);
@@ -366,6 +381,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           const dx = key === 'arrowright' ? distance : key === 'arrowleft' ? -distance : 0;
           const dy = key === 'arrowdown' ? distance : key === 'arrowup' ? -distance : 0;
           const ids = new Set(roots.map(item => item.id));
+          if (event.repeat) beginEdit('nudge'); else editSession.current = { target: 'nudge', recorded: false };
           update({ [face]: nodes.map(item => {
             if (!ids.has(item.id)) return item;
             const angle = nodeAngle(item, nodes);
@@ -375,9 +391,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       } catch (error) { notify(error instanceof Error ? error.message : 'Unable to edit layers.', true); }
     };
     const keyup = (event: KeyboardEvent) => {
+      if (event.key.startsWith('Arrow')) endEdit('nudge');
       if (event.code === 'Space') { if (spacePanned.current) event.preventDefault(); spacePressed.current = false; spacePanned.current = false; }
     };
-    const blur = () => { spacePressed.current = false; spacePanned.current = false; panning.current = null; };
+    const blur = () => { spacePressed.current = false; spacePanned.current = false; panning.current = null; endEdit('nudge'); };
     window.addEventListener('keydown', keydown); window.addEventListener('keyup', keyup); window.addEventListener('blur', blur);
     return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('keyup', keyup); window.removeEventListener('blur', blur); };
   });
@@ -515,7 +532,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     dragging.current = { ids: activeIds, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, positions, angles };
     artboard.current?.setPointerCapture(event.pointerId);
   };
-  return <div ref={designer} className="designer-layout">
+  return <div ref={designer} className="designer-layout"
+    onInputCapture={event => { if (isFormControl(event.target)) beginEdit(event.target); }}
+    onPointerDownCapture={event => { if (event.target instanceof HTMLInputElement && ['number', 'range'].includes(event.target.type)) beginEdit(event.target); }}
+    onPointerUp={event => endEdit(event.target)} onPointerCancel={event => endEdit(event.target)} onBlur={event => endEdit(event.target)}>
     <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
       <HorizontalScroll contentClassName="face-tabs" label="Component faces"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>

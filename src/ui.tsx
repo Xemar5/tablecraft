@@ -173,13 +173,20 @@ export function ColorField({ label, value, onChange }: { label: string; value: s
     </div>
   </div>;
 }
-export function NumberField({ label, value, onChange, min, max, step = 1, icon }: {
+export function NumberField({ label, value, onChange, min, max, step = 1, icon, deferred = false }: {
   label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number; icon?: ReactNode;
+  /** Report the value only when typing, stepping or scrubbing finishes. */
+  deferred?: boolean;
 }) {
   const [draft, setDraft] = useState(String(value));
   const [editing, setEditing] = useState(false);
-  const drag = useRef<{ pointer: number; y: number; value: number }>(null);
-  useEffect(() => { if (!editing) setDraft(String(value)); }, [value, editing]);
+  const drag = useRef<{ pointer: number; y: number; value: number; next?: number }>(null);
+  const committed = useRef<number>(undefined);
+  useEffect(() => { committed.current = undefined; if (!editing) setDraft(String(value)); }, [value, editing]);
+  const endDrag = () => {
+    const next = drag.current?.next; drag.current = null;
+    if (deferred && next !== undefined && next !== value) { committed.current = next; onChange(next); }
+  };
   return <Field label={label} icon={icon}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step}
     onFocus={() => setEditing(true)}
     onPointerDown={e => {
@@ -191,20 +198,20 @@ export function NumberField({ label, value, onChange, min, max, step = 1, icon }
       const start = drag.current;
       if (!start || start.pointer !== e.pointerId || Math.abs(start.y - e.clientY) < 4) return;
       const next = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, Number((start.value + Math.trunc((start.y - e.clientY) / 4) * step).toFixed(10))));
-      setDraft(String(next)); onChange(next);
+      start.next = next; setDraft(String(next)); if (!deferred) onChange(next);
     }}
-    onPointerUp={() => { drag.current = null; }}
-    onPointerCancel={() => { drag.current = null; }}
+    onPointerUp={endDrag}
+    onPointerCancel={endDrag}
     onChange={e => {
       setDraft(e.target.value);
       const n = e.target.valueAsNumber;
-      if (Number.isFinite(n) && n >= (min ?? -Infinity) && n <= (max ?? Infinity)) onChange(n);
+      if (!deferred && Number.isFinite(n) && n >= (min ?? -Infinity) && n <= (max ?? Infinity)) onChange(n);
     }}
     onBlur={() => {
       const n = Number(draft);
       const next = draft.trim() && Number.isFinite(n) ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n)) : value;
       setDraft(String(next)); setEditing(false);
-      if (next !== value) onChange(next);
+      if (next !== value && next !== committed.current) onChange(next);
     }}
     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></Field>;
 }

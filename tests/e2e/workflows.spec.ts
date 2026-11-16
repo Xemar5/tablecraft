@@ -106,6 +106,8 @@ test('card wheel rotation, preview controls and numeric dragging work', async ({
   await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2);
   await page.mouse.down(); await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 - 20, { steps: 5 }); await page.mouse.up();
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBeGreaterThan(card.rotation + 15);
+  await page.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+  await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBe(card.rotation + 15);
 });
 
 test('flipping a stack while dragging retains the drag and displays the newly visible top', async ({ page }) => {
