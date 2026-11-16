@@ -429,9 +429,7 @@ export default function App() {
             <button className="icon-button" title={`Edit ${comp.name}`} aria-label={`Edit ${comp.name}`} onClick={() => edit(comp.id)}><Settings2 size={14} /></button></div>
           {comp.source && <div className="library-link-note"><small><Link size={11} /> Read-only · {comp.source.projectName}</small><button className="text-button" aria-label={`Make local copy of ${comp.name}`} onClick={() => void copyLinked(comp)}>Make local copy</button></div>}
           {mode === 'playground' && <>
-            {comp.rows.length > 1
-              ? <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i))} />
-              : <div className="library-item-options"><button onClick={() => spawn(comp, [0])}><Plus size={11} /> Spawn piece</button></div>}
+            {comp.rows.length > 1 && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i))} />}
           </>}
         </div>)}
           {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
