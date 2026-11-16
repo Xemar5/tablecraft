@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, handPermissions, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
-import { PlaygroundLayers } from './PlaygroundLayers';
+import { PlaygroundPieces } from './PlaygroundPieces';
 
 type Placement = { x: number; y: number; rotation: number };
 type Props = {
@@ -15,13 +15,15 @@ type Props = {
   onSpawn: (component: Component, rows: number[], point: { x: number; y: number }, stacked?: boolean) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
   inspectorVisible: boolean; layersVisible?: boolean; handVisible: boolean;
+  /** Your profile defaults, used for the first seat you add. */
+  defaultSeat?: { name: string; color: string };
   onShowInspector: () => void;
   panel: 'selection' | 'table' | 'players'; setPanel: (panel: 'selection' | 'table' | 'players') => void;
   panels: ReturnType<typeof usePanelLayout>;
 };
 const ROLL_MS = 650;
 
-export function Playground({ project: p, actor, owner, host = false, selected, setSelected, inspectorVisible, layersVisible = true, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
+export function Playground({ project: p, actor, owner, host = false, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels }: Props) {
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -539,11 +541,11 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
     gesture.current = null; setPreview({}); setDropHint(undefined);
   };
   return <div className="playground-layout">
-    {layersVisible && <><aside id="playground-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
-      <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{topPieces.length}</span></div>
-      <PlaygroundLayers project={p} selected={selected} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
+    {layersVisible && <><aside id="playground-pieces-panel" aria-label="Pieces" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}>
+      <div className="panel-heading"><span><Shapes size={15} /> Pieces</span><span className="subtle">{topPieces.length}</span></div>
+      <PlaygroundPieces project={p} selected={selected} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
     </aside>
-    <PanelSeparator label="Resize table layers" controls="playground-layers-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
+    <PanelSeparator label="Resize pieces panel" controls="playground-pieces-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
     <section className="table-section" onPointerMoveCapture={e => {
       if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id]')) positionPreview(e.clientX);
     }}>
@@ -885,7 +887,11 @@ export function Playground({ project: p, actor, owner, host = false, selected, s
             <button onClick={() => onSwitch(player)}><span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span><span><span className="player-row-name">{player.name}{actor === player.id && <YouTag />}</span><small>{p.settings.turns && turnPlayer?.id === player.id ? 'Current turn · ' : ''}{player.owner === owner || owner === 'local' ? actor === player.id ? 'Active seat' : 'Switch to this seat' : 'Remote player'}</small></span></button>
             {canEditSeat(player) && <button className={`icon-button${seatOverride(player) ? ' host-override' : ''}`} title={seatOverride(player) ? `Edit ${player.name} (${seatOverride(player)} override)` : `Edit ${player.name}`} aria-label={`Edit ${player.name}`} onClick={() => selectSeat(player)}><Settings2 size={14} /></button>}
           </div>)}</div>
-          <button className="button full" onClick={() => setSeatEditor({ id: uid('player'), owner, name: `Player ${p.players.length + 1}`, color: ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], ...nextSeatPlacement(p.players) })}><Plus size={15} /> Add hotseat player</button>
+          <button className="button full" onClick={() => {
+            const first = !p.players.some(player => player.owner === owner);
+            setSeatEditor({ id: uid('player'), owner, name: (first && defaultSeat?.name) || `Player ${p.players.length + 1}`,
+              color: first && defaultSeat ? defaultSeat.color : ['#b7cc91', '#ce9e7b', '#93b9ce', '#c4a4d5'][p.players.length % 4], ...nextSeatPlacement(p.players) });
+          }}><Plus size={15} /> Add hotseat player</button>
         </div>
       </> : panel === 'selection' ? <>
         {selectedSeat ? <SeatInspector key={selectedSeat.id} player={selectedSeat} active={selectedSeat.id === actor} editable={canEditSeat(selectedSeat)} override={seatOverride(selectedSeat)}

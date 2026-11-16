@@ -71,13 +71,14 @@ test('library drag ordering persists across modes, filters and reloads without s
   await expect(names).toHaveText(reordered);
 });
 
-test('layers panel toggles in both modes with its own icon, separate from the library toggle', async ({ page }) => {
+test('pieces and layers panels toggle in both modes with their own icon, separate from the library toggle', async ({ page }) => {
   await page.goto('/');
   const libraryToggle = page.getByRole('button', { name: 'Toggle component library', exact: true });
-  const layersToggle = page.getByRole('button', { name: 'Toggle layers panel', exact: true });
-  expect(await libraryToggle.locator('svg').getAttribute('class')).not.toEqual(await layersToggle.locator('svg').getAttribute('class'));
-  for (const [mode, id] of [['Playground', '#playground-layers-panel'], ['Component designer', '#designer-layers-panel']] as const) {
+  for (const [mode, id, label, heading] of [['Playground', '#playground-pieces-panel', 'Toggle pieces panel', 'Pieces'], ['Component designer', '#designer-layers-panel', 'Toggle layers panel', 'Layers']] as const) {
     await page.getByRole('button', { name: mode, exact: true }).click();
+    const layersToggle = page.getByRole('button', { name: label, exact: true });
+    expect(await libraryToggle.locator('svg').getAttribute('class')).not.toEqual(await layersToggle.locator('svg').getAttribute('class'));
+    await expect(page.locator(id).locator('.panel-heading')).toContainText(heading);
     const panel = page.locator(id);
     await expect(panel).toBeVisible();
     const library = (await page.locator('#component-library-panel').boundingBox())!;

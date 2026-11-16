@@ -1,10 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const rows = (page: Page) => page.locator('#playground-layers-panel').locator('button.layer-row');
+const rows = (page: Page) => page.locator('#playground-pieces-panel').locator('button.layer-row');
 
-test('the playground layers panel lists table pieces and selects them with click, Ctrl-click and Shift-click', async ({ page }) => {
+test('the playground pieces panel lists table pieces and selects them with click, Ctrl-click and Shift-click', async ({ page }) => {
   await page.goto('/');
-  const panel = page.locator('#playground-layers-panel');
+  const panel = page.locator('#playground-pieces-panel');
   const count = await page.locator('.table-piece').count();
   await expect(rows(page)).toHaveCount(count);
   await expect(panel.locator('.panel-heading')).toContainText(String(count));

@@ -9,7 +9,7 @@ const kindIcon = (component?: Component) => component?.kind === 'card' ? <Layers
   : component?.kind === 'artwork' ? <Palette size={14} /> : <Square size={14} />;
 
 /** Lists the pieces on the table (stacks as expandable groups), topmost first, with the standard click / Ctrl-click / Shift-click selection. */
-export function PlaygroundLayers({ project: p, selected, onSelect }: { project: Project; selected: string[]; onSelect: (ids: string[]) => void }) {
+export function PlaygroundPieces({ project: p, selected, onSelect }: { project: Project; selected: string[]; onSelect: (ids: string[]) => void }) {
   const [expanded, setExpanded] = useState<string[]>([]);
   const anchor = useRef<string>(undefined);
   const list = useRef<HTMLDivElement>(null);
@@ -45,12 +45,12 @@ export function PlaygroundLayers({ project: p, selected, onSelect }: { project: 
       const component = p.components.find(c => c.id === row.item.componentId);
       const variant = labels[row.item.componentId]?.[row.item.row];
       const name = `${component?.name ?? 'Missing component'}${row.depth || row.count === 1 ? variant ? ` · ${variant}` : '' : ''}`;
-      return <div key={row.key} role="listitem" className={`layer-tree-row playground-layer${isActive(row) ? ' active' : ''}`} style={{ paddingLeft: 8 + row.depth * 14 }}>
+      return <div key={row.key} role="listitem" className={`layer-tree-row playground-piece${isActive(row) ? ' active' : ''}`} style={{ paddingLeft: 8 + row.depth * 14 }}>
         <button className={`layer-row ${isActive(row) ? 'active' : ''}`} aria-pressed={isActive(row)} title={name}
           aria-label={`${name}${row.count > 1 ? `, stack of ${row.count}` : ''}${row.item.locked ? ', locked' : ''}`} onClick={event => select(row, event)}>
           {kindIcon(component)}<span>{name}</span>
-          {row.count > 1 && <small className="playground-layer-count">{row.count}</small>}
-          {row.item.locked && <LockKeyhole size={11} className="playground-layer-lock" aria-hidden="true" />}
+          {row.count > 1 && <small className="playground-piece-count">{row.count}</small>}
+          {row.item.locked && <LockKeyhole size={11} className="playground-piece-lock" aria-hidden="true" />}
         </button>
         {row.count > 1 && <button className="tree-disclosure" aria-label={`${expanded.includes(row.key) ? 'Collapse' : 'Expand'} ${component?.name ?? 'stack'} stack`}
           onClick={() => setExpanded(keys => keys.includes(row.key) ? keys.filter(key => key !== row.key) : [...keys, row.key])}>

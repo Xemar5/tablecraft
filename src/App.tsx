@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Search, Square, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { ArrowDownToLine, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Users, Wifi, WifiOff, X } from 'lucide-react';
 import { archiveSchema, canStack, makeInstance, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { starterProject, templateBundle } from './templates';
@@ -9,13 +9,15 @@ import { Designer } from './Designer';
 import { Playground } from './Playground';
 import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
-import { Field, Modal, Notice, ScrollArrows, useSmoothHorizontalWheel } from './ui';
+import { ColorField, Field, Modal, Notice, ScrollArrows, useSmoothHorizontalWheel } from './ui';
 import { Home } from './Home';
 import { LinkedComponent } from './LinkedComponent';
 import { linkComponent, localComponentCopy, refreshProjectLinks } from './projectLinks';
 import { LibraryVariants } from './LibraryVariants';
 import { startLibraryDrag } from './libraryDrag';
+import { DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, saveSettings, watchTheme, type UserSettings } from './settings';
 
+const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} /> : <Square size={size} />;
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
 function boot(): { archive: Archive; error: string | null; lastProjectId: string | null } {
   try { return { archive: refreshProjectLinks(loadWorkspace()), lastProjectId: localStorage.getItem(LAST_PROJECT_KEY), error: null }; }
@@ -83,7 +85,7 @@ export default function App() {
       element.removeEventListener('scroll', measure);
     };
   }, []);
-  const [modal, setModal] = useState<'templates' | 'projects' | 'session' | 'help' | 'save' | 'link'>();
+  const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link'>();
   const [removeLink, setRemoveLink] = useState<Component>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number }>();
   const [session, setSession] = useState<LiveSession>();
@@ -91,11 +93,11 @@ export default function App() {
   const sessionRef = useRef<LiveSession | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState('');
-  const [uri, setUri] = useState(import.meta.env.VITE_SPACETIMEDB_URI ?? 'http://127.0.0.1:3000');
-  const [database, setDatabase] = useState(import.meta.env.VITE_SPACETIMEDB_DATABASE ?? 'tablecraft-studio');
+  const [settings, setSettings] = useState(loadSettings);
+  const [uri, setUri] = useState(settings.server);
+  const [database, setDatabase] = useState(settings.database);
   const [roomCode, setRoomCode] = useState(() => `PLAY-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
-  const [playerName, setPlayerName] = useState('');
-  const [projectName, setProjectName] = useState('');
+  const [playerName, setPlayerName] = useState(settings.name);
   const [saveName, setSaveName] = useState('');
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
@@ -125,6 +127,14 @@ export default function App() {
   const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
   const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
   const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, layersVisible, notify);
+  useEffect(() => watchTheme(settings.theme), [settings.theme]);
+  // Defaults prefill the session form; an open live session keeps the address it connected with.
+  useEffect(() => { if (!sessionRef.current) { setUri(settings.server); setDatabase(settings.database); setPlayerName(settings.name); } }, [settings.server, settings.database, settings.name]);
+  const updateSettings = (patch: Partial<UserSettings>) => {
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    if (!saveSettings(next)) notify('Unable to save settings in this browser. They apply until you reload.', true);
+  };
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
   // The room host can remove other players' seats; fall back to another owned seat instead of acting as a missing player.
   useEffect(() => {
@@ -332,7 +342,7 @@ export default function App() {
       if (!/^[A-Z0-9-]{4,40}$/.test(roomCode)) throw new Error('Use 4-40 uppercase letters, digits or hyphens for the room code.');
       const { connectRoom } = await import('./multiplayer');
       const live = await connectRoom({
-        uri, database, code: roomCode, host, project, playerId: uid('player'), name: playerName.trim(), color: '#b7cc91',
+        uri, database, code: roomCode, host, project, playerId: uid('player'), name: playerName.trim(), color: settings.color,
       }, (next, history) => { setProject(next); setLiveUndo(history); }, message => notify(message, true), () => {
         sessionRef.current = undefined; setSession(undefined); notify('Disconnected. Your latest table is saved locally.', true);
       });
@@ -369,15 +379,17 @@ export default function App() {
   };
   const visible = project.components.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || c.kind === filter));
   const selectedComponent = mode === 'designer' ? activeComponent : project.components.find(c => c.id === project.instances.find(i => i.id === selected.at(-1))?.componentId);
+  const settingsButton = <button className="profile-button" aria-label="Settings" title="Settings" onClick={() => setModal('settings')}>{settings.name.trim() ? settings.name.trim()[0].toUpperCase() : <Settings size={15} />}</button>;
   return <div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
     <header className="app-header">
       <a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
       {!home && <>
-      <div className="project-heading compact-project"><h1>{project.name}</h1><button className="icon-button" aria-label="Project settings" onClick={() => { setProjectName(project.name); setModal('projects'); }}><ChevronDown size={16} /></button></div>
+      <div className="project-heading compact-project"><h1>{project.name}</h1></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
       {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain} onClick={undo}><Undo2 size={18} /></button>}
-      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title="Toggle layers panel" aria-label="Toggle layers panel" aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button><button className="profile-button" aria-label="My projects" onClick={() => setModal('projects')}>Y</button></div>
+      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-label={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><ArrowDownToLine size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
       </>}
+            {home && <div className="header-actions">{settingsButton}</div>}
     </header>
     <Notice key={`${session?.code ?? 'offline'}:${project.id}`} message={undoNotice} role="status" hidden={home || mode !== 'playground'} />
     <Notice message={storageError ?? ''}><button onClick={() => {
@@ -438,7 +450,7 @@ export default function App() {
             <div className="preview-texture" />
             {hasVariants(comp) && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
-            <span className="preview-kind">{comp.kind === 'card' ? <Layers size={10} /> : comp.kind === 'token' ? <Circle size={10} /> : comp.kind === 'artwork' ? <Palette size={10} /> : <Square size={10} />}{comp.kind}</span>
+            <span className="preview-kind">{kindIcon(comp.kind, 10)}{comp.kind}</span>
             {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
             {mode === 'playground' && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
             {mode === 'playground' && <span className="preview-add"><Plus size={17} /></span>}
@@ -472,7 +484,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
@@ -483,8 +495,10 @@ export default function App() {
     <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}
     {modal === 'link' && <Modal title="Link from another project" subtitle="Linked designs are read-only here. Their saved snapshot travels with this project." wide onClose={() => setModal(undefined)}>
-      <div className="link-project-list">{archive.projects.filter(p => p.id !== project.id).map(source => <section key={source.id}><h3>{source.name}</h3>
-        {source.components.map(component => <div className="link-component-option" key={component.id}><span>{component.name}<small>{component.kind}{component.source ? ' · linked' : ''}</small></span><button className="button" aria-label={`Link ${component.name} from ${source.name}`} onClick={async () => {
+      <div className="link-project-list">{archive.projects.filter(p => p.id !== project.id).map(source => <section key={source.id} className="link-source" aria-label={source.name}>
+        <header className="link-source-header"><span className="link-source-icon"><Leaf size={18} /></span><span><strong>{source.name}</strong><small>{source.components.length} component{source.components.length === 1 ? '' : 's'}</small></span></header>
+        <div className="link-component-list">
+        {source.components.map(component => <div className="link-component-option" key={component.id}><span className="link-component-kind" aria-hidden="true">{kindIcon(component.kind, 15)}</span><span className="link-component-name"><strong>{component.name}</strong><small>{component.kind}{component.source ? ' · linked' : ''}</small></span><button className="button link-component-button" title="Link component" aria-label={`Link ${component.name} from ${source.name}`} onClick={async () => {
           try {
             const linked = linkComponent(project, source, component.id);
             const proposed = { ...archive, projects: archive.projects.map(p => p.id === project.id ? linked.project : p) };
@@ -493,8 +507,8 @@ export default function App() {
             if (changes.length && !await dispatch({ type: 'syncLinkedComponents', components: changes })) return;
             setModal(undefined); edit(linked.rootId); notify('Component linked. Its design is read-only in this project.');
           } catch (error) { notify(`Unable to link component: ${String(error)}`, true); }
-        }}>Link component</button></div>)}
-        {!source.components.length && <p>No components in this project.</p>}
+        }}><Link size={13} /> Link</button></div>)}</div>
+        {!source.components.length && <p className="link-source-empty">No components in this project yet.</p>}
       </section>)}
       {!archive.projects.some(p => p.id !== project.id) && <div className="link-empty-state">
         <span className="link-empty-icon"><Link size={28} /></span>
@@ -517,14 +531,34 @@ export default function App() {
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
     </Modal>}
-    {modal === 'projects' && <Modal title="Your workshop" subtitle="All your worlds, works in progress, and what-ifs." wide onClose={() => setModal(undefined)}>
-      <div className="projects-dialog"><div className="projects-list">{archive.projects.map(p => <button key={p.id} disabled={!!session && p.id !== project.id} className={`project-card ${p.id === project.id ? 'active' : ''}`} onClick={() => {
-        openProject(p.id);
-      }}><span className="project-card-icon"><Leaf size={24} /></span><span><strong>{p.name}</strong><small>{p.components.length} components · {p.instances.length} pieces · {p.players.length} players</small></span><ChevronRight size={18} /></button>)}</div>
-        <div className="project-tools"><Field label="Project name"><input maxLength={100} value={projectName || project.name} onChange={e => setProjectName(e.target.value)} /></Field><button className="button" onClick={() => { void dispatch({ type: 'rename', name: projectName || project.name }).then(success => { if (success) notify('Project renamed.'); }); }}>Rename</button></div>
-        <div className="button-row"><button className="button primary" disabled={!!session} onClick={() => {
-          createProject(`Untitled project ${archive.projects.length + 1}`);
-        }}><Plus size={15} /> New project</button><button className="button" disabled={!!session} onClick={() => fileInput.current?.click()}><Upload size={15} /> Import JSON</button><button className="button" onClick={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}><Download size={15} /> Export all projects</button></div>
+    {modal === 'settings' && <Modal title="Make it yours." subtitle="Preferences for you on this device. They stay in this browser and are never shared with other players." wide onClose={() => setModal(undefined)}>
+      <div className="settings-dialog">
+        <section className="settings-section" aria-labelledby="settings-appearance">
+          <header><span className="settings-section-icon"><Sun size={18} /></span><div><h3 id="settings-appearance">Appearance</h3><p>Choose how Tablecraft looks. System follows your device.</p></div></header>
+          <div className="theme-options" role="radiogroup" aria-label="Theme">{([
+            ['system', 'System', Monitor, 'Match your device'], ['light', 'Light', Sun, 'Bright paper and ink'], ['dark', 'Night', Moon, 'Easy on the eyes after dark'],
+          ] as const).map(([value, label, Icon, hint]) => <button key={value} role="radio" aria-checked={settings.theme === value} className={`theme-option theme-option-${value} ${settings.theme === value ? 'active' : ''}`} onClick={() => updateSettings({ theme: value })}>
+            <span className="theme-swatch" data-theme-fixed="" aria-hidden="true"><span /><span /><span /></span><strong><Icon size={14} /> {label}{settings.theme === value && <Check size={14} className="theme-check" />}</strong><small>{hint}</small>
+          </button>)}</div>
+        </section>
+        <section className="settings-section" aria-labelledby="settings-profile">
+          <header><span className="settings-section-icon"><Users size={18} /></span><div><h3 id="settings-profile">Player profile</h3><p>Used for your seat when you host or join a table, and for your first hotseat seat.</p></div></header>
+          <div className="field-grid">
+            <Field label="Default name"><input maxLength={50} placeholder="Optional" value={settings.name} onChange={e => updateSettings({ name: e.target.value })} /></Field>
+            <ColorField deferred label="Default color" value={settings.color} onChange={color => {
+              if (/^#(?:[0-9a-f]{6}|[0-9a-f]{8})$/i.test(color)) updateSettings({ color }); else notify('Use a hex color such as #b7cc91 for your default color.', true);
+            }} />
+          </div>
+        </section>
+        <section className="settings-section" aria-labelledby="settings-multiplayer">
+          <header><span className="settings-section-icon"><Wifi size={18} /></span><div><h3 id="settings-multiplayer">Multiplayer</h3><p>Prefilled when you invite players or join a table. You can still change them for a single session.</p></div></header>
+          <div className="field-grid">
+            <Field label="Default SpaceTimeDB server"><input maxLength={500} placeholder={DEFAULT_SERVER} value={settings.server} onChange={e => updateSettings({ server: e.target.value })} /></Field>
+            <Field label="Default database"><input maxLength={100} placeholder={DEFAULT_DATABASE} value={settings.database} onChange={e => updateSettings({ database: e.target.value })} /></Field>
+          </div>
+          <button className="button settings-reset" disabled={settings.server === DEFAULT_SERVER && settings.database === DEFAULT_DATABASE} onClick={() => updateSettings({ server: DEFAULT_SERVER, database: DEFAULT_DATABASE })}><Undo2 size={14} /> Restore default server</button>
+        </section>
+        <p className="settings-footer"><Check size={13} /> Changes are saved automatically.</p>
       </div>
     </Modal>}
     {modal === 'session' && <Modal title={session ? 'Your table is live.' : home ? 'Join a table.' : 'Good games bring people together.'} subtitle={session ? 'Share this room code with your playtesters.' : home ? 'Enter the room code your host shared to play along.' : 'Play together over SpaceTimeDB, or pass the screen with hotseat.'} onClose={() => { if (!connecting) setModal(undefined); }}>
