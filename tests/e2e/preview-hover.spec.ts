@@ -45,9 +45,26 @@ test('previews switch sides before they would cover the hovered piece on a narro
   await page.mouse.down();
   await page.mouse.move(x, y, { steps: 10 });
   await page.mouse.up();
+  await page.mouse.move(viewport.x + 5, viewport.y + 5);
+  await expect(preview).toHaveCount(0);
+  await page.evaluate(() => {
+    const root = document.querySelector('.table-viewport')!;
+    const frames: number[] = [];
+    (window as unknown as { previewFrames: number[] }).previewFrames = frames;
+    const observer = new MutationObserver(() => {
+      const element = root.querySelector('.hover-preview');
+      if (element) frames.push(element.getBoundingClientRect().x);
+    });
+    observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });
+    setTimeout(() => observer.disconnect(), 2000);
+  });
   await token.hover();
   await expect(preview).toBeVisible();
+  await page.mouse.move(x + 1, y);
   await expect.poll(async () => Math.abs((await preview.boundingBox())!.x - viewport.x - 16)).toBeLessThan(2);
+  const frames = await page.evaluate(() => (window as unknown as { previewFrames: number[] }).previewFrames);
+  expect(frames.length).toBeGreaterThan(0);
+  expect(frames.every(left => Math.abs(left - viewport.x - 16) < 2)).toBe(true);
 });
 
 test('scaled previews have no empty horizontal overflow and locked pieces have no preview', async ({ page }) => {
@@ -58,9 +75,9 @@ test('scaled previews have no empty horizontal overflow and locked pieces have n
   await token.hover();
   await expect(preview).toBeVisible();
   const shortcuts = preview.getByRole('table', { name: 'Piece shortcuts' });
-  await expect(shortcuts.getByRole('row')).toHaveCount(7);
-  await expect(shortcuts.getByRole('rowheader')).toHaveText(['Flip', 'Rotate −90° / +90°', 'Shuffle / roll', 'Stack selection', 'Draw cards', 'Lock / unlock', 'Hide preview']);
-  await expect(shortcuts.getByRole('cell')).toHaveText(['F', 'Q / E', 'R', 'G', '1–0', 'L', 'Alt']);
+  await expect(shortcuts.getByRole('row')).toHaveCount(8);
+  await expect(shortcuts.getByRole('rowheader')).toHaveText(['Flip', 'Rotate −90° / +90°', 'Shuffle / roll', 'Stack selection', 'Draw cards', 'Lock / unlock', 'Hide preview', 'Fullscreen preview']);
+  await expect(shortcuts.getByRole('cell')).toHaveText(['F', 'Q / E', 'R', 'G', '1–0', 'L', 'Alt', 'Z']);
   const columns = await shortcuts.locator('tr').evaluateAll(rows => rows.map(row => [...row.querySelectorAll('th,td')].map(cell => cell.getBoundingClientRect().x)));
   expect(columns.every(([description, key]) => description === columns[0][0] && key === columns[0][1] && key > description)).toBe(true);
   await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);

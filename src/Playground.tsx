@@ -2,13 +2,15 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, Undo2, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
-import { canStack, handPermissions, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
+import { canStack, handPermissions, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ZoomPresets } from './ZoomPresets';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
 import { stackPlan, stackSlot } from './stackOrder';
+import { PiecePreview } from './PiecePreview';
+import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft, snappedPositions } from './playgroundPreview';
 
 type Props = {
   project: Project; actor: string; owner: string; host?: boolean; selected: string[]; setSelected: (ids: string[]) => void;
@@ -68,6 +70,10 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
   const [previewOnLeft, setPreviewOnLeft] = useState(false);
+  const [fullscreenId, setFullscreenId] = useState<string>();
+  const closeFullscreen = useCallback(() => setFullscreenId(undefined), []);
+  const fullscreenItem = p.instances.find(item => item.id === fullscreenId);
+  const fullscreenComponent = p.components.find(component => component.id === fullscreenItem?.componentId);
   const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number; rotation: number }>();
   const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number; startWorld: { x: number; y: number }; rotation: number }>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string>();
@@ -128,7 +134,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
-  const held = p.instances.filter(i => i.holder === actor).sort((a, b) => a.order - b.order);
+  const held = currentPlayer ? p.instances.filter(i => i.holder === actor).sort((a, b) => a.order - b.order) : [];
   const items = piece ? stackMembers(p, piece) : [];
   const searchedItems = p.instances.filter(i => search?.includes(i.id) && !i.holder).sort((a, b) => a.order - b.order);
   if (searchedItems[0]?.stackReversed) searchedItems.reverse();
@@ -149,7 +155,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const plan = useMemo(() => viewer ? undefined : stackPlan(p, selected, actor || undefined), [p, selected, actor, viewer]);
   const wholeStack = items.length > 1 && selectedPieces.length === items.length && items.every(i => selected.includes(i.id));
   const stackTop = piece && !piece.holder ? visibleStackMembers(p, piece).at(-1) : undefined;
-  const canDrawSelection = p.settings.hands && !selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand);
+  const canDrawSelection = !!currentPlayer && p.settings.hands && !selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand);
   const selectHandCard = (id: string, event: React.MouseEvent) => {
     if (handClickSuppressed.current) { handClickSuppressed.current = false; return; }
     const anchor = held.findIndex(i => i.id === handSelectionAnchor.current);
@@ -178,7 +184,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   useEffect(() => {
     const clear = (event: PointerEvent) => {
       // The table and the hand tray manage their own selection (including box selection).
-      if (event.target instanceof Element && event.target.closest('[data-hand-id],[data-mini-id],.table-viewport,.hand-tray')) return;
+      if (event.target instanceof Element && event.target.closest('[data-hand-id],[data-mini-id],.table-viewport,.hand-tray,.piece-preview-fullscreen')) return;
       handSelectionAnchor.current = undefined;
       if (selected.some(id => held.some(i => i.id === id))) setSelected([]);
     };
@@ -201,8 +207,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     if (!pointer.current || gesture.current || handGesture.current) return;
     const element = document.elementFromPoint(pointer.current.x, pointer.current.y);
     if (element?.closest('.hover-preview')) return;
-    const target = element?.closest<HTMLElement>('[data-piece-id],[data-hand-id]');
-    const id = target?.dataset.pieceId ?? target?.dataset.handId;
+    const target = element?.closest<HTMLElement>('[data-piece-id],[data-hand-id],[data-mini-id]');
+    const id = target?.dataset.pieceId ?? target?.dataset.handId ?? target?.dataset.miniId;
     if (id) positionPreview(pointer.current.x);
     setHovered(id); setPreviewItem(id);
   }, [p.instances]);
@@ -213,9 +219,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const positionPreview = (clientX: number) => {
     const rect = viewport.current?.getBoundingClientRect();
     if (!rect) return;
-    // Switch sides before the cursor reaches the area the right-hand preview covers, which is most of a narrow table.
-    const width = viewport.current?.querySelector('.hover-preview')?.getBoundingClientRect().width || Math.min(rect.width * .9, 500);
-    setPreviewOnLeft(clientX >= Math.min(rect.left + rect.width * 2 / 3, Math.max(rect.left + rect.width / 2, rect.right - 16 - width - 24)));
+    setPreviewOnLeft(placePreviewOnLeft(clientX, rect.left, rect.width, hoverPreviewWidth(previewScale)));
   };
   const enterPiece = (event: React.PointerEvent, id: string) => {
     pointer.current = { x: event.clientX, y: event.clientY };
@@ -477,7 +481,13 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   };
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).closest('input,textarea,select,[role="dialog"]') || document.querySelector('[role="dialog"]')) return;
+      if (e.defaultPrevented || e.isComposing || fullscreenItem) return;
+      if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"]') || document.querySelector('[role="dialog"],[aria-modal="true"]')) return;
+      if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'z') {
+        const target = p.instances.find(item => item.id === (hovered ?? selected.at(-1)));
+        if (target) { e.preventDefault(); setFullscreenId(target.id); setAltDown(false); }
+        return;
+      }
       if (e.key === 'Escape') { setSelected([]); setSelectedSeatId(undefined); }
       const hoveredPiece = p.instances.find(i => i.id === hovered && (!i.holder || i.holder === actor));
       const shortcutIds = hoveredPiece && !selected.includes(hoveredPiece.id) ? stackMembers(p, hoveredPiece).map(i => i.id) : selected;
@@ -503,7 +513,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && shortcutPiece) { e.preventDefault(); shuffleOrRoll(shortcutIds); }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'g' && selected.length > 1) { e.preventDefault(); dispatch({ type: 'stack', ids: selected, stackId: uid('stack') }); }
-      if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && shortcutPiece && !shortcutPiece.holder) {
+      if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && shortcutPiece && !shortcutPiece.holder && currentPlayer) {
         e.preventDefault();
         const count = e.key === '0' ? 10 : Number(e.key);
         dispatch(count === 1 ? { type: 'draw', id: shortcutPiece.id, playerId: actor } : { type: 'drawMany', id: shortcutPiece.id, playerId: actor, count });
@@ -563,7 +573,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     start: startPiece, enter: enterPiece, leave: leavePiece,
     focus: id => { setHovered(id); setPreviewItem(id); }, blur: () => { setHovered(undefined); setPreviewItem(undefined); },
     select: (item, extend) => { const ids = stackMembers(p, item).map(i => i.id); setSelected(extend ? [...new Set([...selected, ...ids])] : ids); },
-    draw: (item, comp) => { if (item.locked || viewer) return false; if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); return true; },
+    draw: (item, comp) => { if (item.locked || viewer || !currentPlayer) return false; if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); return true; },
   };
   const endGesture = (e: React.PointerEvent) => {
     setHandDrop(undefined);
@@ -599,13 +609,13 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
       const delta = dragDelta(g, e.clientX, e.clientY);
-      const anchor = Object.values(g.positions)[0];
-      let { x: dx, y: dy } = delta;
-      if (p.settings.snap && anchor) {
-        dx = Math.round((anchor.x + dx) / p.settings.gridSize) * p.settings.gridSize - anchor.x;
-        dy = Math.round((anchor.y + dy) / p.settings.gridSize) * p.settings.gridSize - anchor.y;
+      if (moving.length) {
+        // One atomic command, including all stack members; each piece snaps from its own final position.
+        const command = p.settings.snap
+          ? { type: 'transform' as const, ids: moving.map(i => i.id), positions: snappedPositions(g.positions, delta, p.settings.gridSize) }
+          : { type: 'transform' as const, ids: moving.map(i => i.id), dx: delta.x, dy: delta.y };
+        void dispatch(command);
       }
-      if (moving.length) void dispatch({ type: 'transform', ids: moving.map(i => i.id), dx, dy });
     }
     gesture.current = null; setPreview({}); setDropHint(undefined);
   };
@@ -616,7 +626,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     </aside>
     <PanelSeparator label="Resize pieces panel" controls="playground-pieces-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
     <section className="table-section" onPointerMoveCapture={e => {
-      if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id]')) positionPreview(e.clientX);
+      if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id],[data-mini-id]')) positionPreview(e.clientX);
     }}>
       <div ref={viewport} className={`table-viewport ${tool === 'pan' ? 'pan-mode' : ''}`}
         onDragOver={e => {
@@ -627,7 +637,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           e.preventDefault();
           const data = readLibraryDrag(e.dataTransfer);
           const component = data?.projectId === p.id ? p.components.find(c => c.id === data.componentId) : undefined;
-          if (!data || !component) { notify('Unable to spawn these library variants.', true); return; }
+          if (!data || !component || isAsset(component)) { notify('Unable to spawn these library variants.', true); return; }
           onSpawn(component, data.rows, worldPoint(e.clientX, e.clientY), data.stacked);
         }}
         onPointerLeave={() => { if (!gesture.current) { pointer.current = null; setHovered(undefined); setPreviewItem(undefined); } }}
@@ -722,6 +732,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               {playerHeld.map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
                 return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && canTake} className={`${player.id === actor && selected.includes(i.id) ? 'hand-selected' : ''} ${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) || handDrag?.id === i.id ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
+                  onPointerEnter={e => enterPiece(e, i.id)} onPointerLeave={leavePiece}
                   onPointerDown={e => {
                     e.stopPropagation();
                     if (!canTake || i.locked || e.button !== 0) return;
@@ -788,7 +799,6 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
         </div>
-        {!topPieces.length && <div className="empty-table"><Layers size={40} /><h2>Your next great game starts here.</h2><p>Click a component in the library to put it on the table.</p></div>}
         <div className="floating-tools" onPointerDown={e => e.stopPropagation()}>
           <button className={tool === 'select' ? 'active' : ''} title="Select & move" aria-label="Select and move" onClick={() => setTool('select')}><MousePointer2 size={19} /></button>
           <button className={tool === 'pan' ? 'active' : ''} title="Pan table" aria-label="Pan table" onClick={() => setTool('pan')}><Hand size={19} /></button>
@@ -810,11 +820,11 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           <button className="button primary" title={`Pass the turn to ${nextTurnPlayer?.name}`} disabled={viewer} onClick={endTurn}>End turn <ChevronRight size={13} /></button>
         </div>}
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><ZoomPresets levels={[.25, .5, .75, 1, 1.5, 2]} zoom={zoom} onSelect={level => changeZoom(level)}><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} /><ZoomPercent zoom={zoom} /></button></ZoomPresets><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
-        {activePreviewId && !altDown && (() => {
+        {activePreviewId && !altDown && !fullscreenItem && (() => {
           const item = p.instances.find(i => i.id === activePreviewId && !i.locked && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
           const count = item && !item.holder ? stackMembers(p, item).length : 1;
-          return item && comp ? <div className="hover-preview" style={previewOnLeft ? { left: 16, right: 'auto' } : undefined} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
+          return item && comp ? <div className="hover-preview" style={{ width: hoverPreviewWidth(previewScale), ...(previewOnLeft ? { left: 16, right: 'auto' } : {}) }} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
           }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}{count > 1 && <span className="preview-stack-count" aria-label={`Stack of ${count}`}><Layers size={11} /> {count}</span>}</strong>
@@ -826,11 +836,11 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>
               <tr><th scope="row">Lock / unlock</th><td><kbd>L</kbd></td></tr>
               <tr><th scope="row">Hide preview</th><td><kbd>Alt</kbd></td></tr>
+              <tr><th scope="row">Fullscreen preview</th><td><kbd>Z</kbd></td></tr>
             </tbody></table></div> : null;
         })()}
-        <div className="table-hint">{viewer ? <>Watching as a viewer <span /> Click pieces to inspect them <span /> Take a seat in Players to play</> : <>Drag to move <span /> Shift + drag to draw from a stack <span /> Double-click to draw</>}</div>
       </div>
-      {p.settings.hands && handVisible && !viewer && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer?.name ?? 'Your'}'s hand tray`}
+      {p.settings.hands && handVisible && !viewer && currentPlayer && <><PanelSeparator label="Resize hand tray" controls="hand-tray-panel" value={panels.sizes.hand} {...panels.limits.hand} orientation="horizontal" direction={-1} onResize={value => panels.resize('hand', value)} /><div id="hand-tray-panel" className="hand-tray" style={{ height: panels.sizes.hand, minHeight: 0, flex: `0 0 ${panels.sizes.hand}px` }} aria-label={`${currentPlayer.name}'s hand tray`}
         onPointerDown={e => {
           // Box selection in the tray selects hand cards only; Shift/Ctrl/Cmd adds to the current hand selection.
           if (e.button !== 0 || (e.target as Element).closest('button,[data-hand-id]')) return;
@@ -914,9 +924,10 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     </section>
     {createPortal(<>
       {handDrop && (() => {
-        const item = p.instances.find(i => i.id === handDrop.ids[0])!;
-        const comp = p.components.find(c => c.id === item.componentId)!;
-        const player = p.players.find(player => player.id === handDrop.playerId)!;
+        const item = p.instances.find(i => i.id === handDrop.ids[0]);
+        const comp = p.components.find(c => c.id === item?.componentId);
+        const player = p.players.find(player => player.id === handDrop.playerId);
+        if (!item || !comp || !player) return null;
         return <div className="hand-drag-preview mini-drop-preview" aria-hidden="true" style={{ left: handDrop.x, top: handDrop.y, transform: `translate(-50%, -50%) rotate(${camera + player.rotation}deg) scale(${zoom})` }}>
           <ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} hidden={player.id === actor ? !!player.tableHandHidden : comp.hideInHand} width={44} />
           {handDrop.ids.length > 1 && <span className="mini-drop-count">{handDrop.ids.length}</span>}
@@ -991,7 +1002,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           held={p.instances.filter(i => i.holder === selectedSeat.id).length}
           onChange={patch => dispatch({ type: 'player', player: { ...selectedSeat, ...patch } })}
           onClose={() => setSelectedSeatId(undefined)}
-          lastSeat={p.players.length < 2} onRemove={() => setRemovingSeat(selectedSeat)}
+          onRemove={() => setRemovingSeat(selectedSeat)}
           actions={<div className="seat-hand-actions" role="toolbar" aria-label={`${selectedSeat.name}'s hand actions`}>{handActions(selectedSeat)}</div>} /> :
         piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
@@ -1046,7 +1057,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
           const reorder = (offset: number) => { const ids = all.map(i => i.id); [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]]; dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }); };
           return <div className="stack-search-row" key={i.id}><ComponentThumbnail component={comp} components={p.components} row={i.row} back={visibleBack(i)} width={43} /><div><strong>{name}</strong><small>{index === all.length - 1 ? 'Top of stack' : `Position ${index + 1}`} · {comp.name}</small></div>
             <button className="icon-button" aria-label={`Move ${name} down`} disabled={viewer || !index || !i.stack} onClick={() => reorder(-1)}><ArrowDown size={16} /></button><button className="icon-button" aria-label={`Move ${name} up`} disabled={viewer || index === all.length - 1 || !i.stack} onClick={() => reorder(1)}><ArrowUp size={16} /></button>
-            <button className="button" disabled={viewer || !comp.hand || !p.settings.hands} onClick={() => {
+            <button className="button" disabled={viewer || !currentPlayer || !comp.hand || !p.settings.hands} onClick={() => {
               const ids = all.map(item => item.id).filter(id => id !== i.id); ids.push(i.id);
               if (i.stack) void dispatch({ type: 'reorder', ids: i.stackReversed ? ids.reverse() : ids }).then(ok => { if (ok) void dispatch({ type: 'draw', id: i.id, playerId: actor }); });
               else void dispatch({ type: 'draw', id: i.id, playerId: actor });
@@ -1057,6 +1068,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}${seatOverride(removingSeat) ? `${overrideLabel(seatOverride(removingSeat)!)}: ${overrideNote(seatOverride(removingSeat)!, removingSeat.name)} ` : ''}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setRemovingSeat(undefined)}>Cancel</button><button className="button danger" onClick={() => { const id = removingSeat.id; void dispatch({ type: 'removePlayer', playerId: id }).then(ok => { if (ok) { setSelectedSeatId(seat => seat === id ? undefined : seat); setRemovingSeat(undefined); } }); }}>Remove seat</button></div>
     </Modal>}
+    {fullscreenItem && fullscreenComponent && <PiecePreview key={fullscreenItem.id} item={fullscreenItem} component={fullscreenComponent} components={p.components} actor={actor} viewer={viewer} onClose={closeFullscreen} />}
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
       <form className="seat-form" onSubmit={e => { e.preventDefault(); dispatch({ type: 'player', player: seatEditor }); setSeatEditor(undefined); }}>
         <Field label="Player name"><input required maxLength={50} value={seatEditor.name} onChange={e => setSeatEditor({ ...seatEditor, name: e.target.value })} /></Field>
@@ -1075,13 +1087,12 @@ const overrideLabel = (kind: SeatOverride) => kind === 'host' ? 'Host override' 
 const overrideNote = (kind: SeatOverride, name: string) => kind === 'host'
   ? `this seat belongs to another player. As the host, only you can change its settings or remove it.`
   : `you are changing ${name}'s seat from your active seat. Switch to ${name} to play with their hand.`;
-function SeatInspector({ player, active, nameLocked = false, editable, override, held, actions, lastSeat, onChange, onClose, onRemove }: {
+function SeatInspector({ player, active, nameLocked = false, editable, override, held, actions, onChange, onClose, onRemove }: {
   player: Player; active: boolean; editable: boolean;
   /** Online, a claimed seat shows its player's profile name, which only that player can change (in Settings). */
-  nameLocked?: boolean; override?: SeatOverride; held: number; actions: React.ReactNode; lastSeat: boolean;
+  nameLocked?: boolean; override?: SeatOverride; held: number; actions: React.ReactNode;
   onChange: (patch: Partial<Player>) => void; onClose: () => void; onRemove: () => void;
 }) {
-  const removeBlocked = lastSeat ? 'Keep at least one seat at the table.' : active ? 'Switch to another seat before removing this one.' : undefined;
   const [name, setName] = useState(player.name);
   const cancelName = useRef(false);
   useEffect(() => setName(player.name), [player.name]);
@@ -1105,8 +1116,7 @@ function SeatInspector({ player, active, nameLocked = false, editable, override,
       <NumberField deferred label="Seat rotation" value={player.rotation} onChange={rotation => onChange({ rotation })} />
     </fieldset>
     {!editable && <p className="help-text">Only this seat's owner can change its settings.</p>}
-    {editable && <><button className={`button danger full${override ? ' host-override' : ''}`} disabled={!!removeBlocked} title={removeBlocked} onClick={onRemove}><Trash2 size={14} /> Remove seat</button>
-      {removeBlocked && <p className="help-text">{removeBlocked}</p>}</>}
+    {editable && <button className={`button danger full${override ? ' host-override' : ''}`} onClick={onRemove}><Trash2 size={14} /> Remove seat</button>}
   </div>;
 }
 

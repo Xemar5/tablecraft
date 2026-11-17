@@ -7,8 +7,7 @@ test('removing a seat spreads its hand where the seat was', async ({ page }) => 
   await page.goto('/');
   await page.locator('[data-seat-id="player-1"]').click();
   const remove = page.locator('.seat-inspector').getByRole('button', { name: 'Remove seat', exact: true });
-  await expect(remove).toBeDisabled();
-  await expect(page.locator('.seat-inspector')).toContainText('Switch to another seat before removing this one.');
+  await expect(remove).toBeEnabled();
 
   await page.locator('[data-seat-id="player-2"]').click();
   await page.getByRole('button', { name: 'Switch to this seat', exact: true }).click();
@@ -45,6 +44,11 @@ test('removing a seat spreads its hand where the seat was', async ({ page }) => 
   for (const id of held) await expect(page.locator(`[data-piece-id="${id}"]`)).toBeVisible();
 
   await page.locator('[data-seat-id="player-1"]').click();
-  await expect(remove).toBeDisabled();
-  await expect(page.locator('.seat-inspector')).toContainText('Keep at least one seat at the table.');
+  await expect(remove).toBeEnabled();
+  await remove.click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Remove seat', exact: true }).click();
+  await expect(page.locator('[data-seat-id]')).toHaveCount(0);
+  await expect(page.locator('.hand-tray,.hand-toolbar')).toHaveCount(0);
+  await expect(page.locator('.table-viewport')).toBeVisible();
+  expect((await project(page)).players).toEqual([]);
 });

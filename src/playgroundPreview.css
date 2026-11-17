@@ -1,0 +1,35 @@
+.piece-preview-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  overflow: hidden;
+  background: #171b18f5;
+  color: #fff;
+  outline: none;
+  cursor: zoom-out;
+  touch-action: none;
+}
+.piece-preview-art {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  pointer-events: none;
+  transform-origin: center;
+}
+.piece-preview-title, .piece-preview-help {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 18px;
+  background: #171b18e8;
+  pointer-events: none;
+}
+.piece-preview-title { top: 0; }
+.piece-preview-help { bottom: 0; flex-wrap: wrap; font-size: 13px; }
+.piece-preview-help small { flex-basis: 100%; text-align: center; opacity: .7; }
+/* Fixed geometry: hover placement must never depend on whether the thumbnail has mounted. */
+.table-viewport .hover-preview { max-width: calc(50% - 28px); box-sizing: border-box; }
