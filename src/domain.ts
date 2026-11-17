@@ -4,6 +4,12 @@ const id = z.string().min(1).max(100);
 const num = z.number().finite();
 const color = z.string().max(80);
 const MAX_NESTED_RENDER_NODES = 10_000;
+export const MAX_ASSET_BYTES = 5 * 1024 * 1024;
+export const assetSchema = z.object({
+  name: z.string().min(1).max(200),
+  mime: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'font/ttf', 'font/otf', 'font/woff', 'font/woff2']),
+  data: z.string().min(4).max(Math.ceil(MAX_ASSET_BYTES / 3) * 4).regex(/^[A-Za-z0-9+/]+={0,2}$/).refine(value => value.length % 4 === 0, 'Invalid base64 asset.'),
+});
 export const vectorPointSchema = z.object({
   x: num.min(-8000).max(8000), y: num.min(-8000).max(8000),
   inX: num.min(-8000).max(8000).default(0), inY: num.min(-8000).max(8000).default(0),
@@ -37,13 +43,14 @@ export const nodeSchema = z.object({
   dataSource: z.enum(['inherit', 'row', 'field']).default('inherit'),
   dataRow: z.number().int().min(0).max(9999).default(0),
   dataField: z.string().max(100).default(''),
+  textureId: id.optional(), fontId: id.optional(),
   visible: z.boolean().default(true),
   visibilityField: z.string().max(10000).default(''),
   visibilityValue: z.string().max(10000).default(''),
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
-  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'artwork']),
+  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'artwork', 'texture', 'font']),
   width: num.min(20).max(2000), height: num.min(20).max(2000), color,
   front: z.array(nodeSchema).max(300), back: z.array(nodeSchema).max(300),
   csv: z.string().max(1_000_000),
@@ -51,8 +58,12 @@ export const componentSchema = z.object({
   flippable: z.boolean(), hand: z.boolean(), hideInHand: z.boolean(),
   stackable: z.boolean(), shufflable: z.boolean(), stackTag: z.string().max(100),
   source: z.object({ projectId: id, componentId: id, projectName: z.string().min(1).max(100) }).optional(),
+  asset: assetSchema.optional(),
 });
 export type Component = z.infer<typeof componentSchema>;
+export const isAsset = (component: Pick<Component, 'kind'>) => component.kind === 'texture' || component.kind === 'font';
+export const assetUrl = (component: Component) => component.asset ? `data:${component.asset.mime};base64,${component.asset.data}` : undefined;
+export const assetFontFamily = (component: Component) => `tablecraft-${encodeURIComponent(component.id)}`;
 export const instanceSchema = z.object({
   id, componentId: id, row: z.number().int().min(0), x: num, y: num,
   rotation: num, scale: num.min(0.1).max(5), flipped: z.boolean(),
@@ -106,7 +117,9 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
   z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional() }),
   z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
-  z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(), rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional() }),
+  z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(),
+    positions: z.array(z.object({ id, x: num, y: num })).min(1).max(10000).optional(),
+    rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional() }),
   z.object({ type: z.literal('drawSelection'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('delete'), ids: z.array(id) }),
   z.object({ type: z.literal('stack'), ids: z.array(id), stackId: id }),
@@ -148,17 +161,29 @@ const validatedComponents = new WeakSet<Component[]>();
 
 function validateComponents(components: Component[]) {
   const componentIds = new Set(components.map(c => c.id));
+  let assetBytes = 0;
   for (const c of components) {
+    if (isAsset(c)) {
+      if (!c.asset || (c.kind === 'texture' ? !c.asset.mime.startsWith('image/') : !c.asset.mime.startsWith('font/'))) throw new Error('Asset component needs a matching texture or font file.');
+      if (c.front.length || c.back.length || c.rows.length || c.hand || c.flippable || c.stackable || c.shufflable) throw new Error('Assets cannot contain layers, variants or piece behaviors.');
+      const bytes = c.asset.data.length * 3 / 4 - (c.asset.data.endsWith('==') ? 2 : c.asset.data.endsWith('=') ? 1 : 0);
+      if (bytes > MAX_ASSET_BYTES) throw new Error('Each imported asset must be at most 5 MiB.');
+      assetBytes += bytes;
+      if (assetBytes > 20 * 1024 * 1024) throw new Error('Imported assets in one project must total at most 20 MiB.');
+    } else if (c.asset) throw new Error('Only texture and font components can own imported assets.');
     for (const face of [c.front, c.back]) {
       const nodes = new Map(face.map(n => [n.id, n]));
       if (nodes.size !== face.length) throw new Error('Duplicate layer identifiers.');
       for (const node of face) {
+        if (node.textureId && (node.type !== 'image' || components.find(item => item.id === node.textureId)?.kind !== 'texture')) throw new Error('Image layer references a missing texture.');
+        if (node.fontId && (node.type !== 'text' || components.find(item => item.id === node.fontId)?.kind !== 'font')) throw new Error('Text layer references a missing font.');
         if (node.type === 'shape' && node.shapeKind === 'path' && node.points.length < (node.pathClosed ? 3 : 2)) {
           throw new Error(`Path “${node.name}” needs at least ${node.pathClosed ? 3 : 2} points.`);
         }
         if (node.type === 'component') {
           if (!node.componentId || !componentIds.has(node.componentId)) throw new Error(`Nested component “${node.name}” references a missing component.`);
           const nested = components.find(item => item.id === node.componentId)!;
+          if (isAsset(nested)) throw new Error('Assets must be used through image or text layers, not nested as pieces.');
           if (node.dataSource === 'row' && node.dataRow >= nested.rows.length) {
             throw new Error(`Nested component “${node.name}” row ${node.dataRow} is out of range.`);
           }
@@ -217,13 +242,14 @@ function validateComponents(components: Component[]) {
 export function validateProject(project: Project): Project {
   const trusted = validatedComponents.has(project.components);
   (trusted ? projectSchema.omit({ components: true }) : projectSchema).parse(project);
-  const componentIds = new Set(project.components.map(c => c.id));
+  const componentIds = new Map(project.components.map(c => [c.id, c]));
   const playerIds = new Set(project.players.map(p => p.id));
   if (componentIds.size !== project.components.length || playerIds.size !== project.players.length ||
     new Set(project.instances.map(i => i.id)).size !== project.instances.length) throw new Error('Duplicate identifiers in project.');
   if (!trusted) validateComponents(project.components);
   for (const i of project.instances) {
     if (!componentIds.has(i.componentId) || (i.holder && !playerIds.has(i.holder))) throw new Error('Broken component or player reference.');
+    if (isAsset(componentIds.get(i.componentId)!)) throw new Error('Textures and fonts cannot be placed on the playground.');
     if (i.stack && i.holder) throw new Error('A held component cannot belong to a stack.');
   }
   const groups = new Map<string, Instance[]>();
@@ -382,6 +408,10 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (!p.components.some(component => component.id === command.id)) throw new Error('Component no longer exists.');
       const referencing = p.components.find(component => [...component.front, ...component.back].some(node => node.type === 'component' && node.componentId === command.id));
       if (referencing) throw new Error(`“${referencing.name}” links this component. Remove or relink that nested instance first.`);
+      for (const component of p.components) for (const node of [...component.front, ...component.back]) {
+        if (node.textureId === command.id) { delete node.textureId; node.text = ''; }
+        if (node.fontId === command.id) { delete node.fontId; node.font = 'DM Sans'; }
+      }
       p.components = p.components.filter(c => c.id !== command.id);
       p.instances = p.instances.filter(i => i.componentId !== command.id);
       break;
@@ -523,6 +553,22 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     case 'transform': {
       const selectedIds = new Set(command.ids);
+      const positions = command.positions ? new Map(command.positions.map(position => [position.id, position])) : undefined;
+      if (positions) {
+        if (command.dx !== undefined || command.dy !== undefined) throw new Error('Use absolute positions or relative movement, not both.');
+        if (positions.size !== command.positions!.length || positions.size !== selectedIds.size || [...selectedIds].some(key => !positions.has(key))) {
+          throw new Error('Provide exactly one destination for each selected piece.');
+        }
+        const stacks = new Map<string, { x: number; y: number }>();
+        for (const key of selectedIds) {
+          const item = get(key), destination = positions.get(key)!;
+          if (!item.stack) continue;
+          if (p.instances.some(member => member.stack === item.stack && !selectedIds.has(member.id))) throw new Error('Select the entire stack.');
+          const first = stacks.get(item.stack);
+          if (first && (first.x !== destination.x || first.y !== destination.y)) throw new Error('Stack members must move to the same destination.');
+          stacks.set(item.stack, destination);
+        }
+      }
       const flippedStacks = new Set<string>();
       if (command.flip) for (const key of selectedIds) {
         const item = get(key);
@@ -532,8 +578,8 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const item = get(key);
         editable(item);
         if (item.locked) throw new Error('Unlock this component first.');
-        item.x += command.dx ?? 0;
-        item.y += command.dy ?? 0;
+        item.x = positions?.get(key)?.x ?? item.x + (command.dx ?? 0);
+        item.y = positions?.get(key)?.y ?? item.y + (command.dy ?? 0);
         item.rotation = (item.rotation + (command.rotation ?? 0)) % 360;
         // Rounding keeps relative factors such as target / current from drifting below the typed value.
         item.scale = Math.round(item.scale * (command.scaleFactor ?? 1) * 1e9) / 1e9;
@@ -688,8 +734,6 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     case 'removePlayer': {
       const index = p.players.findIndex(player => player.id === command.playerId);
       if (index < 0) throw new Error('Seat no longer exists.');
-      if (p.players.length < 2) throw new Error('Keep at least one seat at the table.');
-      if (actor === command.playerId) throw new Error('Switch to another seat before removing this one.');
       const seat = p.players[index];
       // Lay the hand out in rows centered on the seat, growing toward the table along the seat's facing.
       const held = p.instances.filter(i => i.holder === seat.id).sort((a, b) => a.order - b.order);
@@ -704,7 +748,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       });
       p.players.splice(index, 1);
       if (index < p.settings.turn) p.settings.turn--;
-      p.settings.turn %= p.players.length;
+      p.settings.turn = p.players.length ? p.settings.turn % p.players.length : 0;
       break;
     }
     case 'reorderPlayers': {

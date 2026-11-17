@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Users, Wifi, WifiOff, X } from 'lucide-react';
-import { applyCommand, archiveSchema, canStack, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import { Armchair, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
+import { applyCommand, archiveSchema, canStack, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
-import { starterProject, templateBundle } from './templates';
-import { download, exportProject, loadWorkspace, parseArchive, parseComponentBundle, remapComponentBundle, saveWorkspace } from './storage';
+import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
+import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './storage';
+import { createPortableZip, downloadZip, projectZip, readPortableZip } from './portable';
+import { ASSET_ACCEPT, importAsset } from './assets';
+import { AssetFonts, AssetInspector } from './AssetInspector';
 import { ComponentThumbnail } from './ComponentView';
 import { Designer } from './Designer';
 import { Playground } from './Playground';
@@ -102,6 +105,7 @@ export default function App() {
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
   const fileInput = useRef<HTMLInputElement>(null);
+  const assetInput = useRef<HTMLInputElement>(null);
   const confirmed = archive.projects.find(p => p.id === projectId) ?? archive.projects[0] ?? fallbackProject;
   // Live actions are predicted locally until their reducer replies, so the table responds without waiting for the server.
   // The SDK applies the room update before the reducer promise settles, so dropping a prediction then never applies it twice;
@@ -120,7 +124,10 @@ export default function App() {
     try { return entry.apply(current); } catch { return current; }
   }, confirmed), [confirmed, predictions]);
   const activeComponent = project.components.find(c => c.id === componentId) ?? project.components[0];
-  const fontFamilies = [...new Set(project.components.flatMap(c => [...c.front, ...c.back].map(n => n.font)).filter(Boolean))].sort().join('|');
+  const fontFamilies = [...new Set(project.components.flatMap(c => [...c.front, ...c.back].filter(n => n.type === 'text' && !n.fontId).map(n => n.font)).filter(Boolean))].sort().join('|');
+  const fontCatalog = useMemo(() => home
+    ? [...new Map(archive.projects.flatMap(project => project.components.filter(component => component.kind === 'font')).map(component => [component.id, component])).values()]
+    : project.components, [home, archive.projects, project.components]);
   const notify = useCallback((message: string, error = false) => setToast({ message, error, id: Date.now() }), []);
   const openProject = (id: string) => {
     try {
@@ -161,6 +168,9 @@ export default function App() {
     if (modal === 'settings') setModal(undefined);
   };
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(undefined), toast.error ? 8000 : 4000); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => {
+    if (!session && actor && !project.players.some(player => player.id === actor)) setActor('');
+  }, [session, actor, project.players]);
   // Online, the acting seat is whichever seat this identity occupies; without one the player watches as a viewer.
   useEffect(() => {
     if (!session) return;
@@ -178,7 +188,7 @@ export default function App() {
     const fonts = fontFamilies.split('|');
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = `https://fonts.googleapis.com/css2?${fonts.map(font => `family=${encodeURIComponent(font)}:wght@400;500;600;700`).join('&')}&display=swap`;
+    link.href = `https://fonts.googleapis.com/css2?${fonts.map(font => `family=${encodeURIComponent(font)}`).join('&')}&display=swap`;
     document.head.appendChild(link);
     return () => link.remove();
   }, [fontFamilies]);
@@ -329,6 +339,7 @@ export default function App() {
   const watch = () => { void takeSeat('').then(ok => { if (ok) { setSelected([]); notify('You left your seat and are now watching.'); } }); };
   const newSeat = () => { void takeSeat(uid('player')).then(ok => { if (ok) { setSelected([]); notify('You took a new seat at the table.'); } }); };
   const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }, stacked = false) => {
+    if (isAsset(component)) { edit(component.id); return; }
     if (viewer) { notify('You are watching as a viewer. Take a seat in Players to play.', true); return; }
     if (component.kind === 'dice') { rows = [0]; stacked = false; }
     if (!rows.length || rows.length > 1000 || rows.some(row => !Number.isSafeInteger(row) || row < 0 || row >= Math.max(component.rows.length, 1))) {
@@ -351,7 +362,7 @@ export default function App() {
       if (success) { setSelected(instances.map(i => i.id)); notify(`Added ${instances.length === 1 ? component.name : `${instances.length} pieces`} to the table.`); }
     });
   };
-  const addTemplate = async (kind: Component['kind'] | 'blank') => {
+  const addTemplate = async (kind: TemplateKind) => {
     try {
       const { root, components } = templateBundle(kind);
       validateProject({ ...project, components: [...project.components, ...components] });
@@ -371,12 +382,11 @@ export default function App() {
   const importFile = async (file?: File) => {
     if (!file) return;
     try {
-      if (file.size > 20_000_000) throw new Error('Import files must be smaller than 20 MB.');
-      const text = await file.text();
-      const parsed: unknown = JSON.parse(text);
-      if (typeof parsed === 'object' && parsed !== null && 'format' in parsed && parsed.format === 'tablecraft') {
-        if (session) throw new Error('Leave the live session before importing a project. Component JSON can be imported while connected.');
-        const incoming = parseArchive(text);
+      if (file.size > 60 * 1024 * 1024) throw new Error('ZIP imports must be at most 60 MiB.');
+      const imported = readPortableZip(new Uint8Array(await file.arrayBuffer()));
+      if (imported.kind === 'archive') {
+        if (session) throw new Error('Leave the live session before importing a project. Component ZIPs can be imported while connected.');
+        const incoming = imported.archive;
         const ids = new Map(incoming.projects.map(p => [p.id, uid('project')]));
         const projects = incoming.projects.map(p => ({ ...p, id: ids.get(p.id)!, components: p.components.map(c => c.source && ids.has(c.source.projectId)
           ? { ...c, source: { ...c.source, projectId: ids.get(c.source.projectId)! } } : c) }));
@@ -389,13 +399,27 @@ export default function App() {
         setStorageError(null); notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.`);
       } else {
         if (home) throw new Error('Open a project before importing a component.');
-        const bundle = parseComponentBundle(text);
-        const remapped = remapComponentBundle(bundle);
+        const remapped = remapComponentBundle(imported.bundle);
         validateProject({ ...project, components: [...project.components, ...remapped.components] });
         if (!await dispatch({ type: 'addComponents', components: remapped.components })) throw new Error('Components could not be imported.');
         edit(remapped.rootId); notify(`Imported ${remapped.components.length} linked component${remapped.components.length === 1 ? '' : 's'}.`);
       }
     } catch (error) { notify(`Import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
+  };
+  const importAssets = async (files: FileList | null) => {
+    if (!files?.length) return;
+    try {
+      const components = await Promise.all(Array.from(files, importAsset));
+      validateProject({ ...project, components: [...project.components, ...components] });
+      if (await dispatch({ type: 'addComponents', components })) {
+        edit(components[0].id); setModal(undefined);
+        notify(`Imported ${components.length} asset${components.length === 1 ? '' : 's'}.`);
+      }
+    } catch (error) { notify(`Asset import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
+  };
+  const exportProject = (project: Project) => {
+    try { downloadZip(`${project.name}.tablecraft.zip`, projectZip(project)); }
+    catch (error) { notify(`Export failed: ${String(error)}`, true); }
   };
   const join = async (host: boolean) => {
     const fromHome = home;
@@ -429,8 +453,13 @@ export default function App() {
   };
   const createProject = (name: string, description = '') => {
     if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
-    const next: Project = { ...starterProject(), name, description, components: [], instances: [], players: [] };
-    setProject(next); setActor(''); setComponentId(undefined); setSelected([]);
+    if (!validName(settings.name)) {
+      setNameRequired(true); setModal('settings');
+      notify('Choose a player name in Settings before creating a project.', true);
+      return;
+    }
+    const next = blankProject(name, description, { name: settings.name.trim(), color: settings.color });
+    setProject(next); setActor(next.players[0].id); setComponentId(undefined); setSelected([]);
     setSearch(''); setFilter('all'); setMode('playground'); setModal('templates');
   };
   const copyLinked = async (component: Component) => {
@@ -443,6 +472,7 @@ export default function App() {
   const selectedComponent = mode === 'designer' ? activeComponent : project.components.find(c => c.id === project.instances.find(i => i.id === selected.at(-1))?.componentId);
   const settingsButton = <button className="profile-button" aria-label="Settings" title="Settings" onClick={() => setModal('settings')}>{settings.name.trim() ? settings.name.trim()[0].toUpperCase() : <Settings size={15} />}</button>;
   return <div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
+    <AssetFonts components={fontCatalog} notify={notify} />
     <header className="app-header">
       <a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
       {!home && <>
@@ -460,7 +490,10 @@ export default function App() {
     {home && <Home projects={archive.projects} onLoad={openProject} onCreate={createProject}
       onUpdate={(id, patch) => setWorkspace(current => ({ ...current, archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === id ? { ...p, ...patch } : p) } }))}
       onImport={() => fileInput.current?.click()} onExport={exportProject} onJoin={() => { setConnectionError(''); setModal('session'); }}
-      onExportAll={() => download('tablecraft-workspace.json', JSON.stringify(archive, null, 2))}
+      onExportAll={() => {
+        try { downloadZip('tablecraft-workspace.zip', createPortableZip(archive)); }
+        catch (error) { notify(`Export failed: ${String(error)}`, true); }
+      }}
       onDelete={id => {
         try {
           if (localStorage.getItem(LAST_PROJECT_KEY) === id) localStorage.removeItem(LAST_PROJECT_KEY);
@@ -479,11 +512,11 @@ export default function App() {
       })} />}
     <main className="main-layout" ref={panels.container} style={home ? { display: 'none' } : undefined}>
       <aside id="component-library-panel" className="library-panel" style={{ width: panels.sizes.library, minWidth: 0, flex: `0 0 ${panels.sizes.library}px` }} hidden={!libraryVisible}>
-        <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><span className="library-heading-actions"><button className="icon-button" aria-label="Link from another project" title="Link from another project" onClick={() => setModal('link')}><Link size={16} /></button><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></span></div>
+        <div className="library-heading"><h2>Components <span>{project.components.length}</span></h2><span className="library-heading-actions"><button className="icon-button" aria-label="Import component ZIP" title="Import component ZIP" onClick={() => fileInput.current?.click()}><Upload size={16} /></button><button className="icon-button" aria-label="Link from another project" title="Link from another project" onClick={() => setModal('link')}><Link size={16} /></button><button className="icon-button" aria-label="Add component" title="Add component" onClick={() => setModal('templates')}><Plus size={18} /></button></span></div>
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
         <div className={`library-filter-scroll${filterEdges.left ? ' overflow-left' : ''}${filterEdges.right ? ' overflow-right' : ''}`}>
           <ScrollArrows target={filterStrip} {...filterEdges} label="library filters" />
-          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
+          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }, { id: 'texture', label: 'Textures' }, { id: 'font', label: 'Fonts' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
         </div>
         <div className="library-section-label">PROJECT LIBRARY <span>{visible.length}</span></div>
         <div className="component-library">{visible.map((comp, index) => <div key={comp.id}
@@ -505,16 +538,16 @@ export default function App() {
             setLibraryDrag(undefined); setLibraryDrop(undefined);
           }}>
           <div className="library-preview-wrap">
-          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'playground'}
+          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'playground' && !isAsset(comp)}
             onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, hasVariants(comp) ? comp.rows.map((_, i) => i) : [0], hasVariants(comp))}
-            onClick={() => mode === 'designer' ? setComponentId(comp.id) : spawn(comp)} aria-label={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
+            onClick={() => mode === 'designer' || isAsset(comp) ? edit(comp.id) : spawn(comp)} aria-label={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
             {hasVariants(comp) && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
             <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
             <span className="preview-kind">{kindIcon(comp.kind, 10)}{comp.kind}</span>
             {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
-            {mode === 'playground' && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
-            {mode === 'playground' && <span className="preview-add"><Plus size={17} /></span>}
+            {mode === 'playground' && !isAsset(comp) && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
+            {mode === 'playground' && !isAsset(comp) && <span className="preview-add"><Plus size={17} /></span>}
           </button>
           {mode === 'playground' && hasVariants(comp) && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
             title={`Spawn all ${comp.rows.length} variants${comp.stackable ? ' as a stack' : ''}`} onClick={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)}><CopyPlus size={15} /></button>}
@@ -546,14 +579,18 @@ export default function App() {
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
       <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
-        activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components}
+        activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components} notify={notify}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
+        activeComponent && isAsset(activeComponent) ? <AssetInspector key={activeComponent.id} component={activeComponent} components={project.components} notify={notify} onChange={component => dispatch({ type: 'component', component })} onDelete={async () => {
+          if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
+        }} /> :
         activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>
-    <input ref={fileInput} type="file" accept=".json,application/json" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
+    <input ref={fileInput} type="file" accept=".zip,application/zip" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
+    <input ref={assetInput} type="file" accept={ASSET_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files); e.target.value = ''; }} />
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}
     {modal === 'seat' && session && <Modal title="Pick your seat" subtitle="Take an empty seat to play, or watch the table as a viewer. You can switch any time from the Players tab." wide onClose={() => setModal(undefined)}>
       <div className="seat-picker">
@@ -608,6 +645,7 @@ export default function App() {
         ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
+      <button className="blank-template" onClick={() => assetInput.current?.click()}><Upload size={24} /><span><strong>Import textures or fonts</strong><small>PNG, JPEG, WebP, GIF, TTF, OTF, WOFF or WOFF2. Embedded in your ZIP save.</small></span><ArrowRight size={17} /></button>
     </Modal>}
     {settingsOpen && <Modal title={settings.onboarded ? 'Make it yours.' : 'Welcome to Tablecraft.'} subtitle={settings.onboarded ? 'Preferences for you on this device. They stay in this browser and are never shared with other players.' : 'Before you start, tell the table who you are. Everything here stays in this browser, and you can change it any time in Settings.'} wide onClose={closeSettings}>
       <div className="settings-dialog">
@@ -675,7 +713,7 @@ export default function App() {
             localStorage.setItem('tablecraft.snapshots', JSON.stringify({ format: 'tablecraft', version: 1, projects: next }));
             setSnapshotStore({ projects: next, error: null }); notify('Playground snapshot saved.');
           } catch (error) { notify(`Save failed: ${String(error)}`, true); }
-        }}><Save size={15} /> Save snapshot</button><button className="button" onClick={() => exportProject(project)}><Download size={15} /> Export JSON</button></div>
+        }}><Save size={15} /> Save snapshot</button><button className="button" onClick={() => exportProject(project)}><Download size={15} /> Export ZIP</button></div>
         <h3 className="saved-heading">Saved playgrounds</h3>{!snapshots.length && <p className="help-text">No snapshots yet. Your workspace is also saved automatically.</p>}
         <div className="snapshot-list">{snapshots.map(snapshot => <div key={snapshot.id}><div><strong>{snapshot.name}</strong><small>{snapshot.instances.length} pieces · {snapshot.players.length} players</small></div><button className="button" disabled={!!session} onClick={() => {
           const next = { ...structuredClone(snapshot), id: uid('project') };
@@ -691,8 +729,8 @@ export default function App() {
     </Modal>}
     {modal === 'help' && <Modal title="Welcome to your workshop." subtitle="Less setup. More 'what if?'" wide onClose={() => setModal(undefined)}>
       <div className="help-grid"><div><span>01</span><h3>Make your pieces</h3><p>Start from a template or a blank component. Add layers and nested frames, style them, and connect text or images to CSV columns with {'{{bindings}}'}.</p></div><div><span>02</span><h3>Bring them to the table</h3><p>Click a library component to spawn it. Shift-click to select multiple pieces, then stack compatible pieces. Double-click to flip a card or draw from a stack.</p></div><div><span>03</span><h3>Find the fun</h3><p>Add hotseat players, switch seats and play. Connect a SpaceTimeDB room for online play. Design changes stay live for everyone.</p></div></div>
-      <div className="keyboard-shortcuts"><span><kbd>F</kbd> Flip</span><span><kbd>R</kbd> Rotate</span><span><kbd>S</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>L</kbd> Lock</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
-      <div className="help-footer"><Leaf size={18} /><p>Your work stays in this browser. Export JSON to back it up or move it to another device. External textures and Google Fonts need internet access.</p></div>
+      <div className="keyboard-shortcuts"><span><kbd>Z</kbd> Fullscreen preview</span><span><kbd>F</kbd> Flip</span><span><kbd>Q/E</kbd> Rotate</span><span><kbd>R</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>L</kbd> Lock</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
+      <div className="help-footer"><Leaf size={18} /><p>Your work stays in this browser. Export ZIP to back it up or move it to another device. Imported textures and fonts travel with your save; external texture URLs and Google Fonts need internet access.</p></div>
     </Modal>}
     {curtain && <div className="privacy-curtain"><span className="brand-mark"><Layers size={32} /></span><p>PASS THE SCREEN TO</p><h1>{curtain.name}</h1><span className="curtain-avatar" style={{ background: curtain.color }}>{curtain.name[0]}</span><p className="curtain-description">A little privacy for your next big move.</p><button className="button primary" onClick={() => { setActor(curtain.id); setCurtain(undefined); }}>I'm {curtain.name}. Let's play. <ArrowRight size={17} /></button><button className="text-button" onClick={() => setCurtain(undefined)}>Back to the current player</button></div>}
   </div>;

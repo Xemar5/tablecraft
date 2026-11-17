@@ -53,15 +53,19 @@ test('profile and server defaults prefill the session form and the first hotseat
   await expect(dialog.getByLabel('Default SpaceTimeDB server', { exact: true })).not.toHaveValue('https://maincloud.spacetimedb.com');
   await dialog.getByRole('button', { name: 'Close dialog' }).click();
 
-  // A new project has no seats, so the first hotseat seat uses the profile defaults.
+  // The initial seat is created and selected from the current profile.
   await page.getByRole('link', { name: 'Tablecraft home' }).click();
   await page.getByRole('button', { name: 'New project' }).click();
   await page.getByRole('button', { name: 'Create project' }).click();
   await page.keyboard.press('Escape');
-  await page.getByRole('button', { name: /^Players/ }).click();
-  await page.getByRole('button', { name: 'Add hotseat player', exact: true }).click();
-  await expect(page.getByLabel('Player name', { exact: true })).toHaveValue('Ada');
-  await expect(page.getByLabel('Player color value', { exact: true })).toHaveValue('#336699');
+  await expect(page.locator('.seat-marker.active')).toContainText('Ada');
+  const seats = await page.evaluate(() => {
+    const archive = JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!);
+    const projectId = localStorage.getItem('tablecraft.last-project');
+    return archive.projects.find((project: { id: string }) => project.id === projectId).players;
+  });
+  expect(seats).toHaveLength(1);
+  expect(seats[0]).toMatchObject({ name: 'Ada', color: '#336699' });
 });
 
 test('first launch asks for a name before the settings can close and starts with a random opaque color', async ({ page }) => {

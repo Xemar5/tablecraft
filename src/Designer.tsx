@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, ChevronRight, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, MoveHorizontal, MoveVertical, Redo2, RotateCw, Square, Trash2, Type, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, type PointEditEvent } from './ComponentView';
-import { makeNode, moveLayer, type Component, type DesignNode } from './domain';
+import { isAsset, makeNode, moveLayer, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
-import { download, exportComponentBundle } from './storage';
+import { componentZip, downloadZip } from './portable';
+import { GOOGLE_FONTS } from './assets';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle, useSmoothHorizontalWheel } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { resizeNode, rotateNode } from './designTransform';
@@ -622,7 +623,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><Frame size={18} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
           <div className="designer-tool-menu"><button aria-label="Link nested component" title="Link nested component" aria-expanded={toolMenu === 'link'} onClick={event => toggleToolMenu('link', event.currentTarget)}><Link2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'link' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{components.filter(item => item.id !== component.id).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>, document.body)}</div>
+            {toolMenu === 'link' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{components.filter(item => item.id !== component.id && !isAsset(item)).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>, document.body)}</div>
         </div><span className="toolbar-divider" />
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
@@ -775,7 +776,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <p className="help-text">Keep at least one variant. Removing a row shifts later dice and fixed nested-row references down; references to the removed result use the next result, or the last remaining result. Parent-field row bindings keep their CSV values.</p>
           </div>}
           <div className="inspector-section"><h3>Portable by design</h3><p className="help-text">Export the full component, including both faces, behavior and CSV data.</p>
-            <button className="button full" onClick={() => download(`${component.name}.component.json`, JSON.stringify(exportComponentBundle(component, components), null, 2))}><Download size={15} /> Export component</button>
+            <button className="button full" onClick={() => {
+              try { downloadZip(`${component.name}.component.zip`, componentZip(component, components)); }
+              catch (error) { notify(`Export failed: ${String(error)}`, true); }
+            }}><Download size={15} /> Export component</button>
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>
         </> : node ? <>
           <div className="inspector-section design-section selection-section" key={node.id}>
@@ -823,13 +827,22 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             {node.type === 'text' && selected.length === 1 && <>
               <Field label="Text / binding"><textarea value={node.text} onChange={event => updateNode({ text: event.target.value })} rows={3} /></Field>
               <p className="help-text">Mix static text with <code>{'{{column_name}}'}</code>.</p>
-              <Field label="Google font"><input list="google-fonts" value={node.font} onChange={event => updateNode({ font: event.target.value })} /></Field>
-              <datalist id="google-fonts">{['DM Sans', 'Lora', 'Inter', 'Playfair Display', 'Space Grotesk', 'Roboto', 'Cinzel', 'Bebas Neue'].map(font => <option key={font}>{font}</option>)}</datalist>
+              <Field label="Imported font"><select value={node.fontId ?? ''} onChange={event => updateNode({ fontId: event.target.value || undefined })}>
+                <option value="">Use Google font</option>{components.filter(item => item.kind === 'font').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select></Field>
+              <Field label="Google font"><input list="google-fonts" disabled={!!node.fontId} value={node.font} onChange={event => updateNode({ font: event.target.value })} /></Field>
+              <datalist id="google-fonts">{GOOGLE_FONTS.map(font => <option key={font}>{font}</option>)}</datalist>
               <div className="field-grid"><NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
                 <ColorField label="Text color" value={node.color} onChange={color => updateNode({ color })} /></div>
               <Field label="Alignment"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
             </>}
-            {node.type === 'image' && selected.length === 1 && <><Field label="Image URL / binding"><textarea rows={3} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://... or {{image}}" /></Field><p className="help-text">HTTPS texture URLs and CSV bindings are supported.</p></>}
+            {node.type === 'image' && selected.length === 1 && <>
+              <Field label="Imported texture"><select value={node.textureId ?? ''} onChange={event => updateNode({ textureId: event.target.value || undefined })}>
+                <option value="">Use image URL / binding</option>{components.filter(item => item.kind === 'texture').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select></Field>
+              <Field label="Image URL / binding"><textarea rows={3} disabled={!!node.textureId} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://... or {{image}}" /></Field>
+              <p className="help-text">Import assets from the component library, or use HTTPS texture URLs and CSV bindings.</p>
+            </>}
             {node.type === 'shape' && selected.length === 1 && <>
               <Field label="Vector shape"><select value={node.shapeKind} onChange={event => {
                 const nextKind = event.target.value as DesignNode['shapeKind'];
@@ -895,7 +908,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 const linked = components.find(item => item.id === event.target.value);
                 if (linked) updateNode({ componentId: linked.id, name: linked.name, width: linked.width, height: linked.height, dataRow: 0 });
               }}>
-                {components.filter(item => item.id !== component.id).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                {components.filter(item => item.id !== component.id && !isAsset(item)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select></Field>
               <Field label="Nested data"><select value={node.dataSource} onChange={event => updateNode({ dataSource: event.target.value as DesignNode['dataSource'] })}>
                 <option value="inherit">Inherit parent row</option><option value="row">Use this component’s row</option><option value="field">Choose row from parent CSV field</option>

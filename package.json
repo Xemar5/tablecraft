@@ -20,6 +20,7 @@
     "db:publish:maincloud": "spacetime publish tablecraft-xemar5 --module-path server --server maincloud"
   },
   "dependencies": {
+    "fflate": "^0.8.2",
     "lucide-react": "^0.468.0",
     "papaparse": "^5.5.3",
     "polygon-clipping": "^0.15.7",

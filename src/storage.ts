@@ -1,4 +1,4 @@
-import { archiveSchema, componentSchema, uid, validateProject, type Archive, type Component, type Project } from './domain';
+import { archiveSchema, componentSchema, uid, validateProject, type Archive, type Component } from './domain';
 import { starterProject, upgradeLegacyArtwork } from './templates';
 
 const KEY = 'tablecraft.workspace.v1';
@@ -25,9 +25,6 @@ export function download(name: string, content: string, type = 'application/json
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-export function exportProject(project: Project) {
-  download(`${project.name}.tablecraft.json`, JSON.stringify({ format: 'tablecraft', version: 1, projects: [project] }, null, 2));
-}
 export type ComponentBundle = { rootId: string; components: Component[] };
 export function remapComponentBundle(bundle: ComponentBundle, createId: (component: Component) => string = () => uid('component')): ComponentBundle {
   const ids = new Map(bundle.components.map(component => [component.id, createId(component)]));
@@ -37,15 +34,24 @@ export function remapComponentBundle(bundle: ComponentBundle, createId: (compone
     rootId,
     components: bundle.components.map(component => ({
       ...component, id: ids.get(component.id)!,
-      front: component.front.map(node => node.type === 'component'
-        ? { ...node, componentId: node.componentId ? ids.get(node.componentId) ?? node.componentId : undefined } : node),
-      back: component.back.map(node => node.type === 'component'
-        ? { ...node, componentId: node.componentId ? ids.get(node.componentId) ?? node.componentId : undefined } : node),
+      front: component.front.map(node => ({ ...node,
+        componentId: node.componentId ? ids.get(node.componentId) ?? node.componentId : undefined,
+        textureId: node.textureId ? ids.get(node.textureId) ?? node.textureId : undefined,
+        fontId: node.fontId ? ids.get(node.fontId) ?? node.fontId : undefined,
+      })),
+      back: component.back.map(node => ({ ...node,
+        componentId: node.componentId ? ids.get(node.componentId) ?? node.componentId : undefined,
+        textureId: node.textureId ? ids.get(node.textureId) ?? node.textureId : undefined,
+        fontId: node.fontId ? ids.get(node.fontId) ?? node.fontId : undefined,
+      })),
     })),
   };
 }
 function linkedIds(component: Component) {
-  return [...component.front, ...component.back].flatMap(node => node.type === 'component' && node.componentId ? [node.componentId] : []);
+  return [...component.front, ...component.back].flatMap(node => [
+    ...(node.type === 'component' && node.componentId ? [node.componentId] : []),
+    ...(node.textureId ? [node.textureId] : []), ...(node.fontId ? [node.fontId] : []),
+  ]);
 }
 export function exportComponentBundle(component: Component, catalog: Component[]): { format: 'tablecraft-component'; version: 1 } & ComponentBundle {
   const byId = new Map(catalog.map(item => [item.id, item]));

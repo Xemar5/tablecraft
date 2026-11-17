@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { starterProject } from '../src/templates';
 import { linkComponent } from '../src/projectLinks';
+import { createPortableZip } from '../src/portable';
 
 let dir: string;
 const runner = resolve('node_modules/tsx/dist/cli.mjs');
@@ -26,7 +27,7 @@ describe('agent CLI', () => {
     const empty = { ...starterProject(), id: 'target', components: [], instances: [] };
     const linked = linkComponent(empty, source, source.components[0].id);
     const file = join(dir, 'workspace.json'), batch = join(dir, 'commands.json'), bundle = join(dir, 'linked.json'), imported = join(dir, 'imported.json');
-    writeFileSync(file, JSON.stringify({ format: 'tablecraft', version: 1, projects: [source, linked.project] }));
+    writeFileSync(file, createPortableZip({ format: 'tablecraft', version: 1, projects: [source, linked.project] }));
     writeFileSync(batch, JSON.stringify({ type: 'component', component: { ...source.components[0], name: 'Refreshed by CLI' } }));
     run('apply', '--file', file, '--project', source.id, '--commands', batch);
     const target = run('inspect', '--file', file, '--project', 'target');

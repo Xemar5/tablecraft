@@ -9,7 +9,8 @@ const cardRows = [
   { id: 'night', name: 'Night wanderer', type: 'WOODLAND SPIRIT', cost: '4', power: '5', description: 'Look at the top three cards.\nNot all who wander are lost.', art: 'moon' },
 ];
 
-export function template(kind: Component['kind'] | 'blank'): Component {
+export type TemplateKind = Exclude<Component['kind'], 'texture' | 'font'> | 'blank';
+export function template(kind: TemplateKind): Component {
   const base: Component = {
     id: uid('component'), name: 'Untitled component', kind: kind === 'blank' ? 'card' : kind,
     width: 220, height: 308, color: '#e9e5d7', front: [], back: [],
@@ -144,7 +145,7 @@ export function upgradeLegacyArtworkProject(project: Project): Project {
   return components === project.components ? project : { ...project, components };
 }
 
-export function templateBundle(kind: Component['kind'] | 'blank'): { root: Component; components: Component[] } {
+export function templateBundle(kind: TemplateKind): { root: Component; components: Component[] } {
   const initial = template(kind);
   const components = upgradeLegacyArtwork([initial]);
   return { root: components.find(item => item.id === initial.id)!, components };
@@ -170,6 +171,14 @@ export function starterProject(): Project {
       { id: 'player-1', owner: 'local', name: 'Player 1', color: '#b7cc91', x: 980, y: 1000, rotation: 0 },
       { id: 'player-2', owner: 'local', name: 'Player 2', color: '#ce9e7b', x: 980, y: 100, rotation: 180 },
     ],
+    settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },
+  };
+}
+
+export function blankProject(name = 'Untitled project', description = '', profile = { name: 'Player 1', color: '#b7cc91' }): Project {
+  return {
+    id: uid('project'), name, description, components: [], instances: [],
+    players: [{ id: uid('player'), owner: 'local', name: profile.name, color: profile.color, x: 980, y: 1000, rotation: 0 }],
     settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },
   };
 }

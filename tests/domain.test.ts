@@ -458,14 +458,14 @@ describe('portable saves', () => {
   });
 });
 describe('removing seats', () => {
-  it('spreads the hand where the seat was, adjusts the turn and protects the active and last seat', () => {
+  it('spreads the hand where the seat was and supports removing the active and last seat', () => {
     let p = starterProject();
     const cards = p.instances.filter(i => i.stack).slice(-3);
     p = applyCommand(p, { type: 'settings', patch: { turn: 1 } });
     p = applyCommand(p, { type: 'drawMany', id: cards[0].id, playerId: 'player-2', count: 3 }, 'player-2');
     const held = p.instances.filter(i => i.holder === 'player-2').sort((a, b) => a.order - b.order);
     expect(held).toHaveLength(3);
-    expect(() => applyCommand(p, { type: 'removePlayer', playerId: 'player-2' }, 'player-2')).toThrow('Switch to another seat');
+    expect(applyCommand(p, { type: 'removePlayer', playerId: 'player-2' }, 'player-2').players).toHaveLength(1);
     expect(() => applyCommand(p, { type: 'removePlayer', playerId: 'missing' }, 'player-1')).toThrow('Seat no longer exists');
     const next = applyCommand(p, { type: 'removePlayer', playerId: 'player-2' }, 'player-1');
     expect(next.players.map(player => player.id)).toEqual(['player-1']);
@@ -477,7 +477,10 @@ describe('removing seats', () => {
     expect(placed[1].x).toBe(980);
     expect(placed[0].x).toBeGreaterThan(980);
     expect(placed[2].x).toBeLessThan(980);
-    expect(() => applyCommand(next, { type: 'removePlayer', playerId: 'player-1' })).toThrow('Keep at least one seat');
+    const empty = applyCommand(next, { type: 'removePlayer', playerId: 'player-1' }, 'player-1');
+    expect(empty.players).toHaveLength(0);
+    expect(empty.settings.turn).toBe(0);
+    expect(empty.instances.every(item => item.holder === null)).toBe(true);
   });
 
   it('wraps large hands into rows that grow toward the table', () => {

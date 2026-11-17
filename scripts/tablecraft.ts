@@ -2,9 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { link, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, projectSchema, uid, validateProject, type Archive, type Project } from '../src/domain';
-import { exportComponentBundle, parseArchive, parseComponentBundle, remapComponentBundle } from '../src/storage';
-import { starterProject, templateBundle } from '../src/templates';
+import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, projectSchema, validateProject, type Archive, type Project } from '../src/domain';
+import { exportComponentBundle, remapComponentBundle } from '../src/storage';
+import { createPortableZip, readPortableZip } from '../src/portable';
+import { blankProject, starterProject, templateBundle } from '../src/templates';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { live } from './live';
 import { refreshProjectLinks } from '../src/projectLinks';
@@ -14,7 +15,7 @@ Usage: npm --silent run cli -- <command> [options]
 
   new --out FILE [--template blank|wildwood] [--name NAME] [--force]
   generate --file FILE --template blank|card|token|board|dice|artwork [--name NAME] [--data JSON_FILE]
-  import --file FILE --bundle COMPONENT_JSON
+  import --file FILE --bundle COMPONENT_ZIP
   list --file FILE [--what components|instances|players]
   inspect --file FILE [--component ID]
   schema --what project|archive|component|command
@@ -29,6 +30,7 @@ Usage: npm --silent run cli -- <command> [options]
 
 Live options: --uri URL (default http://127.0.0.1:3000), --database NAME
   (default tablecraft-studio), --name NAME, --color COLOR, --timeout MS.
+Project and component files are ZIP saves containing project.json and assets.
 For archives with multiple projects use --project PROJECT_ID. Offline mutations
 replace --file atomically after the full batch succeeds. Offline apply supports
 {"type":"undo"} within the current batch only. Live batches commit one command
@@ -62,17 +64,19 @@ function numberOption(o: Options, name: string, fallback: number, min: number, m
   return n;
 }
 async function jsonFile(path: string): Promise<unknown> { return JSON.parse(await readFile(path, 'utf8')); }
-async function atomicJson(path: string, value: unknown, overwrite: boolean) {
+async function atomicZip(path: string, value: Parameters<typeof createPortableZip>[0], overwrite: boolean) {
   const dest = resolve(path);
   const temp = join(dirname(dest), `.${basename(dest)}.${randomUUID()}.tmp`);
   try {
-    await writeFile(temp, JSON.stringify(value, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+    await writeFile(temp, createPortableZip(value), { flag: 'wx', mode: 0o600 });
     if (overwrite) await rename(temp, dest);
     else await link(temp, dest);
   } finally { await rm(temp, { force: true }); }
 }
 async function load(path: string, projectId?: string): Promise<{ archive: Archive; project: Project; index: number }> {
-  const archive = refreshProjectLinks(parseArchive(await readFile(path, 'utf8')));
+  const imported = readPortableZip(await readFile(path));
+  if (imported.kind !== 'archive') throw new Error('Choose a project ZIP, not a component bundle.');
+  const archive = refreshProjectLinks(imported.archive);
   if (!projectId && archive.projects.length !== 1) throw new Error('Select a project with --project.');
   const index = projectId ? archive.projects.findIndex(p => p.id === projectId) : 0;
   if (index < 0 || !archive.projects[index]) throw new Error('Project not found.');
@@ -102,12 +106,11 @@ async function main(args: string[]) {
     allowed(o, ['out', 'template', 'name', 'force']);
     const kind = option(o, 'template', 'blank');
     if (!['blank', 'wildwood'].includes(kind)) throw new Error('Unknown project template.');
-    const project = starterProject();
-    if (kind === 'blank') Object.assign(project, { id: uid('project'), name: 'Untitled project', description: '', components: [], instances: [], players: [] });
+    const project = kind === 'blank' ? blankProject() : starterProject();
     if (o.name) project.name = option(o, 'name');
     const archive = archiveSchema.parse({ format: 'tablecraft', version: 1, projects: [project] });
     validateProject(archive.projects[0]);
-    await atomicJson(option(o, 'out'), archive, !!o.force);
+    await atomicZip(option(o, 'out'), archive, !!o.force);
     result = { project: archive.projects[0], file: option(o, 'out') };
   } else if (cmd === 'live') {
     allowed(o, ['file', 'project', 'code', 'uri', 'database', 'name', 'color', 'timeout', 'commands', 'actor']);
@@ -149,7 +152,9 @@ async function main(args: string[]) {
       project = applyCommand(project, { type: 'component', component });
       changed = true; result = { component };
     } else if (cmd === 'import') {
-      const bundle = remapComponentBundle(parseComponentBundle(await readFile(option(o, 'bundle'), 'utf8')));
+      const imported = readPortableZip(await readFile(option(o, 'bundle')));
+      if (imported.kind !== 'component') throw new Error('Choose a component ZIP, not a project archive.');
+      const bundle = remapComponentBundle(imported.bundle);
       project = applyCommand(project, { type: 'addComponents', components: bundle.components });
       changed = true; result = bundle;
     } else if (cmd === 'apply' || cmd === 'spawn') {
@@ -176,20 +181,20 @@ async function main(args: string[]) {
       if (!result) throw new Error('Component not found.');
     } else if (cmd === 'validate') result = { valid: true, projectId: project.id };
     else if (cmd === 'export') {
-      let output: unknown = { format: 'tablecraft', version: 1, projects: [project] };
+      let output: Parameters<typeof createPortableZip>[0] = { format: 'tablecraft', version: 1, projects: [project] };
       if (o.component) {
         const component = project.components.find(c => c.id === o.component);
         if (!component) throw new Error('Component not found.');
         output = exportComponentBundle(component, project.components);
       }
       if (resolve(option(o, 'out')) === resolve(file)) throw new Error('Export destination must differ from the source.');
-      await atomicJson(option(o, 'out'), output, !!o.force);
+      await atomicZip(option(o, 'out'), output, !!o.force);
       result = { file: option(o, 'out') };
     }
     if (changed) {
       validateProject(project);
       loaded.archive.projects[loaded.index] = project;
-      await atomicJson(file, archiveSchema.parse(refreshProjectLinks(loaded.archive)), true);
+      await atomicZip(file, archiveSchema.parse(refreshProjectLinks(loaded.archive)), true);
     }
   }
   console.log(JSON.stringify(result, null, 2));

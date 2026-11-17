@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { starterProject } from '../../src/templates';
 import { linkComponent } from '../../src/projectLinks';
+import { createPortableZip } from '../../src/portable';
+import type { Archive } from '../../src/domain';
 
 // No saved projects, but a completed profile so the first-launch settings stay closed.
 test.use({ storageState: { cookies: [], origins: [{ origin: 'http://127.0.0.1:5173', localStorage: [{ name: 'tablecraft.settings.v1', value: JSON.stringify({ name: 'Tester', onboarded: true }) }] }] } });
@@ -66,8 +68,8 @@ test('importing a workspace remaps internal project links to the imported source
   const linked = linkComponent(target, source, source.components[0].id).project;
   await page.goto('/');
   await page.locator('input[type=file]').first().setInputFiles({
-    name: 'workspace.json', mimeType: 'application/json',
-    buffer: Buffer.from(JSON.stringify({ format: 'tablecraft', version: 1, projects: [source, linked] })),
+    name: 'workspace.zip', mimeType: 'application/zip',
+    buffer: Buffer.from(createPortableZip({ format: 'tablecraft', version: 1, projects: [source, linked] })),
   });
   await expect(page.getByRole('button', { name: 'Open project Exported target', exact: true })).toBeVisible();
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!));
@@ -93,9 +95,9 @@ test('Home creates, reorders, exports, imports and deletes projects including th
   await expect(page.locator('.home-project h2')).toHaveText(['My prototype', 'Wildwood']);
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export project My prototype', exact: true }).click();
-  expect((await download).suggestedFilename()).toBe('My prototype.tablecraft.json');
-  const exported = { format: 'tablecraft', version: 1, projects: [{ ...starterProject(), id: 'imported', name: 'Imported project' }] };
-  await page.locator('input[type=file]').first().setInputFiles({ name: 'import.tablecraft.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(exported)) });
+  expect((await download).suggestedFilename()).toBe('My prototype.tablecraft.zip');
+  const exported: Archive = { format: 'tablecraft', version: 1, projects: [{ ...starterProject(), id: 'imported', name: 'Imported project' }] };
+  await page.locator('input[type=file]').first().setInputFiles({ name: 'import.tablecraft.zip', mimeType: 'application/zip', buffer: Buffer.from(createPortableZip(exported)) });
   await expect(page.getByRole('button', { name: 'Open project Imported project', exact: true })).toBeVisible();
   for (const name of ['My prototype', 'Wildwood', 'Imported project']) {
     await page.getByRole('button', { name: `Delete project ${name}`, exact: true }).click();

@@ -1,5 +1,5 @@
 import { memo, useState, type CSSProperties, type PointerEvent } from 'react';
-import { bind, safeImage, type Component, type DesignNode } from './domain';
+import { assetFontFamily, assetUrl, bind, safeImage, type Component, type DesignNode } from './domain';
 import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
 
 export type PointEditEvent = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; event: PointerEvent<SVGCircleElement> };
@@ -53,7 +53,7 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       flex: fillsMainAxis ? '1 1 0' : undefined, flexShrink: widthMode === 'fill' || heightMode === 'fill' ? undefined : 0, boxSizing: 'border-box',
       background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? 'transparent' : node.fill,
       color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,
-      fontSize: node.fontSize, fontFamily: `"${node.font}", sans-serif`,
+      fontSize: node.fontSize, fontFamily: `"${node.fontId && catalog.has(node.fontId) ? assetFontFamily(catalog.get(node.fontId)!) : node.font}", sans-serif`,
       // An identity rotate still creates a transform node per layer, which makes large tables slow to composite.
       transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined, opacity: node.opacity,
       paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
@@ -134,7 +134,11 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
     return <div key={node.id} style={style} className={`design-node node-${node.type}`}
       onPointerDown={onNode ? event => { event.stopPropagation(); onNode(node.id, event); } : undefined}>
       {node.type === 'text' && text}
-      {node.type === 'image' && (safeImage(text) ? <img src={safeImage(text)} alt="" draggable={false} /> : <div className="image-placeholder">Image URL</div>)}
+      {node.type === 'image' && (() => {
+        const texture = node.textureId ? catalog.get(node.textureId) : undefined;
+        const src = texture ? assetUrl(texture) : safeImage(text);
+        return src ? <img src={src} alt="" draggable={false} /> : <div className="image-placeholder">Image / texture</div>;
+      })()}
       {shape}{nested}{vectorEditor}
       {node.type === 'compound'
         ? (sourceOutline || compoundEditing.has(node.id)) && nodes.filter(child => child.parent === node.id).map(child => render(child, node, contextData, true))
@@ -145,7 +149,9 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
     width: c.width, height: c.height, background: hidden && !nodes.length ? '#365d46' : c.color,
     borderRadius: c.kind === 'artwork' ? 0 : c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
     boxShadow: c.kind === 'artwork' ? 'none' : undefined,
-  }}>{hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
+  }}>{c.kind === 'texture' ? <img src={assetUrl(c)} alt={c.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+      : c.kind === 'font' ? <div style={{ fontFamily: `"${assetFontFamily(c)}"`, fontSize: 64, textAlign: 'center', paddingTop: 50 }}>Aa</div>
+      : hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 });
 
 export const ComponentThumbnail = memo(function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width = 100 }: {

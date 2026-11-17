@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fillServer, pickSeat, settleJoin, setProfileName } from './liveSeat';
 import type { Archive } from '../../src/domain';
+import { createPortableZip } from '../../src/portable';
 
 async function workspace(page: Page): Promise<Archive> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!));
@@ -343,7 +344,7 @@ test('stack search, draw, hotseat privacy, hand release and manipulation', async
   await expect(page.locator('.stack-count')).toHaveCount(0);
 });
 
-test('named saves restore hands and seats; JSON exports can be imported', async ({ page }) => {
+test('named saves restore hands and seats; ZIP exports can be imported', async ({ page }) => {
   await page.goto('/');
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
   await expect(page.locator('.hand-card')).toHaveCount(1);
@@ -352,9 +353,9 @@ test('named saves restore hands and seats; JSON exports can be imported', async 
   await page.getByRole('button', { name: 'Save snapshot', exact: true }).click();
   await expect(page.locator('.snapshot-list')).toContainText('Evening playtest');
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Export JSON', exact: true }).click();
+  await page.getByRole('button', { name: 'Export ZIP', exact: true }).click();
   const downloaded = await downloadPromise;
-  expect(downloaded.suggestedFilename()).toBe('Wildwood.tablecraft.json');
+  expect(downloaded.suggestedFilename()).toBe('Wildwood.tablecraft.zip');
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.reload();
   await expect(page.locator('.hand-card')).toHaveCount(1);
@@ -363,8 +364,8 @@ test('named saves restore hands and seats; JSON exports can be imported', async 
   await expect(page.locator('.project-heading h1')).toHaveText('Evening playtest');
   await expect(page.locator('.hand-card')).toHaveCount(1);
   const data = await workspace(page);
-  await page.locator('input[type=file]').last().setInputFiles({
-    name: 'playground.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(data)),
+  await page.locator('input[accept=".zip,application/zip"]').setInputFiles({
+    name: 'playground.zip', mimeType: 'application/zip', buffer: Buffer.from(createPortableZip(data)),
   });
   await expect(page.getByRole('status')).toContainText('Imported 2 projects');
 });

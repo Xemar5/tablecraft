@@ -1,4 +1,4 @@
-// Builds games/arcane-assembly/arcane-assembly.tablecraft.json through the Tablecraft CLI.
+// Builds the portable ZIP through the CLI and a JSON contact-sheet source.
 // Run from the repository root:  npx tsx games/arcane-assembly/build.ts
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Component } from '../../src/domain';
+import { createPortableZip, readPortableZip } from '../../src/portable';
 import {
   ID, PAY_FIELDS, COST_FIELDS, achievements, actions, artLibrary, buildCards, coreRulebook, costSlot, factionRulebook, firstPlayer,
   rarityIcons, reminder, resourceArt, resourceTokens, setArtChunks, specialPieces, supports, workers,
@@ -14,7 +15,7 @@ import { ALL_RESOURCES, CORE_RULES, FACTIONS, GAME, factionPages, type Faction }
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../..');
-const archive = join(here, 'arcane-assembly.tablecraft.json');
+const archive = join(here, 'arcane-assembly.tablecraft.zip');
 const work = join(tmpdir(), 'arcane-assembly-build');  // per-component JSON handed to the CLI
 
 function cli(...args: string[]): any {
@@ -35,7 +36,7 @@ const perFaction = FACTIONS.map(f => [
 
 rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
-cli('new', '--out', archive, '--template', 'blank', '--name', GAME.name, '--force');
+const created = cli('new', '--out', archive, '--template', 'blank', '--name', GAME.name, '--force');
 let n = 0;
 for (const c of [...shared, ...general, ...perFaction.flat()]) {
   const file = join(work, `${String(++n).padStart(2, '0')}-${c.id}.json`);
@@ -46,7 +47,7 @@ for (const c of [...shared, ...general, ...perFaction.flat()]) {
 
 // ---------------------------------------------------------------- table setup, seats and library order
 type Spawn = { id: string; componentId: string; row: number; x: number; y: number; rotation: number; scale: number; flipped: boolean; holder: null; stack: null; order: number; locked: boolean };
-const commands: unknown[] = [];
+const commands: unknown[] = created.project.players.map((player: { id: string }) => ({ type: 'removePlayer', playerId: player.id }));
 const spawn: Spawn[] = [];
 const stacks: { ids: string[]; stackId: string }[] = [];
 const put = (id: string, componentId: string, row: number, x: number, y: number, extra: Partial<Spawn> = {}) => {
@@ -97,9 +98,12 @@ const commandFile = join(work, 'table-setup.commands.json');
 writeFileSync(commandFile, JSON.stringify(commands, null, 2));
 cli('apply', '--file', archive, '--commands', commandFile);
 
-const saved = JSON.parse(readFileSync(archive, 'utf8'));
+const portable = readPortableZip(readFileSync(archive));
+if (portable.kind !== 'archive') throw new Error('Expected the generated project archive.');
+const saved = portable.archive;
 saved.projects[0].description = `${GAME.tagline} A worker-placement engine builder for 2–4 rival factory factions.`;
-writeFileSync(archive, JSON.stringify(saved, null, 2) + '\n');
+writeFileSync(archive, createPortableZip(saved));
+writeFileSync(join(here, 'arcane-assembly.tablecraft.json'), JSON.stringify(saved, null, 2) + '\n');
 console.log(JSON.stringify(cli('validate', '--file', archive)));
 console.log(`components: ${saved.projects[0].components.length}, pieces: ${saved.projects[0].instances.length}, size: ${(JSON.stringify(saved).length / 1e6).toFixed(2)} MB`);
 

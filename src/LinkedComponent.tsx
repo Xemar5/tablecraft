@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { ComponentThumbnail } from './ComponentView';
 import type { Component } from './domain';
-import { exportComponentBundle, download } from './storage';
+import { componentZip, downloadZip } from './portable';
 import { variantLabels } from './csv';
 
-export function LinkedComponent({ component, components, available, onCopy, onRemove }: {
+export function LinkedComponent({ component, components, available, onCopy, onRemove, notify }: {
   component: Component; components: Component[]; available: boolean; onCopy: () => void; onRemove: () => void;
+  notify: (message: string, error?: boolean) => void;
 }) {
   const [row, setRow] = useState(0);
   const labels = useMemo(() => variantLabels(component.csv, component.rows), [component.csv, component.rows]);
@@ -14,7 +15,10 @@ export function LinkedComponent({ component, components, available, onCopy, onRe
     <p role="status">Read-only link from <strong>{component.source?.projectName}</strong>.</p>
     <p>{available ? 'Edit the original in its source project to update this component.' : 'Source unavailable locally. Showing the last saved snapshot.'}</p>
     <div className="button-row"><button className="button primary" onClick={onCopy}>Make local copy</button>
-      <button className="button" onClick={() => download(`${component.name}.component.json`, JSON.stringify(exportComponentBundle(component, components), null, 2))}>Export component</button>
+      <button className="button" onClick={() => {
+        try { downloadZip(`${component.name}.component.zip`, componentZip(component, components)); }
+        catch (error) { notify(`Export failed: ${String(error)}`, true); }
+      }}>Export component</button>
       <button className="button" onClick={onRemove}>Remove link</button></div>
     {!!component.rows.length && <label className="field"><span>Preview row</span><select aria-label="Preview row" value={Math.min(row, component.rows.length - 1)} onChange={event => setRow(Number(event.target.value))}>
       {labels.map((label, index) => <option key={index} value={index}>{label}</option>)}
