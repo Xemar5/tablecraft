@@ -956,15 +956,16 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               if (!e.altKey && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
               else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y });
             }
-          }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}>
-            <ComponentThumbnail component={comp} components={p.components} row={item.row} back={item.flipped} height={handCardHeight} /><span>Drag to play</span></button>
-            <div className="hand-order">
-              {[-1, 1].map(offset => <button key={offset} type="button" aria-label={`Move ${comp.name} ${offset < 0 ? 'left' : 'right'} in hand`} disabled={held.indexOf(item) + offset < 0 || held.indexOf(item) + offset >= held.length} onClick={() => {
-                const ids = held.map(i => i.id), index = ids.indexOf(item.id);
-                [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
-                dispatch({ type: 'reorderHand', ids, playerId: actor });
-              }}>{offset < 0 ? '←' : '→'}</button>)}
-            </div></div>;
+          }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}
+            onKeyDown={e => {
+              if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+              const ids = held.map(i => i.id), index = ids.indexOf(item.id), offset = e.key === 'ArrowLeft' ? -1 : 1;
+              if (index + offset < 0 || index + offset >= ids.length) return;
+              e.preventDefault(); e.stopPropagation();
+              [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
+              dispatch({ type: 'reorderHand', ids, playerId: actor });
+            }}>
+            <ComponentThumbnail component={comp} components={p.components} row={item.row} back={item.flipped} height={handCardHeight} /><span>Drag to play</span></button></div>;
         }) : <div className="empty-hand"><Copy size={20} /><span>Drag pieces here to take them into your hand.</span></div>}
         {insertion !== undefined && insertion === held.filter(i => !(handDrag && (selected.includes(handDrag.id) ? selected.includes(i.id) : i.id === handDrag.id))).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
         </HorizontalScroll>
@@ -1079,7 +1080,12 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
-          <div className="field-grid"><NumberField deferred label="Rotation" value={piece.rotation} onChange={rotation => dispatch({ type: 'transform', ids: selected, rotation: rotation - piece.rotation })} /><NumberField deferred label="Scale" value={piece.scale} min={.1} max={5} step={.1} onChange={scale => dispatch({ type: 'transform', ids: selected, scaleFactor: scale / piece.scale })} /></div>
+          <div className="field-grid">
+            <NumberField deferred label="Rotation" value={piece.rotation} mixed={selectedPieces.some(i => i.rotation !== piece.rotation)}
+              onChange={rotation => dispatch({ type: 'move', ids: selectedPieces.map(i => i.id), patch: { rotation: ((rotation % 360) + 360) % 360 } })} />
+            <NumberField deferred label="Scale" value={piece.scale} mixed={selectedPieces.some(i => i.scale !== piece.scale)} min={.1} max={5} step={.1}
+              onChange={scale => dispatch({ type: 'move', ids: selectedPieces.map(i => i.id), patch: { scale } })} />
+          </div>
           {selected.length > 1 && <button className="button full" disabled={!!plan?.error} title={plan?.error ? `Can't stack: ${plan.error}` : plan ? 'The first selected piece goes on the bottom, the last on top' : undefined} onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={15} /> Stack selected pieces</button>}
           {items.length > 1 && <div className="stack-actions"><button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>
             <button className="button" disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={14} /> Shuffle</button>
@@ -1128,7 +1134,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}${seatOverride(removingSeat) ? `${overrideLabel(seatOverride(removingSeat)!)}: ${overrideNote(seatOverride(removingSeat)!, removingSeat.name)} ` : ''}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setRemovingSeat(undefined)}>Cancel</button><button className="button danger" onClick={() => { const id = removingSeat.id; void dispatch({ type: 'removePlayer', playerId: id }).then(ok => { if (ok) { setSelectedSeatId(seat => seat === id ? undefined : seat); setRemovingSeat(undefined); } }); }}>Remove seat</button></div>
     </Modal>}
-    {fullscreenItem && fullscreenComponent && <PiecePreview key={fullscreenItem.id} item={fullscreenItem} component={fullscreenComponent} components={p.components} actor={actor} viewer={viewer} pointer={fullscreen?.pointer} onClose={closeFullscreen} />}
+    {fullscreenItem && fullscreenComponent && <PiecePreview key={fullscreenItem.id} item={fullscreenItem} component={fullscreenComponent} components={p.components} actor={actor} viewer={viewer} pointer={fullscreen?.pointer} stackCount={fullscreenItem.stack ? stackMembers(p, fullscreenItem).length : 1} onClose={closeFullscreen} />}
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
       <form className="seat-form" onSubmit={e => { e.preventDefault(); dispatch({ type: 'player', player: seatEditor }); setSeatEditor(undefined); }}>
         <Field label="Player name"><input required maxLength={50} value={seatEditor.name} onChange={e => setSeatEditor({ ...seatEditor, name: e.target.value })} /></Field>

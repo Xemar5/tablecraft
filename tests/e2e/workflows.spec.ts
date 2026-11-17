@@ -624,7 +624,8 @@ test('multiplayer synchronizes atomic hand and stack interactions', async ({ bro
   await expect(b.locator('.hand-card')).toHaveCount(2);
   await expect(a.getByLabel("Bob's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(2);
   const before = await b.locator('.hand-card').evaluateAll(elements => elements.map(el => el.getAttribute('data-hand-id')));
-  await b.getByRole('button', { name: 'Move Spirit cards right in hand' }).first().click();
+  await b.locator('.hand-card').first().focus();
+  await b.keyboard.press('Alt+ArrowRight');
   await expect.poll(() => b.locator('.hand-card').evaluateAll(elements => elements.map(el => el.getAttribute('data-hand-id')))).toEqual([...before].reverse());
   const from = (await b.locator('.hand-card').first().boundingBox())!, to = (await deck.boundingBox())!;
   await b.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
@@ -681,9 +682,9 @@ test('hand scrolls only horizontally, marks insertion destinations and offers ic
   await expect(page.locator('.hand-card')).toHaveCount(10);
   await page.mouse.move(10, 70);
   await expect(page.locator('.hand-label')).toHaveCount(0);
-  await expect(page.locator('.hand-order').first()).toHaveCSS('opacity', '0');
+  // Cards reorder by dragging or Alt+Left/Right; there are no arrow buttons above them.
   await page.locator('.hand-entry').first().hover();
-  await expect(page.locator('.hand-order').first()).toHaveCSS('opacity', '1');
+  await expect(page.locator('.hand-order')).toHaveCount(0);
   const tray = (await page.locator('.hand-tray').boundingBox())!;
   const toolbar = (await page.getByLabel('Hand actions', { exact: true }).boundingBox())!;
   expect(toolbar.y).toBeGreaterThanOrEqual(tray.y + tray.height);

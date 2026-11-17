@@ -29,6 +29,16 @@
   pointer-events: none;
 }
 .piece-preview-title { top: 0; }
+.piece-preview-stack-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 16px;
+  background: #365b42;
+  color: #edf2df;
+  font-size: 13px;
+}
 .piece-preview-help { bottom: 0; flex-wrap: wrap; font-size: 13px; }
 .piece-preview-help small { flex-basis: 100%; text-align: center; opacity: .7; }
 /* Fixed geometry: hover placement must never depend on whether the thumbnail has mounted. */

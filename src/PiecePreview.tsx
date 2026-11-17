@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { Layers } from 'lucide-react';
 import { ComponentView } from './ComponentView';
 import { type Component, type Instance } from './domain';
 import { previewPermission } from './playgroundPreview';
@@ -19,8 +20,10 @@ function previewCentre(size: number, start: number, end: number, pointer: number
   return centre + (.5 - Math.max(0, Math.min(1, (pointer - start) / room))) * overflow;
 }
 
-export function PiecePreview({ item, component, components, actor, viewer, pointer: openedAt, onClose }: {
+export function PiecePreview({ item, component, components, actor, viewer, pointer: openedAt, stackCount = 1, onClose }: {
   item: Instance; component: Component; components: Component[]; actor: string; viewer: boolean;
+  /** How many pieces the previewed stack holds, shown as on the table. */
+  stackCount?: number;
   /** The pointer position (viewport pixels) when the preview opened. */
   pointer?: { x: number; y: number }; onClose: () => void;
 }) {
@@ -104,7 +107,9 @@ export function PiecePreview({ item, component, components, actor, viewer, point
     <div ref={art} className="piece-preview-art" data-back={back} data-rotation={rotation} style={{
       width: component.width, height: component.height,
     }}><ComponentView component={component} components={components} row={item.row} back={back} hidden={permission.hidden} /></div>
-    <div ref={title} className="piece-preview-title"><strong>{component.name}</strong><span>{Math.round(zoom * 100)}%</span></div>
+    <div ref={title} className="piece-preview-title"><strong>{component.name}</strong>
+      {stackCount > 1 && <span className="piece-preview-stack-count" aria-label={`Stack of ${stackCount}`}><Layers size={13} aria-hidden="true" /> {stackCount}</span>}
+      <span>{Math.round(zoom * 100)}%</span></div>
     <div ref={help} className="piece-preview-help">
       <span>Wheel · Zoom</span><span>Move pointer · Pan</span>
       {permission.canFlip ? <span>F · Flip</span> : <span>Back only</span>}
