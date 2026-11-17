@@ -54,7 +54,8 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? 'transparent' : node.fill,
       color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,
       fontSize: node.fontSize, fontFamily: `"${node.font}", sans-serif`,
-      transform: `rotate(${node.rotation}deg)`, opacity: node.opacity,
+      // An identity rotate still creates a transform node per layer, which makes large tables slow to composite.
+      transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined, opacity: node.opacity,
       paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
       paddingBottom: node.paddingBottom ?? node.padding, paddingLeft: node.paddingLeft ?? node.padding, gap: node.gap,
       display: node.type === 'frame' || node.type === 'text' ? 'flex' : 'block',

@@ -29,6 +29,7 @@ Tablecraft is a local-first, 2D board-game design and playtesting app. It uses R
 - `src/playgroundHistory.ts` wraps shared commands with bounded tabletop undo. Offline archive/history updates must be atomic; multiplayer history lives only in the private `playground_history` table and reducers serialize dispatch/undo. The room view exposes only undo count and invalidation notice. Never accept client history or restore saved designs, seat identities or ownership. Component edits/removal and explicit seat creation clear history; joining an existing room does not.
 - Keep offline and multiplayer behavior consistent by routing mutations through `applyCommand` and the shared command schema; put multiplayer authority checks in server reducers as well.
 - Large projects rely on structural sharing: non-design commands, undo and room updates reuse the previous `components` array and objects, `validateProject` skips arrays it already validated, and `ComponentView` is memoized. Never mutate component objects in place; replace them immutably.
+- On large tables any inline style or layout change triggers page-wide compositor layerization. The table camera and the dragged pieces/overlays move with persistent Web Animations (`useCompositedTransform` in `src/Playground.tsx`); never set the camera transform or per-move drag positions inline. Table pieces are memoized `TablePiece` components with stable `pieceEvents` handlers, and the zoom label is throttled.
 
 ## Invariants and trust boundaries
 
