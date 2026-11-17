@@ -28,6 +28,7 @@ Tablecraft is a local-first, 2D board-game design and playtesting app. It uses R
 - Live commands are predicted in `App.tsx`: each pending dispatch or seat claim is reapplied over the confirmed room state with `applyCommand` and dropped when its reducer settles. The SDK applies room updates before the reducer promise resolves, so this never double-applies. Keep commands deterministic (client IDs and seeds) so predictions match the server.
 - `src/playgroundHistory.ts` wraps shared commands with bounded tabletop undo. Offline archive/history updates must be atomic; multiplayer history lives only in the private `playground_history` table and reducers serialize dispatch/undo. The room view exposes only undo count and invalidation notice. Never accept client history or restore saved designs, seat identities or ownership. Component edits/removal and explicit seat creation clear history; joining an existing room does not.
 - Keep offline and multiplayer behavior consistent by routing mutations through `applyCommand` and the shared command schema; put multiplayer authority checks in server reducers as well.
+- Large projects rely on structural sharing: non-design commands, undo and room updates reuse the previous `components` array and objects, `validateProject` skips arrays it already validated, and `ComponentView` is memoized. Never mutate component objects in place; replace them immutably.
 
 ## Invariants and trust boundaries
 

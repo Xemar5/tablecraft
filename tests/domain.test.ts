@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCommand, bind, canStack, makeInstance, makeNode, nextSeatPlacement, safeImage, stackMembers, validateProject, visibleBack, visibleStackMembers } from '../src/domain';
+import { applyCommand, bind, canStack, makeInstance, makeNode, nextSeatPlacement, safeImage, shareComponents, stackMembers, validateProject, visibleBack, visibleStackMembers } from '../src/domain';
 import { starterProject, template } from '../src/templates';
 import { parseArchive, parseComponent } from '../src/storage';
 
@@ -533,5 +533,38 @@ describe('seat placement', () => {
     expect(nextSeatPlacement(starter).rotation).toBe(90);
     expect(nextSeatPlacement([{ x: 980, y: 100 }])).toEqual({ x: 980, y: 1000, rotation: 0 });
     expect(nextSeatPlacement([{ x: 980, y: 1000 }, { x: 220, y: 550 }, { x: 1740, y: 550 }]).rotation).toBe(180);
+  });
+});
+
+describe('structural sharing for large projects', () => {
+  it('keeps component objects for tabletop commands and replaces them for design commands', () => {
+    const p = validateProject(starterProject());
+    const piece = p.instances.find(i => !i.locked)!;
+    const moved = applyCommand(p, { type: 'move', ids: [piece.id], patch: { x: piece.x + 10 } });
+    expect(moved.components).toBe(p.components);
+    expect(moved.instances).not.toBe(p.instances);
+    expect(p.instances.find(i => i.id === piece.id)!.x).toBe(piece.x);
+    const renamed = applyCommand(p, { type: 'component', component: { ...p.components[0], name: 'Renamed' } });
+    expect(renamed.components).not.toBe(p.components);
+    expect(renamed.components[0].name).toBe('Renamed');
+    expect(p.components[0].name).not.toBe('Renamed');
+  });
+
+  it('still rejects broken tabletop state when the designs were already validated', () => {
+    const p = validateProject(starterProject());
+    expect(() => validateProject({ ...p, instances: [...p.instances, { ...p.instances[0], componentId: 'missing' }] })).toThrow();
+    expect(() => validateProject({ ...p, instances: p.instances.map((i, index) => index ? i : { ...i, holder: 'nobody' }) })).toThrow('Broken component or player reference.');
+    expect(() => validateProject({ ...p, components: [...p.components, { ...p.components[0] }] })).toThrow('Duplicate identifiers in project.');
+  });
+
+  it('reuses unchanged components from a previous room update', () => {
+    const p = starterProject();
+    const copy = structuredClone(p.components);
+    expect(shareComponents(p.components, copy)).toBe(p.components);
+    copy[1] = { ...copy[1], name: 'Changed' };
+    const shared = shareComponents(p.components, copy);
+    expect(shared).not.toBe(p.components);
+    expect(shared[0]).toBe(p.components[0]);
+    expect(shared[1]).toBe(copy[1]);
   });
 });

@@ -45,7 +45,8 @@ export function refreshProjectLinks(archive: Archive): Archive {
       const added = linkComponent(project, source, reference.componentId, linked.id).project;
       project = added;
     }
-    validateProject(project);
+    // Inputs are validated at their boundaries; only revalidate a project whose linked snapshots changed.
+    if (project !== original) validateProject(project);
     projects.set(id, project); visiting.delete(id); resolved.add(id);
     return project;
   };

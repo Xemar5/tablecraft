@@ -1,5 +1,5 @@
 import { DbConnection } from './module_bindings';
-import { projectSchema, validateProject, type Command, type Project } from './domain';
+import { projectSchema, shareComponents, validateProject, type Command, type Component, type Project } from './domain';
 
 /** `playerId` is the seat a host keeps when creating a room; guests join as viewers. */
 export interface ConnectionOptions {
@@ -19,6 +19,7 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project, un
     const tokenKey = `tablecraft.token:${options.uri}:${options.database}`;
     let settled = false;
     let intentional = false;
+    let previousComponents: Component[] = [];
     const timeout = setTimeout(() => {
       if (!settled) { settled = true; connection.disconnect(); reject(new Error('Connection timed out. Check the SpaceTimeDB address and database.')); }
     }, 12000);
@@ -37,7 +38,11 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project, un
             try {
               const row = [...conn.db.roomState.iter()].find(r => r.code === options.code);
               if (!row) return;
-              onState(validateProject(projectSchema.parse(JSON.parse(row.state))), { count: row.undoCount, notice: row.undoNotice });
+              const parsed = validateProject(projectSchema.parse(JSON.parse(row.state)));
+              // Keep unchanged designs as the same objects so a room update re-renders only what changed.
+              const components = shareComponents(previousComponents, parsed.components);
+              previousComponents = components;
+              onState({ ...parsed, components }, { count: row.undoCount, notice: row.undoNotice });
               if (!settled) {
                 settled = true;
                 clearTimeout(timeout);

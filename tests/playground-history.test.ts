@@ -194,3 +194,15 @@ describe('shared Playground history', () => {
     expect(undoPlayground(result.project, result.history).undone).toBe(false);
   });
 });
+
+describe('undo with shared designs', () => {
+  it('restores tabletop state without replacing component objects', () => {
+    const project = table();
+    const moved = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'move', ids: ['a'], patch: { x: 999 } });
+    expect(moved.project.components).toBe(project.components);
+    const undone = undoPlayground(moved.project, moved.history);
+    expect(undone.undone).toBe(true);
+    expect(undone.project.components).toBe(project.components);
+    expect(undone.project.instances.find(i => i.id === 'a')!.x).toBe(project.instances.find(i => i.id === 'a')!.x);
+  });
+});

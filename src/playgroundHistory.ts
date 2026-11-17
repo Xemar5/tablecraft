@@ -17,13 +17,17 @@ export const playgroundHistorySchema = z.object({
 export type PlaygroundHistory = z.infer<typeof playgroundHistorySchema>;
 export const emptyPlaygroundHistory = (): PlaygroundHistory => ({ entries: [], notice: '' });
 
+// Designs are the bulk of a project; skip serializing them when a command kept the same component objects.
+const sameProject = (a: Project, b: Project) => (a.components === b.components || JSON.stringify(a.components) === JSON.stringify(b.components)) &&
+  JSON.stringify({ ...a, components: [] }) === JSON.stringify({ ...b, components: [] });
+
 /** History contains tabletop state, never designs, seat identities or ownership. */
 export function applyPlaygroundCommand(
   project: Project, history: PlaygroundHistory, raw: Command, actor?: string,
 ): { project: Project; history: PlaygroundHistory } {
   const command = commandSchema.parse(raw);
   const next = applyCommand(project, command, actor);
-  if (JSON.stringify(project) === JSON.stringify(next)) return { project: next, history };
+  if (sameProject(project, next)) return { project: next, history };
   if (command.type === 'component' || command.type === 'removeComponent' || command.type === 'addComponents' || command.type === 'syncLinkedComponents') {
     return { project: next, history: { entries: [], notice: 'Undo history cleared because component designs changed.' } };
   }
@@ -52,10 +56,11 @@ export function undoPlayground(
   if (!entry) return { project, history, undone: false };
   try {
     if (entry.seat && !project.players.some(player => player.id === entry.seat!.id)) throw new Error('Seat no longer exists.');
-    const next = validateProject(projectSchema.parse({
+    // Undo never touches designs, so keep the current component objects (validateProject still checks them).
+    const next = validateProject({ ...projectSchema.omit({ components: true }).parse({
       ...project, instances: entry.instances, settings: entry.settings,
       players: project.players.map(player => player.id === entry.seat?.id ? { ...player, ...entry.seat } : player),
-    }));
+    }), components: project.components });
     return { project: next, history: { entries: history.entries.slice(0, -1), notice: '' }, undone: true };
   } catch (error) {
     // Do not repeatedly offer a broken inverse, or partially restore an invalid table.

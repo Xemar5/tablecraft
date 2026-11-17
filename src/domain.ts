@@ -142,13 +142,13 @@ export function safeImage(url: string): string | undefined {
   return undefined;
 }
 
-export function validateProject(project: Project): Project {
-  projectSchema.parse(project);
-  const componentIds = new Set(project.components.map(c => c.id));
-  const playerIds = new Set(project.players.map(p => p.id));
-  if (componentIds.size !== project.components.length || playerIds.size !== project.players.length ||
-    new Set(project.instances.map(i => i.id)).size !== project.instances.length) throw new Error('Duplicate identifiers in project.');
-  for (const c of project.components) {
+// Component arrays that already passed validation. Projects are updated immutably, so a command that keeps the same
+// array (every non-design command) only revalidates tabletop state instead of every design.
+const validatedComponents = new WeakSet<Component[]>();
+
+function validateComponents(components: Component[]) {
+  const componentIds = new Set(components.map(c => c.id));
+  for (const c of components) {
     for (const face of [c.front, c.back]) {
       const nodes = new Map(face.map(n => [n.id, n]));
       if (nodes.size !== face.length) throw new Error('Duplicate layer identifiers.');
@@ -158,7 +158,7 @@ export function validateProject(project: Project): Project {
         }
         if (node.type === 'component') {
           if (!node.componentId || !componentIds.has(node.componentId)) throw new Error(`Nested component “${node.name}” references a missing component.`);
-          const nested = project.components.find(item => item.id === node.componentId)!;
+          const nested = components.find(item => item.id === node.componentId)!;
           if (node.dataSource === 'row' && node.dataRow >= nested.rows.length) {
             throw new Error(`Nested component “${node.name}” row ${node.dataRow} is out of range.`);
           }
@@ -184,10 +184,10 @@ export function validateProject(project: Project): Project {
       }
     }
   }
-  const links = new Map(project.components.map(component => [component.id, new Set(
+  const links = new Map(components.map(component => [component.id, new Set(
     [...component.front, ...component.back].flatMap(node => node.type === 'component' && node.componentId ? [node.componentId] : []),
   )]));
-  const references = new Map(project.components.map(component => [component.id,
+  const references = new Map(components.map(component => [component.id,
     [...component.front, ...component.back].flatMap(node => node.type === 'component' && node.componentId ? [node.componentId] : []),
   ]));
   const visiting = new Set<string>(), visited = new Set<string>();
@@ -199,19 +199,29 @@ export function validateProject(project: Project): Project {
     for (const linkedId of links.get(componentId) ?? []) visit(linkedId, depth + 1);
     visiting.delete(componentId); visited.add(componentId);
   };
-  for (const component of project.components) visit(component.id, 0);
+  for (const component of components) visit(component.id, 0);
   const renderCosts = new Map<string, number>();
   const renderCost = (componentId: string): number => {
     const cached = renderCosts.get(componentId);
     if (cached !== undefined) return cached;
-    const component = project.components.find(item => item.id === componentId)!;
+    const component = components.find(item => item.id === componentId)!;
     const ownNodes = Math.max(component.front.length, component.back.length);
     const total = ownNodes + (references.get(componentId) ?? []).reduce((sum, linkedId) => sum + renderCost(linkedId), 0);
     if (total > MAX_NESTED_RENDER_NODES) throw new Error(`Nested component rendering exceeds ${MAX_NESTED_RENDER_NODES} layers.`);
     renderCosts.set(componentId, total);
     return total;
   };
-  project.components.forEach(component => { renderCost(component.id); });
+  components.forEach(component => { renderCost(component.id); });
+}
+
+export function validateProject(project: Project): Project {
+  const trusted = validatedComponents.has(project.components);
+  (trusted ? projectSchema.omit({ components: true }) : projectSchema).parse(project);
+  const componentIds = new Set(project.components.map(c => c.id));
+  const playerIds = new Set(project.players.map(p => p.id));
+  if (componentIds.size !== project.components.length || playerIds.size !== project.players.length ||
+    new Set(project.instances.map(i => i.id)).size !== project.instances.length) throw new Error('Duplicate identifiers in project.');
+  if (!trusted) validateComponents(project.components);
   for (const i of project.instances) {
     if (!componentIds.has(i.componentId) || (i.holder && !playerIds.has(i.holder))) throw new Error('Broken component or player reference.');
     if (i.stack && i.holder) throw new Error('A held component cannot belong to a stack.');
@@ -223,7 +233,18 @@ export function validateProject(project: Project): Project {
     if (group.some(i => !!i.stackReversed !== !!group[0].stackReversed)) throw new Error('Inconsistent stack orientation.');
   }
   if (project.instances.some(i => !i.stack && i.stackReversed)) throw new Error('Only stacks can have a stack orientation.');
+  validatedComponents.add(project.components);
   return project;
+}
+
+/** Reuses previous component objects whose content is unchanged (and the previous array when nothing changed). */
+export function shareComponents(previous: Component[], next: Component[]): Component[] {
+  const known = new Map(previous.map(component => [component.id, component]));
+  const shared = next.map(component => {
+    const old = known.get(component.id);
+    return old && JSON.stringify(old) === JSON.stringify(component) ? old : component;
+  });
+  return shared.length === previous.length && shared.every((component, index) => component === previous[index]) ? previous : shared;
 }
 
 export function canStack(components: Component[]): boolean {
@@ -243,9 +264,14 @@ export function visibleBack(instance: Instance): boolean {
   return instance.flipped !== !!(instance.stack && instance.stackReversed);
 }
 
+const designCommands = new Set<Command['type']>(['component', 'addComponents', 'syncLinkedComponents', 'removeComponent', 'reorderComponent']);
+
 export function applyCommand(source: Project, raw: Command, actor?: string): Project {
   const command = commandSchema.parse(raw);
-  const p = projectSchema.parse(source);
+  // Only design commands change components. Other commands keep the source component objects, so memoized
+  // faces skip re-rendering and callers can detect design changes by reference; validateProject still checks them.
+  const p = designCommands.has(command.type) ? projectSchema.parse(source)
+    : { ...projectSchema.omit({ components: true }).parse(source), components: source.components };
   const get = (key: string) => {
     const item = p.instances.find(i => i.id === key);
     if (!item) throw new Error('Component instance no longer exists.');

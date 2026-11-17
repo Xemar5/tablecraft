@@ -242,7 +242,8 @@ export default function App() {
           if (!source) throw new Error('Project no longer exists.');
           const result = applyPlaygroundCommand(source, current.histories[projectId] ?? emptyPlaygroundHistory(), command, actor);
           const updated = { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) };
-          const refreshed = refreshProjectLinks(updated);
+          // Linked snapshots can only change when a command changes designs (it then returns new component objects).
+          const refreshed = result.project.components === source.components ? updated : refreshProjectLinks(updated);
           const histories = { ...current.histories, [projectId]: result.history };
           for (const project of refreshed.projects) if (project !== updated.projects.find(p => p.id === project.id)) {
             histories[project.id] = { entries: [], notice: 'Undo history cleared because linked component designs changed.' };
