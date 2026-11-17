@@ -70,10 +70,11 @@ test('shape menu inserts directly, boolean controls are contextual and parenting
   await expect(page.locator('.layer-root-drop')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add frame', exact: true })).toHaveCount(0);
   const union = page.getByRole('button', { name: 'Union', exact: true });
-  await expect(union).toBeDisabled();
+  await expect(union).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Add shape', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
+  await expect(union).toBeDisabled();
   const layers = page.locator('.layer-row');
   await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Container');
@@ -102,8 +103,9 @@ test('shape menu inserts directly, boolean controls are contextual and parenting
 test('nested fitting renders stretch, contain and cover and offers Artwork type', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
-  await page.getByRole('button', { name: 'Link nested component', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Spirit die', exact: true }).click();
+  await page.getByRole('button', { name: 'Add linked artwork', exact: true }).click();
+  await page.getByRole('button', { name: /^Linked component:/ }).click();
+  await page.getByRole('option', { name: /^Spirit die/ }).click();
   await page.getByLabel('Width', { exact: true }).fill('200');
   await page.getByLabel('Height', { exact: true }).fill('100');
   await page.getByLabel('Height', { exact: true }).blur();

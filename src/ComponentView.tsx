@@ -2,20 +2,19 @@ import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type Po
 import { assetFontFamily, assetUrl, bind, resolveFontFamily, resolveImage, type Component, type DesignNode } from './domain';
 import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
 
-export type PointEditEvent = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; event: PointerEvent<SVGCircleElement> };
 type ViewProps = {
   component: Component; components?: Component[]; row?: number; back?: boolean; hidden?: boolean;
   onNode?: (id: string, event: PointerEvent<HTMLDivElement>) => void; selectedNode?: string; selectedNodes?: string[];
   onNodeDoubleClick?: (id: string, event: MouseEvent<HTMLDivElement>) => void;
-  editableVector?: boolean; onPointDown?: (edit: PointEditEvent) => void; selectedPoint?: number | null;
-  onSegmentDown?: (nodeId: string, index: number, event: PointerEvent<SVGPathElement>) => void;
+  /** The scale the face is shown at, so selection outlines keep a constant on-screen width. */
+  zoom?: number;
   inheritedData?: Record<string, string>;
   nestedPath?: string[];
 };
 
 // Memoized: tables render hundreds of faces, and most re-renders (hover, selection, camera) leave their props unchanged.
 export const ComponentView = memo(function ComponentView({ component: c, components = [c], row = 0, back = false, hidden = false, onNode, onNodeDoubleClick, selectedNode, selectedNodes,
-  editableVector = false, onPointDown, onSegmentDown, selectedPoint, inheritedData, nestedPath = [] }: ViewProps) {
+  zoom = 1, inheritedData, nestedPath = [] }: ViewProps) {
   const selectedIds = selectedNodes ?? (selectedNode ? [selectedNode] : []);
   const face = hidden || (back && c.flippable) ? 'back' : 'front';
   const [reveal, setReveal] = useState({ face, changed: false });
@@ -55,6 +54,7 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? 'transparent' : node.fill,
       color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,
       fontSize: node.fontSize, fontFamily: `"${node.type === 'text' ? resolveFontFamily(node, contextData, catalog) : node.font}", sans-serif`,
+      ...(node.type === 'text' ? textStyle(node) : {}),
       // An identity rotate still creates a transform node per layer, which makes large tables slow to composite.
       transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined, opacity: node.opacity,
       paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
@@ -62,10 +62,11 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       display: node.type === 'frame' || node.type === 'text' ? 'flex' : 'block',
       flexDirection: node.layout === 'row' ? 'row' : 'column',
       flexWrap: node.type === 'frame' && node.wrap ? 'wrap' : 'nowrap',
-      alignItems: node.type === 'text' ? undefined : node.align === 'start' ? 'flex-start' : node.align === 'end' ? 'flex-end' : 'center',
-      justifyContent: node.type === 'text' ? 'center' : undefined,
-      textAlign: node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : 'center',
-      outline: selectedIds.includes(node.id) ? '2px solid #c5e497' : undefined,
+      alignItems: node.type === 'text' ? undefined : node.align === 'center' ? 'center' : node.align === 'end' ? 'flex-end' : 'flex-start',
+      justifyContent: node.type === 'text' ? node.verticalAlign === 'start' ? 'flex-start' : node.verticalAlign === 'end' ? 'flex-end' : 'center' : undefined,
+      textAlign: node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : node.align === 'justify' ? 'justify' : 'center',
+      // A spread shadow (unlike an outline) keeps sub-pixel widths, so the selection stays 2px on screen at any zoom.
+      boxShadow: selectedIds.includes(node.id) ? `0 0 0 ${2 / zoom}px #c5e497` : undefined,
       overflow: node.type === 'component' ? 'hidden' : node.type === 'frame' || (node.type === 'shape' && node.shapeKind === 'path') ? 'visible' : undefined,
       // Image layers measure themselves so the picture can be fitted and placed in container units.
       containerType: node.type === 'image' && widthMode !== 'hug' && heightMode !== 'hug' ? 'size' : undefined,
@@ -73,7 +74,8 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
     let nested: React.ReactNode;
     if (node.type === 'component') {
       const linked = node.componentId ? catalog.get(node.componentId) : undefined;
-      if (!linked) nested = <div className="nested-component-error" role="alert">Missing linked component: {node.componentId ?? 'no component selected'}</div>;
+      if (!node.componentId) nested = <div className="nested-component-empty">Choose a linked component in the Design panel</div>;
+      else if (!linked) nested = <div className="nested-component-error" role="alert">Missing linked component: {node.componentId}</div>;
       else if (nestedPath.includes(linked.id) || nestedPath.length >= 32) nested = <div className="nested-component-error" role="alert">Nested component cycle or depth limit.</div>;
       else {
         let nestedRow = 0, inherited: Record<string, string> | undefined;
@@ -119,22 +121,7 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
           strokeDasharray={sourceOutline ? '4 3' : undefined} />
       </svg>;
     }
-    const vectorEditor = editableVector && selectedIds.includes(node.id) && node.type === 'shape' && node.shapeKind === 'path' ?
-      <svg className="vector-point-editor" style={vectorStyle} viewBox={vectorBox} preserveAspectRatio="none" aria-label={`${node.name} vector points`}>
-        {node.points.slice(0, node.points.length - (node.pathClosed ? 0 : 1)).map((point, index) => {
-          const next = node.points[(index + 1) % node.points.length];
-          return <path key={`segment-${index}`} className="vector-segment" d={`M ${point.x} ${point.y} C ${point.x + point.outX} ${point.y + point.outY} ${next.x + next.inX} ${next.y + next.inY} ${next.x} ${next.y}`}
-            onPointerDown={event => { event.stopPropagation(); onSegmentDown?.(node.id, index, event); }} />;
-        })}
-        {node.points.map((point, index) => <g key={index}>
-          {(point.inX || point.inY) && <><line x1={point.x} y1={point.y} x2={point.x + point.inX} y2={point.y + point.inY} />
-            <circle className="vector-handle" cx={point.x + point.inX} cy={point.y + point.inY} r={3.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'in', event }); }} /></>}
-          {(point.outX || point.outY) && <><line x1={point.x} y1={point.y} x2={point.x + point.outX} y2={point.y + point.outY} />
-            <circle className="vector-handle" cx={point.x + point.outX} cy={point.y + point.outY} r={3.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'out', event }); }} /></>}
-          <circle className={`vector-anchor${selectedPoint === index ? ' selected' : ''}`} cx={point.x} cy={point.y} r={4.5} onPointerDown={event => { event.stopPropagation(); onPointDown?.({ nodeId: node.id, pointIndex: index, handle: 'point', event }); }} />
-        </g>)}
-      </svg> : null;
-    return <div key={node.id} style={style} className={`design-node node-${node.type}`}
+    return <div key={node.id} style={style} className={`design-node node-${node.type}`} data-node-id={node.id}
       onPointerDown={onNode ? event => { event.stopPropagation(); onNode(node.id, event); } : undefined}
       onDoubleClick={onNodeDoubleClick ? event => { event.stopPropagation(); onNodeDoubleClick(node.id, event); } : undefined}>
       {node.type === 'text' && text}
@@ -142,7 +129,7 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
         const src = resolveImage(node, contextData, catalog);
         return src ? <ImageLayer src={src} node={node} contained={style.containerType === 'size'} /> : <div className="image-placeholder">Image / texture</div>;
       })()}
-      {shape}{nested}{vectorEditor}
+      {shape}{nested}
       {node.type === 'compound'
         ? (sourceOutline || compoundEditing.has(node.id)) && nodes.filter(child => child.parent === node.id).map(child => render(child, node, contextData, true))
         : nodes.filter(n => n.parent === node.id).map(child => render(child, node, contextData))}
@@ -156,6 +143,23 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       : c.kind === 'font' ? <div style={{ fontFamily: `"${assetFontFamily(c)}"`, fontSize: 64, textAlign: 'center', paddingTop: 50 }}>Aa</div>
       : hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 });
+
+/** Typography for text layers: weight, style, decoration, case, spacing, outline and shadow. */
+function textStyle(node: DesignNode): CSSProperties {
+  const strokeWidth = node.textStrokeWidth ?? 0;
+  const shadow = node.textShadow && node.textShadow !== 'transparent'
+    ? `${node.textShadowX ?? 0}px ${node.textShadowY ?? 0}px ${node.textShadowBlur ?? 0}px ${node.textShadow}` : undefined;
+  return {
+    fontWeight: node.fontWeight, fontStyle: node.italic ? 'italic' : undefined,
+    textDecoration: node.textDecoration && node.textDecoration !== 'none' ? node.textDecoration : undefined,
+    textTransform: node.textTransform && node.textTransform !== 'none' ? node.textTransform : undefined,
+    letterSpacing: node.letterSpacing ? node.letterSpacing : undefined, lineHeight: node.lineHeight,
+    // The outline is painted under the fill (as in design tools), so it is drawn twice as wide to show its full width.
+    ...(strokeWidth > 0 && node.textStroke && node.textStroke !== 'transparent'
+      ? { WebkitTextStroke: `${strokeWidth * 2}px ${node.textStroke}`, paintOrder: 'stroke fill' } : {}),
+    textShadow: shadow,
+  };
+}
 
 export const ComponentThumbnail = memo(function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width: fixedWidth = 100, height }: {
   component: Component; components?: Component[]; row?: number; back?: boolean; hidden?: boolean; width?: number;

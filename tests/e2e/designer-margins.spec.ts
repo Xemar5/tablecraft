@@ -16,7 +16,8 @@ test('hug and fill sizing ignore X/Y, inset layers by margins and use letter axi
   await page.getByRole('spinbutton', { name: 'Margin left' }).fill('20');
   await page.getByRole('spinbutton', { name: 'Margin right' }).fill('30');
   await page.getByRole('spinbutton', { name: 'Margin right' }).blur();
-  const layer = page.locator('.artboard .design-node [style*="outline"]').first().or(page.locator('.artboard [style*="outline: 2px"]')).first();
+  // The selected layer is marked with a zoom-independent selection shadow.
+  const layer = page.locator('.artboard .design-node[style*="box-shadow"]').first();
   const metrics = await layer.evaluate(element => {
     const node = element as HTMLElement, parent = node.offsetParent as HTMLElement;
     return { left: node.offsetLeft, right: parent.clientWidth - node.offsetLeft - node.offsetWidth };

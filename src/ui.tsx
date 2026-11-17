@@ -1,4 +1,4 @@
-import { X, Check, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Check, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { cloneElement, isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 
 export function useSmoothHorizontalWheel(target: RefObject<HTMLDivElement | null>) {
@@ -125,13 +125,31 @@ export function Toggle({ label, checked, onChange, description, disabled = false
     <span className="toggle-track"><span>{checked && <Check size={10} />}</span></span>
   </label>;
 }
-export function Field({ label, children, icon }: { label: string; children: ReactNode; icon?: ReactNode }) {
+/** A small info icon whose explanation shows as a tooltip (and is read by screen readers). */
+export function InfoTip({ text }: { text: string }) {
+  return <span className="info-tip" role="img" aria-label={text} title={text} tabIndex={0}><Info size={12} aria-hidden="true" /></span>;
+}
+/** A compact heading for a group of inspector settings, with optional actions on the right. */
+export function SectionTitle({ title, hint, children }: { title: string; hint?: string; children?: ReactNode }) {
+  return <div className="inspector-subtitle"><h4>{title}{hint && <InfoTip text={hint} />}</h4>{children && <div className="inspector-subtitle-actions">{children}</div>}</div>;
+}
+export function Field({ label, children, icon, hint }: { label: string; children: ReactNode; icon?: ReactNode; hint?: string }) {
   const control = isValidElement<{ 'aria-label'?: string }>(children) &&
     typeof children.type === 'string' && ['input', 'select', 'textarea'].includes(children.type)
     ? cloneElement(children, { 'aria-label': children.props['aria-label'] ?? label }) : children;
   return <label className="field"><span className={icon ? 'field-icon-label' : undefined} title={icon ? label : undefined}>
     {icon ? <><span aria-hidden="true">{icon}</span><span className="visually-hidden">{label}</span></> : label}
+    {hint && <InfoTip text={hint} />}
   </span>{control}</label>;
+}
+/** A row of icon buttons choosing one value (text alignment, case and similar), like a segmented control. */
+export function IconChoice<T extends string>({ label, value, options, onChange, disabled = false }: {
+  label: string; value: T | undefined; options: readonly { value: T; label: string; icon: ReactNode }[]; onChange: (value: T) => void; disabled?: boolean;
+}) {
+  return <div className="field"><span>{label}</span><div className="icon-choice" role="radiogroup" aria-label={label}>
+    {options.map(option => <button key={option.value} type="button" role="radio" aria-checked={value === option.value} aria-label={option.label} title={option.label}
+      disabled={disabled} className={value === option.value ? 'active' : ''} onClick={() => onChange(option.value)}>{option.icon}</button>)}
+  </div></div>;
 }
 export function Notice({ message, children, className = 'error-banner', role = 'alert', hidden = false }: {
   message: string; children?: ReactNode; className?: string; role?: 'alert' | 'status'; hidden?: boolean;
@@ -193,21 +211,29 @@ export function ColorField({ label, value: committed, onChange, deferred = false
     </div>}
   </div>;
 }
-export function NumberField({ label, value, onChange, min, max, step = 1, icon, deferred = false, disabled = false, title }: {
+/** Shows at most two decimals, without trailing zeros or floating-point noise. */
+const shown = (value: number) => String(Number(value.toFixed(2)));
+export function NumberField({ label, value, onChange, min, max, step = 1, icon, deferred = false, disabled = false, title, mixed = false, hint, placeholder = '–' }: {
   label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number; icon?: ReactNode; disabled?: boolean; title?: string;
   /** Report the value only when typing, stepping or scrubbing finishes. */
   deferred?: boolean;
+  /** The selection has different values: show “–” until a new value is entered for all of them. */
+  mixed?: boolean;
+  hint?: string;
+  /** Shown while `mixed` (or unset), e.g. “Auto”. */
+  placeholder?: string;
 }) {
-  const [draft, setDraft] = useState(String(value));
+  const [draft, setDraft] = useState(mixed ? '' : shown(value));
   const [editing, setEditing] = useState(false);
   const drag = useRef<{ pointer: number; y: number; value: number; next?: number }>(null);
   const committed = useRef<number>(undefined);
-  useEffect(() => { committed.current = undefined; if (!editing) setDraft(String(value)); }, [value, editing]);
+  useEffect(() => { committed.current = undefined; if (!editing) setDraft(mixed ? '' : shown(value)); }, [value, editing, mixed]);
   const endDrag = () => {
     const next = drag.current?.next; drag.current = null;
     if (deferred && next !== undefined && next !== value) { committed.current = next; onChange(next); }
   };
-  return <Field label={label} icon={icon}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step} disabled={disabled} title={title}
+  return <Field label={label} icon={icon} hint={hint}><input aria-label={label} type="number" value={draft} min={min} max={max} step={step} disabled={disabled} title={title}
+    placeholder={mixed ? placeholder : undefined}
     onFocus={() => setEditing(true)}
     onPointerDown={e => {
       if (e.button !== 0) return;
@@ -218,7 +244,7 @@ export function NumberField({ label, value, onChange, min, max, step = 1, icon, 
       const start = drag.current;
       if (!start || start.pointer !== e.pointerId || Math.abs(start.y - e.clientY) < 4) return;
       const next = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, Number((start.value + Math.trunc((start.y - e.clientY) / 4) * step).toFixed(10))));
-      start.next = next; setDraft(String(next)); if (!deferred) onChange(next);
+      start.next = next; setDraft(shown(next)); if (!deferred) onChange(next);
     }}
     onPointerUp={endDrag}
     onPointerCancel={endDrag}
@@ -229,9 +255,11 @@ export function NumberField({ label, value, onChange, min, max, step = 1, icon, 
     }}
     onBlur={() => {
       const n = Number(draft);
-      const next = draft.trim() && Number.isFinite(n) ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n)) : value;
-      setDraft(String(next)); setEditing(false);
-      if (next !== value && next !== committed.current) onChange(next);
+      const typed = !!draft.trim() && Number.isFinite(n);
+      // An untouched rounded display keeps the precise stored value.
+      const next = typed && !(draft === shown(value) && !mixed) ? Math.min(max ?? Infinity, Math.max(min ?? -Infinity, n)) : value;
+      setDraft(mixed && !typed ? '' : shown(next)); setEditing(false);
+      if ((next !== value || (mixed && typed)) && next !== committed.current) onChange(next);
     }}
     onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }} /></Field>;
 }

@@ -1,19 +1,20 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, MoveHorizontal, MoveVertical, Redo2, RotateCcw, RotateCw, Square, Trash2, Type, Undo2, Ungroup, Upload } from 'lucide-react';
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, CaseLower, CaseSensitive, CaseUpper, ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Italic, Layers, Link2, MousePointer2, MoveHorizontal, MoveVertical, PenTool, Redo2, RemoveFormatting, RotateCcw, RotateCw, Spline, Square, Strikethrough, Trash2, Type, Underline, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
-import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize, type PointEditEvent } from './ComponentView';
+import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
 import { hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
-import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
+import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { componentZip, downloadZip } from './portable';
 import { FontPicker } from './FontPicker';
-import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle, useSmoothHorizontalWheel } from './ui';
-import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
-import { resizeCenteredBox, resizeNode, rotateNode } from './designTransform';
+import { ColorField, Field, HorizontalScroll, IconChoice, Modal, NumberField, ScrollArrows, SectionTitle, Toggle, useSmoothHorizontalWheel } from './ui';
+import { closestSegmentParameter, expandPathBounds, fitPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
+import { resizeCenteredBox, resizeNode, rotateNode, snapTo, zoomPrecision } from './designTransform';
+import { SearchSelect } from './SearchSelect';
 import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { ZoomPresets } from './ZoomPresets';
-import { cssPx } from './uiScale';
+import { cssPx, uiScale } from './uiScale';
 
 type Face = 'front' | 'back';
 type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude';
@@ -38,6 +39,79 @@ const RESIZE_HANDLES = [[-1, -1, 'top-left corner'], [0, -1, 'top edge'], [1, -1
   [1, 1, 'bottom-right corner'], [0, 1, 'bottom edge'], [-1, 1, 'bottom-left corner'], [-1, 0, 'left edge']] as const;
 const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'];
 type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; inverse: DOMMatrix; localX: number; localY: number; point: DesignNode['points'][number] };
+type VectorPoint = DesignNode['points'][number];
+type PointEdit = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; event: PointerEvent<SVGElement>; inverse: DOMMatrix };
+/** A pen path being drawn: its points are in component coordinates until it is finished. */
+type PenDraft = { node: DesignNode; drag?: { pointer: number; index: number }; hover?: { x: number; y: number } };
+const ZOOM_MIN = .05, ZOOM_MAX = 10;
+const ZOOM_LEVELS = [.05, .1, .25, .5, 1, 2, 4, 10];
+const clampZoom = (value: number) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, value));
+const FONT_WEIGHTS = [[100, 'Thin'], [200, 'Extra light'], [300, 'Light'], [400, 'Regular'], [500, 'Medium'], [600, 'Semibold'], [700, 'Bold'], [800, 'Extra bold'], [900, 'Black']] as const;
+const TEXT_ALIGNS = [{ value: 'start', label: 'Align left', icon: <AlignLeft size={15} /> }, { value: 'center', label: 'Align center', icon: <AlignCenter size={15} /> },
+  { value: 'end', label: 'Align right', icon: <AlignRight size={15} /> }, { value: 'justify', label: 'Justify', icon: <AlignJustify size={15} /> }] as const;
+const VERTICAL_ALIGNS = [{ value: 'start', label: 'Align top', icon: <AlignVerticalJustifyStart size={15} /> },
+  { value: 'center', label: 'Align middle', icon: <AlignVerticalJustifyCenter size={15} /> }, { value: 'end', label: 'Align bottom', icon: <AlignVerticalJustifyEnd size={15} /> }] as const;
+const TEXT_CASES = [{ value: 'none', label: 'As typed', icon: <RemoveFormatting size={15} /> }, { value: 'uppercase', label: 'Uppercase', icon: <CaseUpper size={15} /> },
+  { value: 'lowercase', label: 'Lowercase', icon: <CaseLower size={15} /> }, { value: 'capitalize', label: 'Capitalize words', icon: <CaseSensitive size={15} /> }] as const;
+const BOOLEAN_OPERATIONS = [{ operation: 'union', label: 'Union' }, { operation: 'subtract', label: 'Subtract' },
+  { operation: 'intersect', label: 'Intersect' }, { operation: 'exclude', label: 'Exclude' }] as const;
+
+/**
+ * Anchors, Bézier handles and segments of a pen path, drawn over the artboard at a constant on-screen size whatever
+ * the zoom. The path's own rendered SVG gives the transform from its points to the screen, so rotation, parent
+ * layers, zoom and the interface scale all apply.
+ */
+function PathOverlay({ artboard, node, selectedPoint, rubberBand, closing = false, onPointDown, onSegmentDown }: {
+  artboard: RefObject<HTMLDivElement | null>; node: DesignNode; selectedPoint: number;
+  /** While drawing: the pointer, in the path's coordinates, previewing the next segment. */
+  rubberBand?: { x: number; y: number }; closing?: boolean;
+  onPointDown?: (edit: PointEdit) => void; onSegmentDown?: (index: number, local: DOMPoint) => void;
+}) {
+  const [frame, setFrame] = useState<{ toOverlay: DOMMatrix; ctm: DOMMatrix }>();
+  useLayoutEffect(() => {
+    const board = artboard.current;
+    const svg = board?.querySelector<SVGSVGElement>(`.design-node[data-node-id="${CSS.escape(node.id)}"] > svg.vector-shape`);
+    const ctm = svg?.getScreenCTM();
+    if (!board || !ctm) { setFrame(undefined); return; }
+    const rect = board.getBoundingClientRect(), scale = uiScale();
+    const toOverlay = new DOMMatrix().scaleSelf(1 / scale).translateSelf(-rect.left, -rect.top).multiplySelf(ctm);
+    setFrame(previous => previous && previous.toOverlay.toString() === toOverlay.toString() ? previous : { toOverlay, ctm });
+  });
+  if (!frame || !node.points.length) return null;
+  const at = (x: number, y: number) => frame.toOverlay.transformPoint(new DOMPoint(x, y));
+  const points = node.points, segments = points.length - (node.pathClosed ? 0 : 1);
+  const curve = (from: VectorPoint, to: VectorPoint) => {
+    const [p0, p1, p2, p3] = segmentControls(from, to).map(([x, y]) => at(x, y));
+    return `M ${p0.x} ${p0.y} C ${p1.x} ${p1.y} ${p2.x} ${p2.y} ${p3.x} ${p3.y}`;
+  };
+  const down = (index: number, handle: PointEdit['handle']) => onPointDown && ((event: PointerEvent<SVGElement>) => {
+    event.stopPropagation();
+    onPointDown({ nodeId: node.id, pointIndex: index, handle, event, inverse: frame.ctm.inverse() });
+  });
+  const last = points[points.length - 1];
+  return <svg className={`path-overlay${onPointDown ? '' : ' passive'}`} aria-label={`${node.name} vector points`}>
+    {Array.from({ length: Math.max(0, segments) }, (_, index) => {
+      const d = curve(points[index], points[(index + 1) % points.length]);
+      return <g key={`segment-${index}`}><path className="vector-outline" d={d} />
+        {onSegmentDown && <path className="vector-segment" d={d} onPointerDown={event => {
+          event.stopPropagation(); event.preventDefault();
+          onSegmentDown(index, new DOMPoint(event.clientX, event.clientY).matrixTransform(frame.ctm.inverse()));
+        }} />}</g>;
+    })}
+    {rubberBand && <path className="pen-rubber-band" d={curve(last, { ...rubberBand, inX: 0, inY: 0, outX: 0, outY: 0 })} />}
+    {points.map((point, index) => {
+      const anchor = at(point.x, point.y), handleIn = at(point.x + point.inX, point.y + point.inY), handleOut = at(point.x + point.outX, point.y + point.outY);
+      return <g key={index}>
+        {(point.inX || point.inY) ? <><line x1={anchor.x} y1={anchor.y} x2={handleIn.x} y2={handleIn.y} />
+          <circle className="vector-handle" cx={handleIn.x} cy={handleIn.y} r={3.5} onPointerDown={down(index, 'in')} /></> : null}
+        {(point.outX || point.outY) ? <><line x1={anchor.x} y1={anchor.y} x2={handleOut.x} y2={handleOut.y} />
+          <circle className="vector-handle" cx={handleOut.x} cy={handleOut.y} r={3.5} onPointerDown={down(index, 'out')} /></> : null}
+        <circle className={`vector-anchor${selectedPoint === index ? ' selected' : ''}${closing && index === 0 ? ' pen-start' : ''}`} cx={anchor.x} cy={anchor.y} r={4.5}
+          onPointerDown={down(index, 'point')} />
+      </g>;
+    })}
+  </svg>;
+}
 type ImagePlacementPatch = Pick<DesignNode, 'imageOffsetX' | 'imageOffsetY' | 'imageScaleX' | 'imageScaleY' | 'imageRotation'>;
 type ImageDrag = { kind: 'move' | 'resize' | 'rotate'; hx: number; hy: number; pointer: number; clientX: number; clientY: number;
   start: ReturnType<typeof imagePlacement>; base: { width: number; height: number }; box: { width: number; height: number }; angle: number;
@@ -138,7 +212,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   useEffect(() => { if (!component.flippable) setFace('front'); }, [component.flippable]);
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedPoint, setSelectedPoint] = useState(-1);
-  const [toolMenu, setToolMenu] = useState<'shape' | 'link' | null>(null);
+  const [toolMenu, setToolMenu] = useState<'shape' | null>(null);
+  // The pen tool draws a new path point by point; everything else uses the selection tool.
+  const [tool, setTool] = useState<'select' | 'pen'>('select');
+  const [pen, setPen] = useState<PenDraft>();
   const [toolMenuPosition, setToolMenuPosition] = useState({ left: 0, top: 0 });
   const toolbar = useRef<HTMLDivElement>(null);
   useSmoothHorizontalWheel(toolbar);
@@ -154,7 +231,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     measure();
     return () => { observer.disconnect(); element.removeEventListener('scroll', scroll); };
   }, []);
-  const toggleToolMenu = (menu: 'shape' | 'link', button: HTMLButtonElement) => {
+  const toggleToolMenu = (menu: 'shape', button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
     setToolMenuPosition({ left: Math.max(8, Math.min(cssPx(rect.left), cssPx(window.innerWidth) - 180)), top: cssPx(rect.bottom) + 4 });
     setToolMenu(toolMenu === menu ? null : menu);
@@ -175,6 +252,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const [row, setRow] = useState(0);
   useEffect(() => { setRow(current => Math.min(current, Math.max(0, component.rows.length - 1))); }, [component.rows.length]);
   const [zoom, setZoom] = useState(1.45);
+  // Drags and resizes snap to about one screen pixel, so they stay smooth when zoomed in.
+  const precision = zoomPrecision(zoom);
   const [history, setHistory] = useState<Component[]>([]);
   const [future, setFuture] = useState<Component[]>([]);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -262,14 +341,62 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     update({ [face]: [...nodes, next] });
     setSelected([next.id]);
   };
-  const addNestedComponent = (componentId: string) => {
-    const linked = components.find(item => item.id === componentId);
-    if (!linked) return;
+  // Linked artwork starts empty; the component it shows is chosen in the Design panel.
+  const addLinkedArtwork = () => {
     const parent = selectedNodes.length === 1 && selectedNodes[0].type === 'frame' ? selectedNodes[0].id : null;
-    const nested = makeNode('component', { name: linked.name, componentId, width: linked.width, height: linked.height,
-      fill: 'transparent', parent, dataSource: 'inherit' });
-    update({ [face]: [...nodes, nested] }); setSelected([nested.id]);
+    const nested = makeNode('component', { name: 'Linked artwork', width: 150, height: 150, fill: 'transparent', parent, dataSource: 'inherit' });
+    update({ [face]: [...nodes, nested] }); setSelected([nested.id]); setTab('design');
   };
+  const convertSelection = () => {
+    try { const result = convertToPaths(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); setSelectedPoint(-1); }
+    catch (error) { notify(error instanceof Error ? error.message : 'Unable to convert to a path.', true); }
+  };
+  // ---------- pen tool ----------
+  const artboardPoint = (clientX: number, clientY: number) => {
+    const rect = artboard.current!.getBoundingClientRect();
+    return { x: snapTo(cssPx(clientX - rect.left) / zoom, precision), y: snapTo(cssPx(clientY - rect.top) / zoom, precision) };
+  };
+  const finishPen = (closed = false) => {
+    const draft = pen;
+    setPen(undefined); setTool('select');
+    if (!draft || draft.node.points.length < 2) return;
+    try {
+      const finished = fitPathBounds({ ...draft.node, pathClosed: closed && draft.node.points.length >= 3 });
+      void update({ [face]: [...nodes, finished] }); setSelected([finished.id]); setSelectedPoint(-1);
+    } catch (error) { notify(error instanceof Error ? error.message : 'Unable to finish the path.', true); }
+  };
+  const startPen = () => { setTool('pen'); setPen(undefined); setSelected([]); setImageEdit(undefined); setToolMenu(null); };
+  const penDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!artboard.current) return;
+    const point = artboardPoint(event.clientX, event.clientY);
+    const anchor: VectorPoint = { ...point, inX: 0, inY: 0, outX: 0, outY: 0 };
+    if (!pen) {
+      if (nodes.length >= 300) { notify('A face cannot contain more than 300 layers.', true); return; }
+      // Drawn in component coordinates; finishing fits the layer's box to the points.
+      const node = makeNode('shape', { name: 'Path', shapeKind: 'path', x: 0, y: 0, width: component.width, height: component.height,
+        fill: 'transparent', stroke: '#253d37', strokeWidth: 2, pathClosed: false, points: [anchor] });
+      setPen({ node, drag: { pointer: event.pointerId, index: 0 } });
+    } else {
+      const points = pen.node.points;
+      const near = (other: VectorPoint) => Math.hypot(other.x - point.x, other.y - point.y) * zoom < 8;
+      if (points.length >= 3 && near(points[0])) { finishPen(true); return; }
+      if (points.length >= 2 && near(points[points.length - 1])) { finishPen(false); return; }
+      if (points.length >= 128) { notify('Paths are limited to 128 points.', true); return; }
+      setPen({ node: { ...pen.node, points: [...points, anchor] }, drag: { pointer: event.pointerId, index: points.length } });
+    }
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const penMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!pen || !artboard.current) return;
+    const point = artboardPoint(event.clientX, event.clientY);
+    if (pen.drag?.pointer !== event.pointerId) { setPen({ ...pen, hover: point }); return; }
+    // Dragging out of a new point pulls symmetric Bézier handles; a click keeps a sharp corner.
+    const index = pen.drag.index, anchor = pen.node.points[index];
+    const outX = point.x - anchor.x, outY = point.y - anchor.y, sharp = Math.hypot(outX, outY) * zoom < 3;
+    setPen({ ...pen, hover: undefined, node: { ...pen.node, points: pen.node.points.map((value, i) => i !== index ? value
+      : { ...value, outX: sharp ? 0 : outX, outY: sharp ? 0 : outY, inX: sharp ? 0 : -outX, inY: sharp ? 0 : -outY }) } });
+  };
+  const penUp = (event: PointerEvent<HTMLDivElement>) => { if (pen?.drag?.pointer === event.pointerId) setPen({ ...pen, drag: undefined }); };
   const createGroup = () => {
     if (!selectedNodes.length) {
       const empty = makeNode('frame', { name: 'Group', fill: 'transparent', width: 180, height: 120 });
@@ -298,11 +425,14 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     catch (error) { notify(error instanceof Error ? error.message : 'Unable to uncombine shapes.', true); }
   };
   const canUngroup = selectedNodes.length > 0 && selectedNodes.every(item => item.type === 'frame');
+  // Shapes and boolean groups can be combined, uncombined and converted to pen paths.
+  const vectorSelection = selectedNodes.length > 0 && selectedNodes.every(item => item.type === 'shape' || item.type === 'compound');
+  const canConvert = vectorSelection && selectedNodes.some(item => !(item.type === 'shape' && item.shapeKind === 'path'));
   const ungroupSelection = () => {
     try { const result = ungroupLayers(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); }
     catch (error) { notify(error instanceof Error ? error.message : 'Unable to ungroup layers.', true); }
   };
-  const pointDown = ({ nodeId, pointIndex, handle, event }: PointEditEvent) => {
+  const pointDown = ({ nodeId, pointIndex, handle, event, inverse }: PointEdit) => {
     event.preventDefault();
     const selectedNode = nodes.find(item => item.id === nodeId);
     if (!selectedNode) return;
@@ -315,9 +445,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       }
       lastAnchorDown.current = { nodeId, index: pointIndex, time };
     }
-    const matrix = event.currentTarget.ownerSVGElement?.getScreenCTM();
-    if (!matrix) return;
-    const inverse = matrix.inverse(), start = new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse);
+    const start = new DOMPoint(event.clientX, event.clientY).matrixTransform(inverse);
     pointDragging.current = { nodeId, pointIndex, handle, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY,
       inverse, localX: start.x, localY: start.y, point: { ...selectedNode.points[pointIndex] } };
     artboard.current?.setPointerCapture(event.pointerId);
@@ -344,13 +472,9 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     const points = node.points.filter((_, pointIndex) => pointIndex !== index);
     updateNode({ points }); setSelectedPoint(Math.max(0, Math.min(index, points.length - 1)));
   };
-  const segmentDown = (nodeId: string, index: number, event: PointerEvent<SVGPathElement>) => {
-    event.preventDefault();
+  const segmentDown = (nodeId: string, index: number, point: DOMPoint) => {
     const shape = nodes.find(item => item.id === nodeId);
     if (!shape || shape.points.length >= 128) { notify('Paths are limited to 128 points.', true); return; }
-    const matrix = event.currentTarget.getScreenCTM();
-    if (!matrix) return;
-    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
     const t = closestSegmentParameter(segmentControls(shape.points[index], shape.points[(index + 1) % shape.points.length]), [point.x, point.y]);
     if (t <= .001 || t >= .999) return;
     updateNode({ points: splitPathSegment(shape.points, index, t) }); setSelectedPoint(index + 1);
@@ -393,6 +517,20 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       if (key === 'escape' && toolMenu) { event.preventDefault(); setToolMenu(null); return; }
+      if (tool === 'pen' && !command) {
+        if (key === 'enter' || key === 'escape') { event.preventDefault(); finishPen(false); return; }
+        if ((key === 'backspace' || key === 'delete') && pen) {
+          event.preventDefault();
+          if (pen.node.points.length > 1) setPen({ ...pen, drag: undefined, node: { ...pen.node, points: pen.node.points.slice(0, -1) } }); else setPen(undefined);
+          return;
+        }
+      }
+      if (!command && !event.shiftKey && !event.altKey && (key === 'p' || key === 'v') && !event.repeat) {
+        event.preventDefault();
+        if (key === 'p') { if (tool !== 'pen') startPen(); } else if (tool === 'pen') finishPen(false);
+        return;
+      }
+      if (command && key === 'e' && !event.shiftKey && !event.altKey && selected.length) { event.preventDefault(); convertSelection(); return; }
       if ((key === 'escape' || key === 'enter') && imageEdit) { event.preventDefault(); setImageEdit(undefined); return; }
       if (event.altKey) return;
       try {
@@ -461,7 +599,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
       event.preventDefault();
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.clientHeight : 1);
-      const next = Math.max(.25, Math.min(3, zoom * Math.exp(-delta * .001)));
+      const next = clampZoom(zoom * Math.exp(-delta * .001));
       const bounds = artboard.current?.getBoundingClientRect();
       if (bounds && next !== zoom) zoomAnchor.current = { x: event.clientX, y: event.clientY,
         relativeX: (event.clientX - bounds.left) / bounds.width, relativeY: (event.clientY - bounds.top) / bounds.height };
@@ -580,7 +718,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     dragging.current = { ids: activeIds, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, positions, angles };
     artboard.current?.setPointerCapture(event.pointerId);
   };
-  const shownNodes = nodes.map(item => ({
+  const shownNodes = (pen ? [...nodes, pen.node] : nodes).map(item => ({
     ...item, ...(dragPreview?.[item.id] ?? {}), ...(handlePreview?.id === item.id ? handlePreview.patch : {}),
     ...(imagePreview?.id === item.id ? imagePreview.patch : {}),
     ...(pointPreview?.nodeId === item.id ? { points: item.points.map((point, index) => index === pointPreview.pointIndex ? pointPreview.point : point) } : {}),
@@ -603,7 +741,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     event.stopPropagation();
     const patch = drag.kind === 'rotate'
       ? { rotation: rotateNode(drag.start, Math.atan2(event.clientY - drag.centerY, event.clientX - drag.centerX) - drag.pointerAngle, event.shiftKey) }
-      : resizeNode(drag.start, drag.hx, drag.hy, cssPx(event.clientX - drag.clientX) / zoom, cssPx(event.clientY - drag.clientY) / zoom, drag.angle, event.shiftKey);
+      : resizeNode(drag.start, drag.hx, drag.hy, cssPx(event.clientX - drag.clientX) / zoom, cssPx(event.clientY - drag.clientY) / zoom, drag.angle, event.shiftKey, precision);
     setHandlePreview({ id: drag.id, patch });
   };
   const endHandle = (event: PointerEvent<HTMLButtonElement>) => {
@@ -620,6 +758,17 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const editedImage = imageEdit && selected.length === 1 && selected[0] === imageEdit ? shownNodes.find(item => item.id === imageEdit && item.type === 'image') : undefined;
   useEffect(() => { if (imageEdit && !editedImage) setImageEdit(undefined); }, [imageEdit, editedImage]);
   const catalog = useMemo(() => new Map(components.map(item => [item.id, item])), [components]);
+  // Components this one can show as linked artwork: never itself, an asset, or one that already shows this one.
+  const linkable = useMemo(() => {
+    const reaches = (id: string, seen: Set<string>): boolean => {
+      if (id === component.id) return true;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      const item = catalog.get(id);
+      return !!item && [...item.front, ...item.back].some(layer => layer.type === 'component' && !!layer.componentId && reaches(layer.componentId, seen));
+    };
+    return components.filter(item => item.id !== component.id && !isAsset(item) && !reaches(item.id, new Set()));
+  }, [components, component.id, catalog]);
   const editedSource = editedImage ? resolveImage(editedImage, component.rows[row] ?? {}, catalog) : undefined;
   const editedNatural = useNaturalSize(editedSource);
   const editedBox = editedImage && transformBox(editedImage, shownNodes);
@@ -691,14 +840,18 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <ScrollArrows target={toolbar} {...toolbarEdges} label="designer toolbar" />
       <div className="canvas-toolbar" ref={toolbar}>
         <div className="tool-group">
+          <button title="Select and move (V)" aria-label="Select tool" aria-pressed={tool === 'select'} onClick={() => { if (tool === 'pen') finishPen(false); }}><MousePointer2 size={17} /></button>
+          <button title="Pen tool (P): click to add points, drag to curve, click the first point to close; Enter or Esc finishes" aria-label="Pen tool" aria-pressed={tool === 'pen'}
+            onClick={() => tool === 'pen' ? finishPen(false) : startPen()}><PenTool size={17} /></button>
+        </div><span className="toolbar-divider" />
+        <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>
           <div className="designer-tool-menu"><button aria-label="Add shape" title="Add shape" aria-expanded={toolMenu === 'shape'} onClick={event => toggleToolMenu('shape', event.currentTarget)}><Square size={18} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'shape' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{(['rectangle', 'ellipse', 'polygon', 'star', 'path'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', false, kind); setToolMenu(null); }}>{kind === 'path' ? 'Pen path' : kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>, document.body)}</div>
+            {toolMenu === 'shape' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{(['rectangle', 'ellipse', 'polygon', 'star'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', false, kind); setToolMenu(null); }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>, document.body)}</div>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><Frame size={18} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
-          <div className="designer-tool-menu"><button aria-label="Link nested component" title="Link nested component" aria-expanded={toolMenu === 'link'} onClick={event => toggleToolMenu('link', event.currentTarget)}><Link2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'link' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{components.filter(item => item.id !== component.id && !isAsset(item)).map(item => <button role="menuitem" key={item.id} onClick={() => { addNestedComponent(item.id); setToolMenu(null); }}>{item.name}</button>)}</div>, document.body)}</div>
+          <button title="Add linked artwork: shows another component; choose which in the Design panel" aria-label="Add linked artwork" onClick={addLinkedArtwork}><Link2 size={17} /></button>
         </div><span className="toolbar-divider" />
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
@@ -709,9 +862,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           </select>
         </div>
       </div></div>
-      <div ref={stage} className="designer-stage" tabIndex={-1}
+      <div ref={stage} className={`designer-stage${tool === 'pen' ? ' pen-active' : ''}`} tabIndex={-1}
         onPointerDownCapture={event => {
           if (event.button === 0 || event.button === 1) event.currentTarget.focus({ preventScroll: true });
+          if (tool === 'pen' && event.button === 0 && !spacePressed.current) { event.preventDefault(); event.stopPropagation(); penDown(event); return; }
           if (event.button !== 1 && !(event.button === 0 && spacePressed.current)) return;
           event.preventDefault(); event.stopPropagation();
           if (event.button === 0) spacePanned.current = true;
@@ -719,11 +873,13 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           event.currentTarget.setPointerCapture(event.pointerId);
         }}
         onPointerMoveCapture={event => {
+          if (tool === 'pen' && !panning.current) penMove(event);
           const drag = panning.current;
           if (!drag || drag.pointer !== event.pointerId) return;
           event.stopPropagation(); setPan({ x: drag.panX + cssPx(event.clientX - drag.x), y: drag.panY + cssPx(event.clientY - drag.y) });
         }}
         onPointerUpCapture={event => {
+          if (tool === 'pen') penUp(event);
           if (panning.current?.pointer !== event.pointerId) return;
           event.stopPropagation(); panning.current = null;
         }}
@@ -756,8 +912,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             drag.ids.forEach(id => {
               const angle = drag.angles[id], origin = drag.positions[id];
               const layer = nodes.find(item => item.id === id)!;
-              next[id] = { x: usesPosition(layer, nodes, 'x') ? Math.round(origin.x + dx * Math.cos(angle) + dy * Math.sin(angle)) : origin.x,
-                y: usesPosition(layer, nodes, 'y') ? Math.round(origin.y - dx * Math.sin(angle) + dy * Math.cos(angle)) : origin.y };
+              next[id] = { x: usesPosition(layer, nodes, 'x') ? snapTo(origin.x + dx * Math.cos(angle) + dy * Math.sin(angle), precision) : origin.x,
+                y: usesPosition(layer, nodes, 'y') ? snapTo(origin.y - dx * Math.sin(angle) + dy * Math.cos(angle), precision) : origin.y };
             });
             setDragPreview(next);
           }}
@@ -779,8 +935,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
             <ComponentView component={{ ...component, [face]: shownNodes }} components={components}
               row={row} back={face === 'back'} selectedNodes={selected} onNode={(id, event) => { if (imageEdit && id !== imageEdit) setImageEdit(undefined); beginCanvasDrag(id, event); }}
-              onNodeDoubleClick={startImageEdit} editableVector onPointDown={pointDown}
-              selectedPoint={selectedPoint} onSegmentDown={segmentDown} />
+              onNodeDoubleClick={startImageEdit} zoom={zoom} />
           </div>
           {editedImage && editedBox && editedBase && (() => {
             const placed = imagePlacement(editedImage);
@@ -814,31 +969,21 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 cursor: RESIZE_CURSORS[Math.round(((Math.atan2(hy, hx) + box.angle) * 180 / Math.PI % 180 + 180) % 180 / 45) % 4] }}
               onPointerDown={event => beginHandle(event, 'resize', hx, hy)} onPointerMove={moveHandle} onPointerUp={endHandle} onPointerCancel={cancelHandle} />)}
           </div>}
+          {pen ? <PathOverlay artboard={artboard} node={shownNodes.find(item => item.id === pen.node.id) ?? pen.node} selectedPoint={-1} rubberBand={pen.drag ? undefined : pen.hover}
+            closing={pen.node.points.length >= 3} />
+            : transformTarget?.type === 'shape' && transformTarget.shapeKind === 'path' && <PathOverlay artboard={artboard} node={transformTarget} selectedPoint={selectedPoint}
+              onPointDown={pointDown} onSegmentDown={(index, point) => segmentDown(transformTarget.id, index, point)} />}
         </div>
         <div className="canvas-caption"><span className="live-dot" /> Live component <span>Changes appear on every instance</span></div>
         </div>
       </div>
       <div className="canvas-bottom"><span><Square size={12} /> {component.kind} component</span>
-        <div><button onClick={() => setZoom(value => Math.max(.25, value - .25))}>-</button><ZoomPresets levels={[.25, .5, 1, 1.5, 2, 3]} zoom={zoom} onSelect={setZoom}><button title="Reset zoom" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button></ZoomPresets><button onClick={() => setZoom(value => Math.min(3, value + .25))}>+</button></div></div>
+        <div><button title="Zoom out" aria-label="Zoom out" disabled={zoom <= ZOOM_MIN} onClick={() => setZoom(value => clampZoom(value / 1.25))}>-</button><ZoomPresets levels={ZOOM_LEVELS} zoom={zoom} onSelect={setZoom}><button title="Reset zoom" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button></ZoomPresets><button title="Zoom in" aria-label="Zoom in" disabled={zoom >= ZOOM_MAX} onClick={() => setZoom(value => clampZoom(value * 1.25))}>+</button></div></div>
     </section>
     <PanelSeparator label="Resize designer inspector" controls="designer-inspector-panel" value={panels.sizes.designerInspector} {...panels.limits.designerInspector} direction={-1} onResize={value => panels.resize('designerInspector', value)} />
     <aside id="designer-inspector-panel" className="inspector" style={{ width: panels.sizes.designerInspector, minWidth: 0, flex: `0 0 ${panels.sizes.designerInspector}px` }}>
       <HorizontalScroll contentClassName="inspector-tabs" label="Designer inspector tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></HorizontalScroll>
       <div className="inspector-scroll">
-        {tab === 'design' && <div className="inspector-section design-section boolean-section">
-          <div className="boolean-actions" aria-label="Boolean operations">
-          {([
-            { operation: 'union', label: 'Union' },
-            { operation: 'subtract', label: 'Subtract' },
-            { operation: 'intersect', label: 'Intersect' },
-            { operation: 'exclude', label: 'Exclude' },
-          ] as const).map(({ operation, label }) => <button key={operation} className="icon-button" title={label} aria-label={label}
-            disabled={selectedNodes.length < 2 || selectedNodes.some(item => !['shape', 'compound'].includes(item.type))}
-            onClick={() => makeCompound(operation)}><BooleanIcon operation={operation} /></button>)}
-          <button className="icon-button" title="Uncombine live compound" aria-label="Uncombine live compound"
-            disabled={!selectedNodes.length || selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={18} /></button>
-          </div>
-        </div>}
         {tab === 'behavior' ? <>
           <div className="inspector-section"><h3>Component behavior</h3>
             <Field label="Component type"><select value={component.kind} onChange={event => update({ kind: event.target.value as Component['kind'] })}>
@@ -891,8 +1036,17 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
                 <button className="icon-button danger" title="Delete selected layers" aria-label="Delete selected layers" onClick={removeNode}><Trash2 size={14} /></button>
               </div>
             </div>
+            {vectorSelection && <div className="boolean-actions" role="toolbar" aria-label="Boolean operations">
+              {BOOLEAN_OPERATIONS.map(({ operation, label }) => <button key={operation} className="icon-button" title={`${label} (select two or more shapes)`} aria-label={label}
+                disabled={selectedNodes.length < 2} onClick={() => makeCompound(operation)}><BooleanIcon operation={operation} /></button>)}
+              <button className="icon-button" title="Uncombine live compound" aria-label="Uncombine live compound"
+                disabled={selectedNodes.some(item => item.type !== 'compound')} onClick={uncombine}><Layers size={18} /></button>
+              <button className="icon-button" title="Convert to path (Ctrl/Cmd+E): turn shapes and boolean groups into editable pen paths" aria-label="Convert to path"
+                disabled={!canConvert} onClick={convertSelection}><Spline size={18} /></button>
+            </div>}
           </div>
           <div className="inspector-section design-section transform-section">
+            <SectionTitle title="Position and size" />
             <div className="field-grid transform-grid"><NumberField label="X" icon={<span className="axis-glyph">X</span>} value={node.x} onChange={x => updateNode({ x })}
                 disabled={!positionsX} title={positionsX ? undefined : 'Ignored: this layer is placed by its sizing mode or parent layout'} />
               <NumberField label="Y" icon={<span className="axis-glyph">Y</span>} value={node.y} onChange={y => updateNode({ y })}
@@ -902,7 +1056,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <NumberField label="Rotation" icon={<RotateCw size={14} />} value={node.rotation} onChange={rotation => updateNode({ rotation })} />
               {selected.length === 1 && node.type === 'frame' && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
             <div className="field-grid sizing-grid">
-              <Field label="Width sizing"><select value={selectedNodes.every(item => (item.widthMode ?? 'fixed') === (node.widthMode ?? 'fixed')) ? node.widthMode ?? 'fixed' : 'mixed'}
+              <Field label="Width sizing" hint="Fixed uses the width above. Hug fits the contents; Fill stretches to the parent, inset by the margins."><select value={selectedNodes.every(item => (item.widthMode ?? 'fixed') === (node.widthMode ?? 'fixed')) ? node.widthMode ?? 'fixed' : 'mixed'}
                 onChange={event => { if (event.target.value !== 'mixed') updateNode({ widthMode: event.target.value as DesignNode['widthMode'] }); }}>
                 {selectedNodes.some(item => (item.widthMode ?? 'fixed') !== (node.widthMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
                 <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
@@ -918,151 +1072,186 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <NumberField label="Margin left" value={node.marginLeft ?? 0} min={0} max={2000} onChange={marginLeft => updateNode({ marginLeft })} />
             </div></div>}
           </div>
-          <div className="inspector-section design-section appearance-section" key={`appearance-${node.id}`}>
-            <ColorField label="Fill color" value={node.fill} onChange={fill => updateNode({ fill })} />
-            <NumberField label="Opacity" value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
-          </div>
-          {selected.length === 1 && <div className="inspector-section design-section content-section">
-            {node.type === 'text' && selected.length === 1 && <>
+          {selected.length === 1 && node.type === 'frame' && <div className="inspector-section design-section">
+            <SectionTitle title="Layout" hint="Absolute places children by X/Y. Horizontal and vertical stacks arrange them in order with a gap, like auto layout." />
+            <Field label="Child layout"><select value={node.layout} onChange={event => updateNode({ layout: event.target.value as DesignNode['layout'] })}><option value="absolute">Absolute</option><option value="row">Horizontal stack</option><option value="column">Vertical stack</option></select></Field>
+            <div className="field-grid"><NumberField label="Gap" value={node.gap} min={0} max={200} onChange={gap => updateNode({ gap })} />
+              <Field label="Align children"><select value={node.align === 'justify' ? 'start' : node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></Field></div>
+            {node.layout !== 'absolute' && <Toggle label="Wrap children" checked={node.wrap ?? false} onChange={wrap => updateNode({ wrap })} />}
+            <div className="padding-editor"><span>Padding per edge</span><div className="field-grid">
+              <NumberField label="Top" value={node.paddingTop ?? node.padding} min={0} max={200} onChange={paddingTop => updateNode({ paddingTop })} />
+              <NumberField label="Right" value={node.paddingRight ?? node.padding} min={0} max={200} onChange={paddingRight => updateNode({ paddingRight })} />
+              <NumberField label="Bottom" value={node.paddingBottom ?? node.padding} min={0} max={200} onChange={paddingBottom => updateNode({ paddingBottom })} />
+              <NumberField label="Left" value={node.paddingLeft ?? node.padding} min={0} max={200} onChange={paddingLeft => updateNode({ paddingLeft })} />
+            </div></div>
+          </div>}
+          {selected.length === 1 && node.type === 'text' && <>
+            <div className="inspector-section design-section">
+              <SectionTitle title="Text" hint="Mix static text with {{column_name}} bindings to the component's CSV data." />
               <Field label="Text / binding"><textarea value={node.text} onChange={event => updateNode({ text: event.target.value })} rows={3} /></Field>
-              <p className="help-text">Mix static text with <code>{'{{column_name}}'}</code>.</p>
+            </div>
+            <div className="inspector-section design-section typography-section">
+              <SectionTitle title="Typography" hint="Pick a Google font, type an imported font's name, or bind a column such as {{font}}; values that match an imported font's name use it." />
               <Field label="Imported font"><select value={node.fontId ?? ''} onChange={event => updateNode({ fontId: event.target.value || undefined })}>
                 <option value="">Use Google font or binding</option>{components.filter(item => item.kind === 'font').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select></Field>
               <FontPicker key={node.id} label="Google font / binding" value={node.font} disabled={!!node.fontId} onChange={font => updateNode({ font })} />
-              {!node.fontId && <p className="help-text">Pick a Google font, type an imported font's name, or bind a column with <code>{'{{font}}'}</code>; values that match an imported font's name use it.</p>}
-              <div className="field-grid"><NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
-                <ColorField label="Text color" value={node.color} onChange={color => updateNode({ color })} /></div>
-              <Field label="Alignment"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
-            </>}
-            {node.type === 'image' && selected.length === 1 && <>
-              <Field label="Imported texture"><select value={node.textureId ?? ''} onChange={event => updateNode({ textureId: event.target.value || undefined })}>
-                <option value="">Use image URL / binding</option>{components.filter(item => item.kind === 'texture').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select></Field>
-              <Field label="Image URL / binding"><textarea rows={3} disabled={!!node.textureId} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://..., a texture name or {{image}}" /></Field>
-              <p className="help-text">Use an HTTPS URL, an imported texture's name, or a CSV binding such as <code>{'{{art}}'}</code>. Bound values that match a texture's name use that texture, and <code>{'{{texture-name}}'}</code> picks it directly.</p>
-              <Field label="Picture fit"><select value={node.imageFit ?? 'cover'} onChange={event => updateNode({ imageFit: event.target.value as DesignNode['imageFit'] })}>
-                {IMAGE_FITS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-              </select></Field>
-              <div className="field-grid image-placement-grid">
-                <NumberField label="Picture X" value={roundTo(node.imageOffsetX ?? 0, 2)} min={-8000} max={8000} onChange={imageOffsetX => updateNode({ imageOffsetX })} />
-                <NumberField label="Picture Y" value={roundTo(node.imageOffsetY ?? 0, 2)} min={-8000} max={8000} onChange={imageOffsetY => updateNode({ imageOffsetY })} />
-                <NumberField label="Scale X %" value={roundTo((node.imageScaleX ?? 1) * 100, 2)} min={1} max={10000} step={5} onChange={value => updateNode({ imageScaleX: value / 100 })} />
-                <NumberField label="Scale Y %" value={roundTo((node.imageScaleY ?? 1) * 100, 2)} min={1} max={10000} step={5} onChange={value => updateNode({ imageScaleY: value / 100 })} />
-                <NumberField label="Picture rotation" value={roundTo(node.imageRotation ?? 0, 1)} min={-360} max={360} onChange={imageRotation => updateNode({ imageRotation })} />
-              </div>
-              <div className="button-row">
-                <button className="button" aria-pressed={imageEdit === node.id} onClick={() => imageEdit === node.id ? setImageEdit(undefined) : startImageEdit(node.id)}><Crop size={14} /> {imageEdit === node.id ? 'Finish editing' : 'Edit picture'}</button>
-                <button className="button" disabled={!node.imageOffsetX && !node.imageOffsetY && (node.imageScaleX ?? 1) === 1 && (node.imageScaleY ?? 1) === 1 && !node.imageRotation}
-                  onClick={() => updateNode({ imageOffsetX: undefined, imageOffsetY: undefined, imageScaleX: undefined, imageScaleY: undefined, imageRotation: undefined })}><RotateCcw size={14} /> Reset</button>
-              </div>
-              <p className="help-text">Double-click the image on the canvas to move, rotate and resize the picture inside its frame; the layer crops it. Corners keep proportions (Shift stretches).</p>
-            </>}
-            {node.type === 'shape' && selected.length === 1 && <>
-              <Field label="Vector shape"><select value={node.shapeKind} onChange={event => {
-                const nextKind = event.target.value as DesignNode['shapeKind'];
-                const points = nextKind === 'path' && node.points.length < 2
-                  ? [{ x: 12, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
-                    { x: node.width - 12, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
-                    { x: node.width - 12, y: node.height - 12, inX: 0, inY: 0, outX: 0, outY: 0 },
-                    { x: 12, y: node.height - 12, inX: 0, inY: 0, outX: 0, outY: 0 }]
-                  : node.points;
-                updateNode({ shapeKind: nextKind, points });
-              }}>
-                <option value="rectangle">Rectangle</option><option value="ellipse">Ellipse</option><option value="polygon">Polygon</option>
-                <option value="star">Star</option><option value="path">Pen path</option>
-              </select></Field>
-              {(node.shapeKind === 'polygon' || node.shapeKind === 'star') && <>
-                <NumberField label="Sides" value={node.sides} min={3} max={100} onChange={sides => updateNode({ sides })} />
-                {node.shapeKind === 'star' && <NumberField label="Inner radius ratio" value={node.innerRadius} min={.05} max={.95} step={.05} onChange={innerRadius => updateNode({ innerRadius })} />}
-              </>}
-              {node.shapeKind === 'rectangle' && <NumberField label="Corner radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}
               <div className="field-grid">
-                <ColorField label="Stroke color" value={node.stroke} onChange={stroke => updateNode({ stroke })} />
-                <NumberField label="Stroke weight" value={node.strokeWidth} min={0} max={200} step={.5} onChange={strokeWidth => updateNode({ strokeWidth })} />
-              </div>
-              {node.shapeKind === 'path' && <>
-                <div className="vector-editor-heading"><strong>Path points</strong><span>{node.points.length} points</span></div>
-                <Field label="Selected point"><select value={selectedPoint} onChange={event => setSelectedPoint(Number(event.target.value))}>
-                  <option value={-1}>None</option>
-                  {node.points.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
+                <NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
+                <Field label="Weight"><select value={node.fontWeight ?? 400} onChange={event => updateNode({ fontWeight: Number(event.target.value) })}>
+                  {FONT_WEIGHTS.map(([weight, name]) => <option key={weight} value={weight}>{name}</option>)}
                 </select></Field>
-                {node.points[selectedPoint] && <>
-                  <div className="field-grid"><NumberField label="X" value={node.points[selectedPoint].x} min={-4000} max={4000} step={.5} onChange={x => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, x } : point) })} />
-                    <NumberField label="Y" value={node.points[selectedPoint].y} min={-4000} max={4000} step={.5} onChange={y => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, y } : point) })} /></div>
-                  <div className="field-grid"><NumberField label="In handle X" value={node.points[selectedPoint].inX} min={-4000} max={4000} step={.5} onChange={inX => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, inX } : point) })} />
-                    <NumberField label="In handle Y" value={node.points[selectedPoint].inY} min={-4000} max={4000} step={.5} onChange={inY => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, inY } : point) })} /></div>
-                  <div className="field-grid"><NumberField label="Out handle X" value={node.points[selectedPoint].outX} min={-4000} max={4000} step={.5} onChange={outX => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, outX } : point) })} />
-                    <NumberField label="Out handle Y" value={node.points[selectedPoint].outY} min={-4000} max={4000} step={.5} onChange={outY => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, outY } : point) })} /></div>
-                  <div className="button-row">
-                    <button className="button" onClick={() => updateNode({ points: node.points.map((point, index) => index === selectedPoint
-                      ? { ...point, inX: -Math.min(node.width, node.height) / 6, inY: 0, outX: Math.min(node.width, node.height) / 6, outY: 0 } : point) })}>Smooth handles</button>
-                    <button className="button" onClick={() => updateNode({ points: node.points.map((point, index) => index === selectedPoint
-                      ? { ...point, inX: 0, inY: 0, outX: 0, outY: 0 } : point) })}>Straight handles</button>
-                  </div>
-                </>}
-                <div className="button-row"><button className="button" onClick={appendPoint}>Add point</button>
-                  <button className="button danger" onClick={() => deletePoint()}>Delete point</button></div>
-                <Toggle label="Closed path" checked={node.pathClosed} onChange={pathClosed => updateNode({ pathClosed })} />
-                <p className="help-text">Drag anchors and Bézier handles on the canvas, or edit their coordinates here.</p>
-              </>}
+                <NumberField label="Line height" hint="A multiple of the font size; empty uses the font's normal spacing." value={node.lineHeight ?? 1.2} mixed={node.lineHeight === undefined} placeholder="Auto"
+                  min={.5} max={5} step={.05} onChange={lineHeight => updateNode({ lineHeight })} />
+                <NumberField label="Letter spacing" value={node.letterSpacing ?? 0} min={-50} max={200} step={.1} onChange={letterSpacing => updateNode({ letterSpacing })} />
+              </div>
+              <div className="field-grid">
+                <div className="field"><span>Style</span><div className="icon-choice" role="group" aria-label="Text style">
+                  <button type="button" aria-label="Italic" title="Italic" aria-pressed={!!node.italic} className={node.italic ? 'active' : ''} onClick={() => updateNode({ italic: !node.italic })}><Italic size={15} /></button>
+                  <button type="button" aria-label="Underline" title="Underline" aria-pressed={node.textDecoration === 'underline'} className={node.textDecoration === 'underline' ? 'active' : ''}
+                    onClick={() => updateNode({ textDecoration: node.textDecoration === 'underline' ? 'none' : 'underline' })}><Underline size={15} /></button>
+                  <button type="button" aria-label="Strikethrough" title="Strikethrough" aria-pressed={node.textDecoration === 'line-through'} className={node.textDecoration === 'line-through' ? 'active' : ''}
+                    onClick={() => updateNode({ textDecoration: node.textDecoration === 'line-through' ? 'none' : 'line-through' })}><Strikethrough size={15} /></button>
+                </div></div>
+                <IconChoice label="Case" value={node.textTransform ?? 'none'} options={TEXT_CASES} onChange={textTransform => updateNode({ textTransform })} />
+              </div>
+              <div className="field-grid">
+                <IconChoice label="Alignment" value={node.align} options={TEXT_ALIGNS} onChange={align => updateNode({ align })} />
+                <IconChoice label="Vertical alignment" value={node.verticalAlign ?? 'center'} options={VERTICAL_ALIGNS} onChange={verticalAlign => updateNode({ verticalAlign })} />
+              </div>
+              <ColorField label="Text color" value={node.color} onChange={color => updateNode({ color })} />
+            </div>
+          </>}
+          {selected.length === 1 && node.type === 'image' && <div className="inspector-section design-section">
+            <SectionTitle title="Image" hint="Use an HTTPS URL, an imported texture's name, or a CSV binding such as {{art}}. Bound values that match a texture's name use that texture, and {{texture-name}} picks it directly." />
+            <Field label="Imported texture"><select value={node.textureId ?? ''} onChange={event => updateNode({ textureId: event.target.value || undefined })}>
+              <option value="">Use image URL / binding</option>{components.filter(item => item.kind === 'texture').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select></Field>
+            <Field label="Image URL / binding"><textarea rows={2} disabled={!!node.textureId} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://..., a texture name or {{image}}" /></Field>
+            <Field label="Picture fit"><select value={node.imageFit ?? 'cover'} onChange={event => updateNode({ imageFit: event.target.value as DesignNode['imageFit'] })}>
+              {IMAGE_FITS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select></Field>
+            <SectionTitle title="Picture placement" hint="Double-click the image on the canvas to move, rotate and resize the picture inside its frame; the layer crops it. Corners keep proportions (Shift stretches).">
+              <button className="icon-button" title={imageEdit === node.id ? 'Finish editing the picture' : 'Edit the picture on the canvas'} aria-label={imageEdit === node.id ? 'Finish editing' : 'Edit picture'} aria-pressed={imageEdit === node.id}
+                onClick={() => imageEdit === node.id ? setImageEdit(undefined) : startImageEdit(node.id)}><Crop size={14} /></button>
+              <button className="icon-button" title="Reset the picture placement" aria-label="Reset" disabled={!node.imageOffsetX && !node.imageOffsetY && (node.imageScaleX ?? 1) === 1 && (node.imageScaleY ?? 1) === 1 && !node.imageRotation}
+                onClick={() => updateNode({ imageOffsetX: undefined, imageOffsetY: undefined, imageScaleX: undefined, imageScaleY: undefined, imageRotation: undefined })}><RotateCcw size={14} /></button>
+            </SectionTitle>
+            <div className="field-grid image-placement-grid">
+              <NumberField label="Picture X" value={roundTo(node.imageOffsetX ?? 0, 2)} min={-8000} max={8000} onChange={imageOffsetX => updateNode({ imageOffsetX })} />
+              <NumberField label="Picture Y" value={roundTo(node.imageOffsetY ?? 0, 2)} min={-8000} max={8000} onChange={imageOffsetY => updateNode({ imageOffsetY })} />
+              <NumberField label="Scale X %" value={roundTo((node.imageScaleX ?? 1) * 100, 2)} min={1} max={10000} step={5} onChange={value => updateNode({ imageScaleX: value / 100 })} />
+              <NumberField label="Scale Y %" value={roundTo((node.imageScaleY ?? 1) * 100, 2)} min={1} max={10000} step={5} onChange={value => updateNode({ imageScaleY: value / 100 })} />
+              <NumberField label="Picture rotation" value={roundTo(node.imageRotation ?? 0, 1)} min={-360} max={360} onChange={imageRotation => updateNode({ imageRotation })} />
+            </div>
+          </div>}
+          {selected.length === 1 && node.type === 'shape' && (node.shapeKind === 'path' ? <div className="inspector-section design-section">
+            <SectionTitle title="Pen path" hint="Drag anchors and Bézier handles on the canvas. Click a segment to add a point, double-click an anchor to toggle its handles and Alt-click it to delete it.">
+              <span className="subtle">{node.points.length} points</span>
+            </SectionTitle>
+            <Toggle label="Closed path" checked={node.pathClosed} onChange={pathClosed => updateNode({ pathClosed })} />
+            <Field label="Selected point"><select value={selectedPoint} onChange={event => setSelectedPoint(Number(event.target.value))}>
+              <option value={-1}>None</option>
+              {node.points.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
+            </select></Field>
+            {node.points[selectedPoint] && <>
+              <div className="field-grid"><NumberField label="X" value={node.points[selectedPoint].x} min={-4000} max={4000} step={.5} onChange={x => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, x } : point) })} />
+                <NumberField label="Y" value={node.points[selectedPoint].y} min={-4000} max={4000} step={.5} onChange={y => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, y } : point) })} />
+                <NumberField label="In handle X" value={node.points[selectedPoint].inX} min={-4000} max={4000} step={.5} onChange={inX => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, inX } : point) })} />
+                <NumberField label="In handle Y" value={node.points[selectedPoint].inY} min={-4000} max={4000} step={.5} onChange={inY => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, inY } : point) })} />
+                <NumberField label="Out handle X" value={node.points[selectedPoint].outX} min={-4000} max={4000} step={.5} onChange={outX => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, outX } : point) })} />
+                <NumberField label="Out handle Y" value={node.points[selectedPoint].outY} min={-4000} max={4000} step={.5} onChange={outY => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, outY } : point) })} /></div>
+              <div className="button-row">
+                <button className="button" onClick={() => updateNode({ points: node.points.map((point, index) => index === selectedPoint
+                  ? { ...point, inX: -Math.min(node.width, node.height) / 6, inY: 0, outX: Math.min(node.width, node.height) / 6, outY: 0 } : point) })}>Smooth handles</button>
+                <button className="button" onClick={() => updateNode({ points: node.points.map((point, index) => index === selectedPoint
+                  ? { ...point, inX: 0, inY: 0, outX: 0, outY: 0 } : point) })}>Straight handles</button>
+              </div>
             </>}
-            {node.type === 'compound' && selected.length === 1 && <>
-              <Field label="Live boolean operation"><select value={node.compoundOperation} onChange={event => updateNode({ compoundOperation: event.target.value as DesignNode['compoundOperation'] })}>
-                <option value="union">Union</option><option value="subtract">Subtract</option><option value="intersect">Intersect</option><option value="exclude">Exclude (XOR)</option>
-              </select></Field>
-              <p className="help-text">Source layers remain editable in the hierarchy. Edit a source, change the operation, or uncombine to separate them again.</p>
-              <button className="button full" onClick={uncombine}>Uncombine source shapes</button>
-            </>}
-            {node.type === 'component' && selected.length === 1 && <>
-              <Field label="Nested fitting"><select value={node.nestedFit ?? 'stretch'} onChange={event => updateNode({ nestedFit: event.target.value as DesignNode['nestedFit'] })}>
+            <div className="button-row"><button className="button" onClick={appendPoint}>Add point</button>
+              <button className="button danger" onClick={() => deletePoint()}>Delete point</button></div>
+          </div> : <div className="inspector-section design-section">
+            <SectionTitle title="Shape" />
+            <Field label="Vector shape"><select value={node.shapeKind} onChange={event => updateNode({ shapeKind: event.target.value as DesignNode['shapeKind'] })}>
+              <option value="rectangle">Rectangle</option><option value="ellipse">Ellipse</option><option value="polygon">Polygon</option><option value="star">Star</option>
+            </select></Field>
+            {(node.shapeKind === 'polygon' || node.shapeKind === 'star') && <div className="field-grid">
+              <NumberField label={node.shapeKind === 'star' ? 'Points' : 'Sides'} value={node.sides} min={3} max={100} onChange={sides => updateNode({ sides })} />
+              {node.shapeKind === 'star' && <NumberField label="Inner radius ratio" value={node.innerRadius} min={.05} max={.95} step={.05} onChange={innerRadius => updateNode({ innerRadius })} />}
+            </div>}
+            {node.shapeKind === 'rectangle' && <NumberField label="Corner radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}
+          </div>)}
+          {selected.length === 1 && node.type === 'compound' && <div className="inspector-section design-section">
+            <SectionTitle title="Boolean group" hint="Source layers stay editable in the layer tree. Edit a source, change the operation, uncombine to separate them, or convert the group to a path." />
+            <Field label="Live boolean operation"><select value={node.compoundOperation} onChange={event => updateNode({ compoundOperation: event.target.value as DesignNode['compoundOperation'] })}>
+              <option value="union">Union</option><option value="subtract">Subtract</option><option value="intersect">Intersect</option><option value="exclude">Exclude (XOR)</option>
+            </select></Field>
+            <div className="button-row"><button className="button" onClick={uncombine}>Uncombine source shapes</button>
+              <button className="button" onClick={convertSelection}><Spline size={14} /> Convert to path</button></div>
+          </div>}
+          {selected.length === 1 && node.type === 'component' && <div className="inspector-section design-section">
+            <SectionTitle title="Linked artwork" hint="Shows another component, kept in sync with its design. Components that already show this one are left out to avoid loops." />
+            <SearchSelect label="Linked component" value={node.componentId} placeholder="Choose a component…"
+              options={linkable.map(item => ({ value: item.id, label: item.name, detail: item.kind }))}
+              onChange={id => {
+                const linked = components.find(item => item.id === id);
+                if (linked) updateNode({ componentId: linked.id, name: linked.name, width: linked.width, height: linked.height, dataRow: 0 });
+              }} />
+            <Field label="Nested fitting" hint="Stretch fills both dimensions. Fit inside shows the whole artwork; Fill / crop covers the box and crops overflow. Both keep the artwork centered.">
+              <select value={node.nestedFit ?? 'stretch'} onChange={event => updateNode({ nestedFit: event.target.value as DesignNode['nestedFit'] })}>
                 <option value="stretch">Stretch</option><option value="contain">Fit inside</option><option value="cover">Fill / crop (envelope)</option>
               </select></Field>
-              <p className="help-text">Stretch fills both dimensions. Fit inside preserves the full artwork; envelope fills the box and crops overflow. Aspect-preserving modes are centered.</p>
-              <Field label="Linked component"><select value={node.componentId ?? ''} onChange={event => {
-                const linked = components.find(item => item.id === event.target.value);
-                if (linked) updateNode({ componentId: linked.id, name: linked.name, width: linked.width, height: linked.height, dataRow: 0 });
-              }}>
-                {components.filter(item => item.id !== component.id && !isAsset(item)).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select></Field>
-              <Field label="Nested data"><select value={node.dataSource} onChange={event => updateNode({ dataSource: event.target.value as DesignNode['dataSource'] })}>
-                <option value="inherit">Inherit parent row</option><option value="row">Use this component’s row</option><option value="field">Choose row from parent CSV field</option>
-              </select></Field>
-              {node.dataSource === 'row' && <NumberField label={`Own row (0–${Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)})`}
-                value={node.dataRow} min={0} max={Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)}
-                onChange={dataRow => updateNode({ dataRow })} />}
-              {node.dataSource === 'field' && <>
-                <Field label="Parent CSV field (zero-based row index)"><input value={node.dataField} list="nested-data-fields" placeholder="e.g. portraitRow" onChange={event => updateNode({ dataField: event.target.value })} /></Field>
-                <datalist id="nested-data-fields">{Object.keys(component.rows[row] ?? {}).map(key => <option key={key}>{key}</option>)}</datalist>
-                <p className="help-text">The selected parent row must contain an integer from 0 to {Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)}. Invalid or missing values show an error instead of silently choosing another row.</p>
-              </>}
-            </>}
-            {selected.length === 1 && node.type === 'frame' && <>
-              <Field label="Child layout"><select value={node.layout} onChange={event => updateNode({ layout: event.target.value as DesignNode['layout'] })}><option value="absolute">Absolute</option><option value="row">Horizontal stack</option><option value="column">Vertical stack</option></select></Field>
-              <div className="field-grid"><NumberField label="Gap" value={node.gap} min={0} max={200} onChange={gap => updateNode({ gap })} />
-                <Field label="Align children"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Start</option><option value="center">Center</option><option value="end">End</option></select></Field></div>
-              {node.layout !== 'absolute' && <Toggle label="Wrap children" checked={node.wrap ?? false} onChange={wrap => updateNode({ wrap })} />}
-              <div className="padding-editor"><span>Padding per edge</span><div className="field-grid">
-                <NumberField label="Top" value={node.paddingTop ?? node.padding} min={0} max={200} onChange={paddingTop => updateNode({ paddingTop })} />
-                <NumberField label="Right" value={node.paddingRight ?? node.padding} min={0} max={200} onChange={paddingRight => updateNode({ paddingRight })} />
-                <NumberField label="Bottom" value={node.paddingBottom ?? node.padding} min={0} max={200} onChange={paddingBottom => updateNode({ paddingBottom })} />
-                <NumberField label="Left" value={node.paddingLeft ?? node.padding} min={0} max={200} onChange={paddingLeft => updateNode({ paddingLeft })} />
-              </div></div>
+            <Field label="Nested data"><select value={node.dataSource} onChange={event => updateNode({ dataSource: event.target.value as DesignNode['dataSource'] })}>
+              <option value="inherit">Inherit parent row</option><option value="row">Use this component’s row</option><option value="field">Choose row from parent CSV field</option>
+            </select></Field>
+            {node.dataSource === 'row' && <NumberField label={`Own row (0–${Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)})`}
+              value={node.dataRow} min={0} max={Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)}
+              onChange={dataRow => updateNode({ dataRow })} />}
+            {node.dataSource === 'field' && <>
+              <Field label="Parent CSV field (zero-based row index)" hint={`The parent row must hold an integer from 0 to ${Math.max(0, (components.find(item => item.id === node.componentId)?.rows.length ?? 1) - 1)}. Invalid or missing values show an error instead of silently choosing another row.`}>
+                <input value={node.dataField} list="nested-data-fields" placeholder="e.g. portraitRow" onChange={event => updateNode({ dataField: event.target.value })} /></Field>
+              <datalist id="nested-data-fields">{Object.keys(component.rows[row] ?? {}).map(key => <option key={key}>{key}</option>)}</datalist>
             </>}
           </div>}
+          <div className="inspector-section design-section appearance-section" key={`appearance-${node.id}`}>
+            <SectionTitle title={node.type === 'text' && selected.length === 1 ? 'Background' : 'Fill'} />
+            <ColorField label="Fill color" value={node.fill} onChange={fill => updateNode({ fill })} />
+            <NumberField label="Opacity" value={node.opacity} min={0} max={1} step={.05} onChange={opacity => updateNode({ opacity })} />
+          </div>
+          {selected.length === 1 && (node.type === 'shape' || node.type === 'compound') && <div className="inspector-section design-section">
+            <SectionTitle title="Stroke" />
+            <div className="field-grid">
+              <ColorField label="Stroke color" value={node.stroke} onChange={stroke => updateNode({ stroke })} />
+              <NumberField label="Stroke weight" value={node.strokeWidth} min={0} max={200} step={.5} onChange={strokeWidth => updateNode({ strokeWidth })} />
+            </div>
+          </div>}
+          {selected.length === 1 && node.type === 'text' && <div className="inspector-section design-section">
+            <SectionTitle title="Effects" hint="The outline is drawn around each letter, outside its fill. A transparent color turns an effect off." />
+            <div className="field-grid">
+              <ColorField label="Outline color" value={node.textStroke ?? 'transparent'} onChange={textStroke => updateNode({ textStroke, textStrokeWidth: node.textStrokeWidth || (textStroke === 'transparent' ? 0 : 1) })} />
+              <NumberField label="Outline width" value={node.textStrokeWidth ?? 0} min={0} max={50} step={.5} onChange={textStrokeWidth => updateNode({ textStrokeWidth })} />
+              <ColorField label="Shadow color" value={node.textShadow ?? 'transparent'} onChange={textShadow => updateNode({ textShadow })} />
+              <NumberField label="Shadow X" value={node.textShadowX ?? 0} min={-200} max={200} onChange={textShadowX => updateNode({ textShadowX })} />
+              <NumberField label="Shadow Y" value={node.textShadowY ?? 0} min={-200} max={200} onChange={textShadowY => updateNode({ textShadowY })} />
+              <NumberField label="Shadow blur" value={node.textShadowBlur ?? 0} min={0} max={200} onChange={textShadowBlur => updateNode({ textShadowBlur })} />
+            </div>
+          </div>}
           {selected.length === 1 && <div className="inspector-section design-section visibility-rules">
+            <SectionTitle title="Conditional visibility" hint="Show this layer only on data rows where a CSV field equals a value. Leave the field empty to always show it." />
             <Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
             {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}
           </div>}
         </> : <>
           <div className="inspector-section design-section">
+            <SectionTitle title="Component" hint="Select one or more layers to move, edit, group or delete them. Add transparent groups and responsive frames with the toolbar." />
             <Field label="Name"><input value={component.name} onChange={event => { if (event.target.value) update({ name: event.target.value }); }} /></Field>
             <div className="field-grid"><NumberField label="Width" value={component.width} min={20} max={2000} onChange={width => update({ width })} /><NumberField label="Height" value={component.height} min={20} max={2000} onChange={height => update({ height })} /></div>
             <ColorField label="Component background" value={component.color} onChange={color => update({ color })} />
           </div>
           <div className="inspector-section design-section">
-            <p className="help-text">Select one or more layers to move, edit, group or delete them. Add transparent groups and responsive frames with the toolbar.</p>
-            <p className="help-text">Use {'{{name}}'} in any text or image layer to connect it to your CSV.</p><button className="text-button" onClick={() => { setCsv(component.csv); setDataOpen(true); }}>Connect your data <ChevronRight size={13} /></button></div>
+            <SectionTitle title="Data" hint="Use {{name}} in any text or image layer to connect it to a CSV column. Each row becomes a different instance of this component." />
+            <button className="button full" onClick={() => { setCsv(component.csv); setDataOpen(true); }}><Database size={14} /> Connect your data <span className="subtle">{component.rows.length} rows</span></button>
+          </div>
         </>}
       </div>
     </aside>

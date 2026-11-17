@@ -258,3 +258,54 @@
 .asset-name-field small{font-size:9px;color:#a1ad95}
 .asset-name-field.invalid input{border-color:#d98b78;background:#fff8f4}
 .asset-name-field.invalid small{color:#b5523b;font-weight:600}
+/* Designer tool menus list their items left-aligned. */
+.designer-toolbar-popover button,.designer-popover button{justify-content:flex-start}
+/* Pen paths are edited on an overlay that keeps anchors and handles the same size at any zoom. */
+.path-overlay{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:6}
+.path-overlay line{stroke:#365d46;stroke-width:1;stroke-dasharray:3 2}
+.path-overlay .vector-outline{fill:none;stroke:#6f9440;stroke-width:1}
+.path-overlay .vector-segment{fill:none;stroke:transparent;stroke-width:12;pointer-events:stroke;cursor:crosshair}
+.path-overlay circle{pointer-events:all;cursor:grab}
+.path-overlay.passive circle{pointer-events:none}
+.path-overlay .vector-anchor.selected{fill:#df6c35;stroke:#71361f}
+.path-overlay .vector-anchor.pen-start{fill:#e5f3cf;stroke-width:2}
+.path-overlay .pen-rubber-band{fill:none;stroke:#6f9440;stroke-width:1.5;stroke-dasharray:4 3}
+.designer-stage.pen-active,.designer-stage.pen-active *{cursor:crosshair}
+.canvas-toolbar button[aria-pressed=true]{background:#e9f0df;color:#365c45}
+.nested-component-empty{display:flex;align-items:center;justify-content:center;width:100%;height:100%;padding:8px;box-sizing:border-box;border:1.5px dashed #9fb58a;border-radius:6px;color:#7d8f6e;font:11px "DM Sans",sans-serif;text-align:center;background:#f4f7ef99}
+/* Inspector: titled sections with one consistent rhythm; explanations live in info tooltips. */
+.design-section{display:flex;flex-direction:column;gap:10px}
+.design-section .field{margin-bottom:0}
+.design-section .field-grid{gap:10px 8px}
+.design-section .field-grid:not(:last-child){margin-bottom:0}
+.design-section .toggle-row,.design-section .padding-editor{margin-top:0}
+.design-section .button-row{margin:0}
+.design-section .help-text{margin-top:0}
+.inspector-subtitle{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:22px}
+.inspector-subtitle h4{display:flex;align-items:center;gap:5px;margin:0;font-size:10px;font-weight:650;letter-spacing:.4px;text-transform:uppercase;color:#4b6043}
+.inspector-subtitle-actions{display:flex;align-items:center;gap:4px}
+.inspector-subtitle-actions .icon-button{width:26px;height:26px}
+.inspector-subtitle-actions .subtle{font-size:10px;color:#9ca990}
+.info-tip{display:inline-flex;align-items:center;color:#a3b293;cursor:help;border-radius:50%;text-transform:none}
+.info-tip:hover,.info-tip:focus-visible{color:#5f7d4b;outline:none}
+.selection-section .boolean-actions{justify-content:flex-start;gap:4px}
+.icon-choice{display:flex;gap:2px;background:#f3f6ef;border:1px solid #e1e8d9;border-radius:6px;padding:2px;min-height:31px;box-sizing:border-box}
+.icon-choice button{flex:1;min-width:0;height:25px;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:4px;color:#7d8f6e}
+.icon-choice button.active{background:#fff;color:#365c45;box-shadow:0 1px 3px #2943311f}
+.icon-choice button:hover:not(.active):not(:disabled){color:#365c45}
+.search-select{position:relative}
+.search-select-trigger{display:flex;align-items:center;justify-content:flex-start;gap:6px;width:100%;min-height:31px;padding:6px 8px;border:1px solid #e1e8d9;border-radius:6px;background:#fcfdf9;color:#627554;font-size:10px;text-align:left}
+.search-select-trigger>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.search-select-trigger .placeholder{color:#a3ae98}
+.search-select.open .search-select-trigger svg:last-child{transform:rotate(180deg)}
+.search-select-popover{position:absolute;left:0;right:0;top:100%;z-index:40;margin-top:4px;padding:4px;background:#fff;border:1px solid #dfe5da;border-radius:8px;box-shadow:0 10px 28px #273c321f}
+.search-select-search{display:flex;align-items:center;gap:6px;padding:0 8px;border-bottom:1px solid #eef2ea;color:#9aa98d}
+.field .search-select-search input{flex:1;min-height:0;padding:8px 0;border:0;background:transparent;font-size:11px;outline:none}
+.search-select-popover ul{list-style:none;margin:4px 0 0;padding:0;max-height:220px;overflow-y:auto;scrollbar-width:thin}
+.search-select-popover li{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:5px;font-size:11px;color:#3d5446;cursor:pointer}
+.search-select-popover li>span{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.search-select-popover li small{color:#9ca990;font-size:9px}
+.search-select-popover li[data-active=true]{background:#eef4e6}
+.search-select-popover li[aria-selected=true]{font-weight:600;color:#365c45}
+.search-select-popover li.search-select-empty{cursor:default;color:#9ca990}
+.button .subtle{margin-left:auto;font-size:10px;opacity:.7}

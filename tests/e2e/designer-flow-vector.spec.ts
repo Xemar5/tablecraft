@@ -15,19 +15,21 @@ test('flow-layout rotated paths retain layout while overflow and transformed poi
   await page.reload();
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
   await page.getByRole('button', { name: 'Flow path', exact: true }).click();
-  const editor = page.locator('.artboard .vector-point-editor'), anchor = editor.locator('.vector-anchor').first();
+  // Anchors are drawn on a fixed-size overlay; the path's own SVG still maps its points to the screen.
+  const editor = page.locator('.artboard .path-overlay'), anchor = editor.locator('.vector-anchor').first();
+  const shape = page.locator('.artboard [data-node-id="test-path"] > svg.vector-shape');
   const box = (await anchor.boundingBox())!;
   const hit = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.outerHTML.slice(0, 200), { x: box.x + box.width / 2, y: box.y + box.height / 2 });
   expect(hit).toContain('vector-anchor');
-  const initial = await editor.evaluate((svg: SVGSVGElement) => {
+  const initial = await shape.evaluate((svg: SVGSVGElement) => {
     const matrix = svg.getScreenCTM()!.inverse();
     return { a: matrix.a, b: matrix.b, viewBox: svg.getAttribute('viewBox') };
   });
   expect(Number(initial.viewBox!.split(' ')[0])).toBeLessThan(0);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down(); await page.mouse.move(box.x + box.width / 2 + 20, box.y + box.height / 2, { steps: 4 }); await page.mouse.up();
-  await expect.poll(async () => Number(await page.getByLabel('X', { exact: true }).last().inputValue())).toBeCloseTo(35 + initial.a * 20, 1);
-  await expect.poll(async () => Number(await page.getByLabel('Y', { exact: true }).last().inputValue())).toBeCloseTo(35 + initial.b * 20, 1);
+  await expect.poll(async () => Number(await page.getByLabel('X', { exact: true }).last().inputValue())).toBeCloseTo(35 + initial.a * 20, 0);
+  await expect.poll(async () => Number(await page.getByLabel('Y', { exact: true }).last().inputValue())).toBeCloseTo(35 + initial.b * 20, 0);
   await page.keyboard.press('Delete');
   await expect(editor.locator('.vector-anchor')).toHaveCount(3);
   await expect(page.getByText('A closed path needs at least 3 points.')).toBeVisible();

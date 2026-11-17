@@ -28,7 +28,8 @@ test('selected designer properties scroll inside the inspector without scrolling
     await page.mouse.wheel(0, 3000);
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(0);
     expect(await page.locator('.app-header').boundingBox()).toEqual(header);
-    await expect(inspector.getByLabel('Alignment', { exact: true })).toBeInViewport();
+    // The last setting of a text layer can always be scrolled into view.
+    await expect(inspector.getByLabel('Show when CSV field', { exact: true })).toBeInViewport();
   }
 });
 
@@ -144,6 +145,9 @@ test('small windows keep a usable canvas and boolean icons show distinct results
     await separator.focus(); await page.keyboard.press('End');
   }
   await expect.poll(() => size(page, '.designer-canvas', 'width')).toBeGreaterThanOrEqual(195);
+  // Boolean operations appear for selected shapes.
+  await page.getByRole('button', { name: 'Add shape', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
   const paths = await Promise.all(['Union', 'Subtract', 'Intersect', 'Exclude'].map(name =>
     page.getByRole('button', { name, exact: true }).locator('svg path').first().getAttribute('d')));
   expect(new Set(paths).size).toBe(4);

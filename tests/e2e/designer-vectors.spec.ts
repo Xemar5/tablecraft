@@ -13,16 +13,19 @@ test('creates editable paths, live boolean compounds and linked component data',
   await expect(page.getByLabel('Vector shape')).toHaveValue('ellipse');
   await page.getByLabel('Stroke weight').fill('2');
   await expect(page.getByLabel('Stroke weight')).toHaveValue('2');
-  await page.getByLabel('Vector shape').selectOption('path');
-  await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
+  const pathHeading = page.locator('.inspector-subtitle').filter({ hasText: 'Pen path' });
+  await page.getByRole('button', { name: 'Convert to path', exact: true }).click();
+  await expect(pathHeading).toContainText('4 points');
+  await expect(page.getByLabel('Stroke weight')).toHaveValue('2');
 
   await page.getByRole('button', { name: 'Add shape', exact: true }).click();
-  await page.getByRole('menuitem', { name: 'Pen path' }).click();
-  await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
+  await page.getByRole('menuitem', { name: 'Rectangle' }).click();
+  await page.keyboard.press('Control+e');
+  await expect(pathHeading).toContainText('4 points');
   await page.getByRole('button', { name: 'Add point', exact: true }).click();
-  await expect(page.locator('.vector-editor-heading')).toContainText('5 points');
+  await expect(pathHeading).toContainText('5 points');
   await page.getByRole('button', { name: 'Delete point', exact: true }).click();
-  await expect(page.locator('.vector-editor-heading')).toContainText('4 points');
+  await expect(pathHeading).toContainText('4 points');
   await page.getByRole('button', { name: 'Smooth handles', exact: true }).click();
   await expect(page.locator('.vector-handle')).toHaveCount(2);
   const handle = page.locator('.vector-handle').first();
@@ -41,14 +44,18 @@ test('creates editable paths, live boolean compounds and linked component data',
   await expect(layers).toHaveCount(initial + 3);
   await expect(page.getByLabel('Live boolean operation')).toHaveValue('intersect');
   await layers.nth(initial + 2).click();
-  await expect(page.locator('.artboard .vector-point-editor')).toBeVisible();
+  await expect(page.locator('.artboard .path-overlay')).toBeVisible();
   await layers.nth(initial).click();
   await page.getByRole('button', { name: 'Uncombine source shapes', exact: true }).click();
   await expect(layers).toHaveCount(initial + 2);
 
-  await page.getByRole('button', { name: 'Link nested component' }).click();
-  await page.getByRole('menuitem', { name: 'Spirit die' }).click();
-  await expect(page.getByLabel('Linked component')).toHaveValue(/.+/);
+  await page.getByRole('button', { name: 'Add linked artwork' }).click();
+  await expect(page.locator('.artboard .nested-component-empty')).toBeVisible();
+  await page.getByRole('button', { name: /^Linked component:/ }).click();
+  await page.getByRole('combobox', { name: 'Search linked component' }).fill('die');
+  await expect(page.getByRole('listbox', { name: 'Linked component' }).getByRole('option')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('button', { name: 'Linked component: Spirit die' })).toBeVisible();
   await page.getByLabel('Nested data').selectOption('row');
   await page.getByLabel(/Own row/).fill('1');
   await page.getByLabel(/Own row/).blur();
