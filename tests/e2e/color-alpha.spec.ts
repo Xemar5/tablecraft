@@ -38,7 +38,8 @@ test('designer color controls edit alpha and preserve it when changing RGB', asy
 
 test('player colors support alpha and persist on save', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Manage players', exact: true }).click();
+  // The inspector opens on Selection; players live on their own tab.
+  await page.getByRole('button', { name: /^Players \d+$/ }).click();
   await page.getByRole('button', { name: 'Add hotseat player', exact: true }).click();
   await page.getByLabel('Player color value', { exact: true }).fill('#12345680');
   await expect(page.getByLabel('Player color alpha', { exact: true })).toHaveValue('128');
