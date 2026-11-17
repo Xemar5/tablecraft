@@ -317,8 +317,17 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
       y: rect.height / 2 - zoom * (center.x * Math.sin(angle) + center.y * Math.cos(angle)) });
     setCamera(camera + degrees);
   };
-  const targetAt = (x: number, y: number, excluded: string[]) => {
+  // Hit-testing a large table is costly; drop hints query seats and pieces at the same point within one event.
+  const hits = useRef<{ x: number; y: number; elements: Element[] }>(undefined);
+  const elementsAt = (x: number, y: number) => {
+    if (hits.current?.x === x && hits.current.y === y) return hits.current.elements;
     const elements = document.elementsFromPoint(x, y);
+    hits.current = { x, y, elements };
+    queueMicrotask(() => { hits.current = undefined; });
+    return elements;
+  };
+  const targetAt = (x: number, y: number, excluded: string[]) => {
+    const elements = elementsAt(x, y);
     for (const element of elements) {
       const id = element.closest<HTMLElement>('[data-piece-id]')?.dataset.pieceId;
       const target = p.instances.find(i => i.id === id);
@@ -327,7 +336,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     return undefined;
   };
   const seatAt = (x: number, y: number) => {
-    const direct = document.elementsFromPoint(x, y)
+    const direct = elementsAt(x, y)
       .map(element => element.closest<HTMLElement>('[data-seat-id]')?.dataset.seatId)
       .find(id => !!id);
     if (direct) return direct;
@@ -810,7 +819,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               <tr><th scope="row">Rotate −90° / +90°</th><td><kbd>Q / E</kbd></td></tr>
               <tr><th scope="row">Shuffle / roll</th><td><kbd>R</kbd></td></tr>
               <tr><th scope="row">Stack selection</th><td><kbd>G</kbd></td></tr>
-              <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>`r`n              <tr><th scope="row">Lock / unlock</th><td><kbd>L</kbd></td></tr>
+              <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>
+              <tr><th scope="row">Lock / unlock</th><td><kbd>L</kbd></td></tr>
               <tr><th scope="row">Hide preview</th><td><kbd>Alt</kbd></td></tr>
             </tbody></table></div> : null;
         })()}

@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type PointerEvent } from 'react';
+import { memo, useState, type CSSProperties, type PointerEvent } from 'react';
 import { bind, safeImage, type Component, type DesignNode } from './domain';
 import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
 
@@ -12,7 +12,8 @@ type ViewProps = {
   nestedPath?: string[];
 };
 
-export function ComponentView({ component: c, components = [c], row = 0, back = false, hidden = false, onNode, selectedNode, selectedNodes,
+// Memoized: tables render hundreds of faces, and most re-renders (hover, selection, camera) leave their props unchanged.
+export const ComponentView = memo(function ComponentView({ component: c, components = [c], row = 0, back = false, hidden = false, onNode, selectedNode, selectedNodes,
   editableVector = false, onPointDown, onSegmentDown, selectedPoint, inheritedData, nestedPath = [] }: ViewProps) {
   const selectedIds = selectedNodes ?? (selectedNode ? [selectedNode] : []);
   const face = hidden || (back && c.flippable) ? 'back' : 'front';
@@ -144,13 +145,13 @@ export function ComponentView({ component: c, components = [c], row = 0, back = 
     borderRadius: c.kind === 'artwork' ? 0 : c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
     boxShadow: c.kind === 'artwork' ? 'none' : undefined,
   }}>{hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
-}
+});
 
-export function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width = 100 }: {
+export const ComponentThumbnail = memo(function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width = 100 }: {
   component: Component; components?: Component[]; row?: number; back?: boolean; hidden?: boolean; width?: number;
 }) {
   const scale = width / component.width;
   return <div className="component-thumbnail" style={{ width, height: component.height * scale }}>
     <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}><ComponentView component={component} components={components} row={row} back={back} hidden={hidden} /></div>
   </div>;
-}
+});
