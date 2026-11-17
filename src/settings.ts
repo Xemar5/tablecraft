@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { UI_SCALE_MAX, UI_SCALE_MIN } from './uiScale';
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 
@@ -28,6 +29,8 @@ export const userSettingsSchema = z.object({
   server: z.string().min(1).max(500).catch(DEFAULT_SERVER),
   database: z.string().min(1).max(100).catch(DEFAULT_DATABASE),
   theme: z.enum(['system', 'light', 'dark']).catch('system'),
+  /** Interface scale in percent (50–200), applied to the whole page. */
+  uiScale: z.number().int().min(UI_SCALE_MIN).max(UI_SCALE_MAX).catch(100),
   /** Set once the first-launch profile (a name) is complete. */
   onboarded: z.boolean().catch(false),
 });

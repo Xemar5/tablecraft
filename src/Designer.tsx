@@ -1,18 +1,19 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronRight, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, MoveHorizontal, MoveVertical, Redo2, RotateCw, Square, Trash2, Type, Undo2, Ungroup, Upload } from 'lucide-react';
+import { ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Layers, Link2, MoveHorizontal, MoveVertical, Redo2, RotateCcw, RotateCw, Square, Trash2, Type, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
-import { ComponentView, type PointEditEvent } from './ComponentView';
-import { isAsset, makeNode, moveLayer, type Component, type DesignNode } from './domain';
+import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize, type PointEditEvent } from './ComponentView';
+import { hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
 import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import { componentZip, downloadZip } from './portable';
-import { GOOGLE_FONTS } from './assets';
+import { FontPicker } from './FontPicker';
 import { ColorField, Field, HorizontalScroll, Modal, NumberField, ScrollArrows, Toggle, useSmoothHorizontalWheel } from './ui';
 import { closestSegmentParameter, expandPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
-import { resizeNode, rotateNode } from './designTransform';
+import { resizeCenteredBox, resizeNode, rotateNode } from './designTransform';
 import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { ZoomPresets } from './ZoomPresets';
+import { cssPx } from './uiScale';
 
 type Face = 'front' | 'back';
 type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude';
@@ -37,6 +38,19 @@ const RESIZE_HANDLES = [[-1, -1, 'top-left corner'], [0, -1, 'top edge'], [1, -1
   [1, 1, 'bottom-right corner'], [0, 1, 'bottom edge'], [-1, 1, 'bottom-left corner'], [-1, 0, 'left edge']] as const;
 const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'];
 type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; inverse: DOMMatrix; localX: number; localY: number; point: DesignNode['points'][number] };
+type ImagePlacementPatch = Pick<DesignNode, 'imageOffsetX' | 'imageOffsetY' | 'imageScaleX' | 'imageScaleY' | 'imageRotation'>;
+type ImageDrag = { kind: 'move' | 'resize' | 'rotate'; hx: number; hy: number; pointer: number; clientX: number; clientY: number;
+  start: ReturnType<typeof imagePlacement>; base: { width: number; height: number }; box: { width: number; height: number }; angle: number;
+  centerX: number; centerY: number; pointerAngle: number };
+const IMAGE_FITS = [['cover', 'Fill and crop'], ['contain', 'Fit inside'], ['stretch', 'Stretch'], ['original', 'Original size'], ['tile', 'Tile']] as const;
+const roundTo = (value: number, digits: number) => Math.round(value * 10 ** digits) / 10 ** digits;
+/** Clamps a picture placement into the layer schema's limits. */
+function placementPatch(placement: ReturnType<typeof imagePlacement>): ImagePlacementPatch {
+  const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+  return { imageOffsetX: roundTo(clamp(placement.x, -8000, 8000), 2), imageOffsetY: roundTo(clamp(placement.y, -8000, 8000), 2),
+    imageScaleX: roundTo(clamp(placement.scaleX, .01, 100), 4), imageScaleY: roundTo(clamp(placement.scaleY, .01, 100), 4),
+    imageRotation: roundTo(((placement.rotation + 180) % 360 + 360) % 360 - 180, 1) };
+}
 
 function descendantsOf(nodes: DesignNode[], ids: string[]) {
   const descendants = new Set(ids);
@@ -142,7 +156,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   }, []);
   const toggleToolMenu = (menu: 'shape' | 'link', button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
-    setToolMenuPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 180)), top: rect.bottom + 4 });
+    setToolMenuPosition({ left: Math.max(8, Math.min(cssPx(rect.left), cssPx(window.innerWidth) - 180)), top: cssPx(rect.bottom) + 4 });
     setToolMenu(toolMenu === menu ? null : menu);
   };
   useEffect(() => {
@@ -178,6 +192,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const dragging = useRef<LayerDrag>(null);
   const handleDragging = useRef<HandleDrag>(null);
   const [handlePreview, setHandlePreview] = useState<{ id: string; patch: Partial<DesignNode> }>();
+  // Double-clicking an image layer edits where its picture sits inside the layer's frame.
+  const [imageEdit, setImageEdit] = useState<string>();
+  const imageDragging = useRef<ImageDrag>(null);
+  const [imagePreview, setImagePreview] = useState<{ id: string; patch: ImagePlacementPatch }>();
   const pointDragging = useRef<PointDrag>(null);
   const pointSelectionNode = useRef<string | undefined>(undefined);
   const lastAnchorDown = useRef<{ nodeId: string; index: number; time: number } | null>(null);
@@ -375,6 +393,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       if (key === 'escape' && toolMenu) { event.preventDefault(); setToolMenu(null); return; }
+      if ((key === 'escape' || key === 'enter') && imageEdit) { event.preventDefault(); setImageEdit(undefined); return; }
       if (event.altKey) return;
       try {
         if (command && key === 'z') { event.preventDefault(); event.shiftKey ? redo() : undo(); }
@@ -433,7 +452,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     zoomAnchor.current = null;
     const dx = anchor.x - (bounds.left + bounds.width * anchor.relativeX);
     const dy = anchor.y - (bounds.top + bounds.height * anchor.relativeY);
-    setPan(current => ({ x: current.x + dx, y: current.y + dy }));
+    setPan(current => ({ x: current.x + cssPx(dx), y: current.y + cssPx(dy) }));
   }, [zoom]);
   useEffect(() => {
     const element = stage.current;
@@ -563,6 +582,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   };
   const shownNodes = nodes.map(item => ({
     ...item, ...(dragPreview?.[item.id] ?? {}), ...(handlePreview?.id === item.id ? handlePreview.patch : {}),
+    ...(imagePreview?.id === item.id ? imagePreview.patch : {}),
     ...(pointPreview?.nodeId === item.id ? { points: item.points.map((point, index) => index === pointPreview.pointIndex ? pointPreview.point : point) } : {}),
   }));
   const transformTarget = selected.length === 1 ? shownNodes.find(item => item.id === selected[0]) : undefined;
@@ -583,7 +603,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     event.stopPropagation();
     const patch = drag.kind === 'rotate'
       ? { rotation: rotateNode(drag.start, Math.atan2(event.clientY - drag.centerY, event.clientX - drag.centerX) - drag.pointerAngle, event.shiftKey) }
-      : resizeNode(drag.start, drag.hx, drag.hy, (event.clientX - drag.clientX) / zoom, (event.clientY - drag.clientY) / zoom, drag.angle, event.shiftKey);
+      : resizeNode(drag.start, drag.hx, drag.hy, cssPx(event.clientX - drag.clientX) / zoom, cssPx(event.clientY - drag.clientY) / zoom, drag.angle, event.shiftKey);
     setHandlePreview({ id: drag.id, patch });
   };
   const endHandle = (event: PointerEvent<HTMLButtonElement>) => {
@@ -597,6 +617,61 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     } catch (error) { notify(error instanceof Error ? error.message : 'Unable to transform layer.', true); }
   };
   const cancelHandle = () => { handleDragging.current = null; setHandlePreview(undefined); };
+  const editedImage = imageEdit && selected.length === 1 && selected[0] === imageEdit ? shownNodes.find(item => item.id === imageEdit && item.type === 'image') : undefined;
+  useEffect(() => { if (imageEdit && !editedImage) setImageEdit(undefined); }, [imageEdit, editedImage]);
+  const catalog = useMemo(() => new Map(components.map(item => [item.id, item])), [components]);
+  const editedSource = editedImage ? resolveImage(editedImage, component.rows[row] ?? {}, catalog) : undefined;
+  const editedNatural = useNaturalSize(editedSource);
+  const editedBox = editedImage && transformBox(editedImage, shownNodes);
+  const editedFit = editedImage?.imageFit ?? 'cover';
+  const editedBase = editedImage && (editedFit === 'original' && !editedNatural ? undefined : fittedImageSize(editedFit, editedNatural, editedImage.width, editedImage.height));
+  const startImageEdit = (id: string) => {
+    const layer = nodes.find(item => item.id === id);
+    if (layer?.type !== 'image') return;
+    if (!transformBox(layer, nodes)) { notify('Give the image layer a fixed size in an absolute parent to edit its picture on the canvas, or use the placement fields.', true); return; }
+    setSelected([id]); setImageEdit(id);
+  };
+  const beginImageDrag = (event: PointerEvent<HTMLElement>, kind: ImageDrag['kind'], hx = 0, hy = 0) => {
+    if (event.button !== 0 || spacePressed.current || !editedImage || !editedBox || !editedBase) return;
+    event.preventDefault(); event.stopPropagation();
+    const picture = (event.currentTarget.closest('.image-edit-picture') ?? event.currentTarget).getBoundingClientRect();
+    const centerX = picture.left + picture.width / 2, centerY = picture.top + picture.height / 2;
+    imageDragging.current = { kind, hx, hy, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, start: imagePlacement(editedImage),
+      base: editedBase, box: { width: editedImage.width, height: editedImage.height }, angle: editedBox.angle,
+      centerX, centerY, pointerAngle: Math.atan2(event.clientY - centerY, event.clientX - centerX) };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const moveImageDrag = (event: PointerEvent<HTMLElement>) => {
+    const drag = imageDragging.current;
+    if (!drag || drag.pointer !== event.pointerId || !editedImage) return;
+    event.stopPropagation();
+    const dx = cssPx(event.clientX - drag.clientX) / zoom, dy = cssPx(event.clientY - drag.clientY) / zoom;
+    const next = { ...drag.start };
+    if (drag.kind === 'move') {
+      next.x += dx * Math.cos(drag.angle) + dy * Math.sin(drag.angle);
+      next.y += -dx * Math.sin(drag.angle) + dy * Math.cos(drag.angle);
+    } else if (drag.kind === 'rotate') {
+      const raw = drag.start.rotation + (Math.atan2(event.clientY - drag.centerY, event.clientX - drag.centerX) - drag.pointerAngle) * 180 / Math.PI;
+      next.rotation = event.shiftKey ? Math.round(raw / 15) * 15 : raw;
+    } else {
+      // Corners keep the picture's proportions unless Shift is held; edges stretch one side.
+      const box = resizeCenteredBox({ cx: drag.box.width / 2 + drag.start.x, cy: drag.box.height / 2 + drag.start.y,
+        width: drag.base.width * drag.start.scaleX, height: drag.base.height * drag.start.scaleY, rotation: drag.start.rotation },
+      drag.hx, drag.hy, dx, dy, drag.angle, !event.shiftKey);
+      Object.assign(next, { x: box.cx - drag.box.width / 2, y: box.cy - drag.box.height / 2, scaleX: box.width / drag.base.width, scaleY: box.height / drag.base.height });
+    }
+    setImagePreview({ id: editedImage.id, patch: placementPatch(next) });
+  };
+  const endImageDrag = (event: PointerEvent<HTMLElement>) => {
+    const drag = imageDragging.current;
+    if (!drag || drag.pointer !== event.pointerId) return;
+    event.stopPropagation();
+    imageDragging.current = null;
+    const preview = imagePreview;
+    setImagePreview(undefined);
+    if (preview) void update({ [face]: nodes.map(item => item.id === preview.id ? { ...item, ...preview.patch } : item) });
+  };
+  const cancelImageDrag = () => { imageDragging.current = null; setImagePreview(undefined); };
   return <div ref={designer} className="designer-layout"
     onInputCapture={event => { if (isFormControl(event.target)) beginEdit(event.target); }}
     onPointerDownCapture={event => { if (event.target instanceof HTMLInputElement && ['number', 'range'].includes(event.target.type)) beginEdit(event.target); }}
@@ -646,14 +721,14 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         onPointerMoveCapture={event => {
           const drag = panning.current;
           if (!drag || drag.pointer !== event.pointerId) return;
-          event.stopPropagation(); setPan({ x: drag.panX + event.clientX - drag.x, y: drag.panY + event.clientY - drag.y });
+          event.stopPropagation(); setPan({ x: drag.panX + cssPx(event.clientX - drag.x), y: drag.panY + cssPx(event.clientY - drag.y) });
         }}
         onPointerUpCapture={event => {
           if (panning.current?.pointer !== event.pointerId) return;
           event.stopPropagation(); panning.current = null;
         }}
         onPointerCancelCapture={() => { panning.current = null; }}
-        onPointerDown={event => { if (event.button === 0) setSelected([]); }}>
+        onPointerDown={event => { if (event.button === 0) { setSelected([]); setImageEdit(undefined); } }}>
         <div className="designer-stage-content" style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
         <span className="artboard-label">{component.name} / {face} <span>{component.width} x {component.height}</span></span>
         <div ref={artboard} className="artboard" style={{ width: component.width * zoom, height: component.height * zoom }}
@@ -676,7 +751,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             }
             const drag = dragging.current;
             if (!drag || drag.pointer !== event.pointerId) return;
-            const dx = (event.clientX - drag.clientX) / zoom, dy = (event.clientY - drag.clientY) / zoom;
+            const dx = cssPx(event.clientX - drag.clientX) / zoom, dy = cssPx(event.clientY - drag.clientY) / zoom;
             const next: Record<string, DragPosition> = {};
             drag.ids.forEach(id => {
               const angle = drag.angles[id], origin = drag.positions[id];
@@ -703,10 +778,32 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           onPointerCancel={() => { dragging.current = null; pointDragging.current = null; setDragPreview(undefined); setPointPreview(undefined); }}>
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
             <ComponentView component={{ ...component, [face]: shownNodes }} components={components}
-              row={row} back={face === 'back'} selectedNodes={selected} onNode={beginCanvasDrag} editableVector onPointDown={pointDown}
+              row={row} back={face === 'back'} selectedNodes={selected} onNode={(id, event) => { if (imageEdit && id !== imageEdit) setImageEdit(undefined); beginCanvasDrag(id, event); }}
+              onNodeDoubleClick={startImageEdit} editableVector onPointDown={pointDown}
               selectedPoint={selectedPoint} onSegmentDown={segmentDown} />
           </div>
-          {box && transformTarget && <div className="transform-box" style={{ left: box.x * zoom, top: box.y * zoom,
+          {editedImage && editedBox && editedBase && (() => {
+            const placed = imagePlacement(editedImage);
+            return <div className="image-edit-frame" style={{ left: editedBox.x * zoom, top: editedBox.y * zoom, width: editedImage.width * zoom, height: editedImage.height * zoom,
+              transform: `translate(-50%, -50%) rotate(${editedBox.angle}rad)` }}>
+              <div className={`transform-box image-edit-picture${editedFit === 'tile' ? ' tiled' : ''}`} title="Drag to move the picture"
+                style={{ left: '50%', top: '50%', width: editedBase.width * placed.scaleX * zoom, height: editedBase.height * placed.scaleY * zoom,
+                  transform: `translate(-50%, -50%) translate(${placed.x * zoom}px, ${placed.y * zoom}px) rotate(${placed.rotation}deg)` }}
+                onPointerDown={event => beginImageDrag(event, 'move')} onPointerMove={moveImageDrag} onPointerUp={endImageDrag} onPointerCancel={cancelImageDrag}>
+                {editedSource && editedFit !== 'tile' && <img className="image-edit-ghost" src={editedSource} alt="" draggable={false} />}
+                <span className="transform-rotate-stem" />
+                <button type="button" tabIndex={-1} className="transform-handle transform-rotate" aria-label="Rotate picture" title="Drag to rotate the picture; hold Shift to snap to 15°"
+                  onPointerDown={event => beginImageDrag(event, 'rotate')} onPointerMove={moveImageDrag} onPointerUp={endImageDrag} onPointerCancel={cancelImageDrag} />
+                {RESIZE_HANDLES.map(([hx, hy, label]) => <button type="button" tabIndex={-1} key={label} className={`transform-handle${hx && hy ? ' corner' : ''}`}
+                  aria-label={`Resize picture from ${label}`} title={hx && hy ? 'Drag to scale the picture; hold Shift to stretch' : 'Drag to stretch the picture'}
+                  style={{ left: `${(hx + 1) * 50}%`, top: `${(hy + 1) * 50}%`,
+                    cursor: RESIZE_CURSORS[Math.round(((Math.atan2(hy, hx) + editedBox.angle + placed.rotation * Math.PI / 180) * 180 / Math.PI % 180 + 180) % 180 / 45) % 4] }}
+                  onPointerDown={event => beginImageDrag(event, 'resize', hx, hy)} onPointerMove={moveImageDrag} onPointerUp={endImageDrag} onPointerCancel={cancelImageDrag} />)}
+              </div>
+              <span className="image-edit-hint">Editing picture · Enter or Esc to finish</span>
+            </div>;
+          })()}
+          {box && transformTarget && !editedImage && <div className="transform-box" style={{ left: box.x * zoom, top: box.y * zoom,
             width: transformTarget.width * zoom, height: transformTarget.height * zoom, transform: `translate(-50%, -50%) rotate(${box.angle}rad)` }}>
             <span className="transform-rotate-stem" />
             <button type="button" tabIndex={-1} className="transform-handle transform-rotate" aria-label="Rotate layer" title="Drag to rotate; hold Shift to snap to 15°"
@@ -745,7 +842,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         {tab === 'behavior' ? <>
           <div className="inspector-section"><h3>Component behavior</h3>
             <Field label="Component type"><select value={component.kind} onChange={event => update({ kind: event.target.value as Component['kind'] })}>
-              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="artwork">Artwork</option>
+              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="book">Book</option><option value="artwork">Artwork</option>
             </select></Field>
             <p className="help-text">Changing type preserves artwork, dimensions, data and behavior settings.</p>
             <Toggle label="Flippable" description="Design a front and a back" checked={component.flippable} onChange={flippable => { if (!flippable) setFace('front'); update({ flippable }); }} />
@@ -756,24 +853,26 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>
-          {component.kind === 'dice' && <div className="inspector-section"><h3>Dice variants</h3>
-            <p className="help-text">Each CSV row is one equally likely roll result. Edit its fields here, or use Data bindings to add columns. Bind text with {'{{value}}'} or another column name.</p>
+          {hasPages(component) && <div className="inspector-section"><h3>{component.kind === 'book' ? 'Book pages' : 'Dice variants'}</h3>
+            <p className="help-text">{component.kind === 'book'
+              ? <>Each CSV row is one page, in order. On the table, Shift+Q and Shift+E turn the pages; pages can't be taken out of the book. Edit fields here, or use Data bindings to add columns.</>
+              : <>Each CSV row is one equally likely roll result; Shift+Q and Shift+E step through them on the table. Edit its fields here, or use Data bindings to add columns. Bind text with {'{{value}}'} or another column name.</>}</p>
             {!!component.rows.length && <>
-              <Field label="Dice variant"><select value={row} onChange={event => setRow(Number(event.target.value))}>
+              <Field label={component.kind === 'book' ? 'Page' : 'Dice variant'}><select value={row} onChange={event => setRow(Number(event.target.value))}>
                 {rowLabels.map((label, index) => <option key={index} value={index}>{label}</option>)}
               </select></Field>
-              {variantFields.map(field => <Field key={`${row}-${field}`} label={`Variant ${field}`}><input maxLength={10000} value={component.rows[row]?.[field] ?? ''} onChange={event => {
+              {variantFields.map(field => <Field key={`${row}-${field}`} label={`${component.kind === 'book' ? 'Page' : 'Variant'} ${field}`}><input maxLength={10000} value={component.rows[row]?.[field] ?? ''} onChange={event => {
                 void updateVariants(component.rows.map((variant, index) => index === row ? { ...variant, [field]: event.target.value } : variant));
               }} /></Field>)}
             </>}
             <div className="button-row"><button className="button" disabled={component.rows.length >= 10000} onClick={async () => {
               const next = Object.fromEntries(variantFields.map(field => [field, field === 'value' ? String(component.rows.length + 1) : '']));
               if (await updateVariants([...component.rows, next])) setRow(component.rows.length);
-            }}>Add variant</button>
+            }}>{component.kind === 'book' ? 'Add page' : 'Add variant'}</button>
               <button className="button danger" disabled={component.rows.length < 2} onClick={async () => {
                 if (await updateVariants(component.rows.filter((_, index) => index !== row), row)) setRow(Math.min(row, component.rows.length - 2));
-              }}>Remove variant</button></div>
-            <p className="help-text">Keep at least one variant. Removing a row shifts later dice and fixed nested-row references down; references to the removed result use the next result, or the last remaining result. Parent-field row bindings keep their CSV values.</p>
+              }}>{component.kind === 'book' ? 'Remove page' : 'Remove variant'}</button></div>
+            <p className="help-text">Keep at least one {component.kind === 'book' ? 'page' : 'variant'}. Removing a row shifts later dice and fixed nested-row references down; references to the removed result use the next result, or the last remaining result. Parent-field row bindings keep their CSV values.</p>
           </div>}
           <div className="inspector-section"><h3>Portable by design</h3><p className="help-text">Export the full component, including both faces, behavior and CSV data.</p>
             <button className="button full" onClick={() => {
@@ -828,10 +927,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <Field label="Text / binding"><textarea value={node.text} onChange={event => updateNode({ text: event.target.value })} rows={3} /></Field>
               <p className="help-text">Mix static text with <code>{'{{column_name}}'}</code>.</p>
               <Field label="Imported font"><select value={node.fontId ?? ''} onChange={event => updateNode({ fontId: event.target.value || undefined })}>
-                <option value="">Use Google font</option>{components.filter(item => item.kind === 'font').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                <option value="">Use Google font or binding</option>{components.filter(item => item.kind === 'font').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select></Field>
-              <Field label="Google font"><input list="google-fonts" disabled={!!node.fontId} value={node.font} onChange={event => updateNode({ font: event.target.value })} /></Field>
-              <datalist id="google-fonts">{GOOGLE_FONTS.map(font => <option key={font}>{font}</option>)}</datalist>
+              <FontPicker key={node.id} label="Google font / binding" value={node.font} disabled={!!node.fontId} onChange={font => updateNode({ font })} />
+              {!node.fontId && <p className="help-text">Pick a Google font, type an imported font's name, or bind a column with <code>{'{{font}}'}</code>; values that match an imported font's name use it.</p>}
               <div className="field-grid"><NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
                 <ColorField label="Text color" value={node.color} onChange={color => updateNode({ color })} /></div>
               <Field label="Alignment"><select value={node.align} onChange={event => updateNode({ align: event.target.value as DesignNode['align'] })}><option value="start">Left</option><option value="center">Center</option><option value="end">Right</option></select></Field>
@@ -840,8 +939,24 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <Field label="Imported texture"><select value={node.textureId ?? ''} onChange={event => updateNode({ textureId: event.target.value || undefined })}>
                 <option value="">Use image URL / binding</option>{components.filter(item => item.kind === 'texture').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
               </select></Field>
-              <Field label="Image URL / binding"><textarea rows={3} disabled={!!node.textureId} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://... or {{image}}" /></Field>
-              <p className="help-text">Import assets from the component library, or use HTTPS texture URLs and CSV bindings.</p>
+              <Field label="Image URL / binding"><textarea rows={3} disabled={!!node.textureId} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://..., a texture name or {{image}}" /></Field>
+              <p className="help-text">Use an HTTPS URL, an imported texture's name, or a CSV binding such as <code>{'{{art}}'}</code>. Bound values that match a texture's name use that texture, and <code>{'{{texture-name}}'}</code> picks it directly.</p>
+              <Field label="Picture fit"><select value={node.imageFit ?? 'cover'} onChange={event => updateNode({ imageFit: event.target.value as DesignNode['imageFit'] })}>
+                {IMAGE_FITS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select></Field>
+              <div className="field-grid image-placement-grid">
+                <NumberField label="Picture X" value={roundTo(node.imageOffsetX ?? 0, 2)} min={-8000} max={8000} onChange={imageOffsetX => updateNode({ imageOffsetX })} />
+                <NumberField label="Picture Y" value={roundTo(node.imageOffsetY ?? 0, 2)} min={-8000} max={8000} onChange={imageOffsetY => updateNode({ imageOffsetY })} />
+                <NumberField label="Scale X %" value={roundTo((node.imageScaleX ?? 1) * 100, 2)} min={1} max={10000} step={5} onChange={value => updateNode({ imageScaleX: value / 100 })} />
+                <NumberField label="Scale Y %" value={roundTo((node.imageScaleY ?? 1) * 100, 2)} min={1} max={10000} step={5} onChange={value => updateNode({ imageScaleY: value / 100 })} />
+                <NumberField label="Picture rotation" value={roundTo(node.imageRotation ?? 0, 1)} min={-360} max={360} onChange={imageRotation => updateNode({ imageRotation })} />
+              </div>
+              <div className="button-row">
+                <button className="button" aria-pressed={imageEdit === node.id} onClick={() => imageEdit === node.id ? setImageEdit(undefined) : startImageEdit(node.id)}><Crop size={14} /> {imageEdit === node.id ? 'Finish editing' : 'Edit picture'}</button>
+                <button className="button" disabled={!node.imageOffsetX && !node.imageOffsetY && (node.imageScaleX ?? 1) === 1 && (node.imageScaleY ?? 1) === 1 && !node.imageRotation}
+                  onClick={() => updateNode({ imageOffsetX: undefined, imageOffsetY: undefined, imageScaleX: undefined, imageScaleY: undefined, imageRotation: undefined })}><RotateCcw size={14} /> Reset</button>
+              </div>
+              <p className="help-text">Double-click the image on the canvas to move, rotate and resize the picture inside its frame; the layer crops it. Corners keep proportions (Shift stretches).</p>
             </>}
             {node.type === 'shape' && selected.length === 1 && <>
               <Field label="Vector shape"><select value={node.shapeKind} onChange={event => {

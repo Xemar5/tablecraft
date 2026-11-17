@@ -8,7 +8,9 @@ export const GOOGLE_FONTS = [
   'Fira Code', 'JetBrains Mono', 'Space Mono', 'Caveat', 'Patrick Hand', 'Permanent Marker',
   'Kalam', 'Shadows Into Light', 'Amatic SC', 'Lobster', 'Pacifico', 'Special Elite', 'Uncial Antiqua',
 ];
-export const ASSET_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif,.ttf,.otf,.woff,.woff2';
+export const TEXTURE_ACCEPT = '.png,.jpg,.jpeg,.webp,.gif';
+export const FONT_ACCEPT = '.ttf,.otf,.woff,.woff2';
+export const ASSET_ACCEPT = `${TEXTURE_ACCEPT},${FONT_ACCEPT}`;
 export function bytesToBase64(bytes: Uint8Array): string {
   let binary = '';
   for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
@@ -30,10 +32,12 @@ export function assetMime(bytes: Uint8Array): NonNullable<Component['asset']>['m
   if (text(0, 4) === 'wOF2') return 'font/woff2';
   throw new Error('Unsupported asset. Choose a PNG, JPEG, WebP, GIF, TTF, OTF, WOFF or WOFF2 file.');
 }
-export async function importAsset(file: File): Promise<Component> {
+/** Imports a texture or font file; pass the expected kind to reject the other kind of file. */
+export async function importAsset(file: File, expected?: 'texture' | 'font'): Promise<Component> {
   if (file.size > MAX_ASSET_BYTES) throw new Error('Each imported asset must be at most 5 MiB.');
   const bytes = new Uint8Array(await file.arrayBuffer());
   const mime = assetMime(bytes), kind = mime.startsWith('image/') ? 'texture' : 'font';
+  if (expected && kind !== expected) throw new Error(`"${file.name}" is a ${kind}. Choose ${expected === 'texture' ? 'a PNG, JPEG, WebP or GIF image' : 'a TTF, OTF, WOFF or WOFF2 font'}.`);
   const data = bytesToBase64(bytes);
   if (kind === 'texture' && typeof createImageBitmap === 'function') {
     try { (await createImageBitmap(file)).close(); }

@@ -15,7 +15,8 @@ test('selected designer properties scroll inside the inspector without scrolling
   const textColor = await inspector.locator('.color-field').filter({ has: page.getByLabel('Text color alpha', { exact: true }) }).boundingBox();
   const fontSize = await inspector.getByLabel('Font size', { exact: true }).boundingBox();
   expect(textColor!.width).toBeGreaterThan(fontSize!.width * 1.5);
-  for (const height of [889, 650]) {
+  // 560 is a 1366 × 768 screen at 125% Windows scaling (minus browser chrome), which used to scroll the whole page.
+  for (const height of [889, 650, 560]) {
     await page.setViewportSize({ width: 1135, height });
     const scroll = inspector.locator('.inspector-scroll');
     await scroll.evaluate(el => { el.scrollTop = 0; });

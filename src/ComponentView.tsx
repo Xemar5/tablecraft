@@ -1,11 +1,12 @@
-import { memo, useState, type CSSProperties, type PointerEvent } from 'react';
-import { assetFontFamily, assetUrl, bind, safeImage, type Component, type DesignNode } from './domain';
+import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
+import { assetFontFamily, assetUrl, bind, resolveFontFamily, resolveImage, type Component, type DesignNode } from './domain';
 import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
 
 export type PointEditEvent = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; event: PointerEvent<SVGCircleElement> };
 type ViewProps = {
   component: Component; components?: Component[]; row?: number; back?: boolean; hidden?: boolean;
   onNode?: (id: string, event: PointerEvent<HTMLDivElement>) => void; selectedNode?: string; selectedNodes?: string[];
+  onNodeDoubleClick?: (id: string, event: MouseEvent<HTMLDivElement>) => void;
   editableVector?: boolean; onPointDown?: (edit: PointEditEvent) => void; selectedPoint?: number | null;
   onSegmentDown?: (nodeId: string, index: number, event: PointerEvent<SVGPathElement>) => void;
   inheritedData?: Record<string, string>;
@@ -13,7 +14,7 @@ type ViewProps = {
 };
 
 // Memoized: tables render hundreds of faces, and most re-renders (hover, selection, camera) leave their props unchanged.
-export const ComponentView = memo(function ComponentView({ component: c, components = [c], row = 0, back = false, hidden = false, onNode, selectedNode, selectedNodes,
+export const ComponentView = memo(function ComponentView({ component: c, components = [c], row = 0, back = false, hidden = false, onNode, onNodeDoubleClick, selectedNode, selectedNodes,
   editableVector = false, onPointDown, onSegmentDown, selectedPoint, inheritedData, nestedPath = [] }: ViewProps) {
   const selectedIds = selectedNodes ?? (selectedNode ? [selectedNode] : []);
   const face = hidden || (back && c.flippable) ? 'back' : 'front';
@@ -53,7 +54,7 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       flex: fillsMainAxis ? '1 1 0' : undefined, flexShrink: widthMode === 'fill' || heightMode === 'fill' ? undefined : 0, boxSizing: 'border-box',
       background: sourceOutline || node.type === 'shape' || node.type === 'compound' ? 'transparent' : node.fill,
       color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,
-      fontSize: node.fontSize, fontFamily: `"${node.fontId && catalog.has(node.fontId) ? assetFontFamily(catalog.get(node.fontId)!) : node.font}", sans-serif`,
+      fontSize: node.fontSize, fontFamily: `"${node.type === 'text' ? resolveFontFamily(node, contextData, catalog) : node.font}", sans-serif`,
       // An identity rotate still creates a transform node per layer, which makes large tables slow to composite.
       transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined, opacity: node.opacity,
       paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
@@ -66,6 +67,8 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       textAlign: node.align === 'start' ? 'left' : node.align === 'end' ? 'right' : 'center',
       outline: selectedIds.includes(node.id) ? '2px solid #c5e497' : undefined,
       overflow: node.type === 'component' ? 'hidden' : node.type === 'frame' || (node.type === 'shape' && node.shapeKind === 'path') ? 'visible' : undefined,
+      // Image layers measure themselves so the picture can be fitted and placed in container units.
+      containerType: node.type === 'image' && widthMode !== 'hug' && heightMode !== 'hug' ? 'size' : undefined,
     };
     let nested: React.ReactNode;
     if (node.type === 'component') {
@@ -132,12 +135,12 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
         </g>)}
       </svg> : null;
     return <div key={node.id} style={style} className={`design-node node-${node.type}`}
-      onPointerDown={onNode ? event => { event.stopPropagation(); onNode(node.id, event); } : undefined}>
+      onPointerDown={onNode ? event => { event.stopPropagation(); onNode(node.id, event); } : undefined}
+      onDoubleClick={onNodeDoubleClick ? event => { event.stopPropagation(); onNodeDoubleClick(node.id, event); } : undefined}>
       {node.type === 'text' && text}
       {node.type === 'image' && (() => {
-        const texture = node.textureId ? catalog.get(node.textureId) : undefined;
-        const src = texture ? assetUrl(texture) : safeImage(text);
-        return src ? <img src={src} alt="" draggable={false} /> : <div className="image-placeholder">Image / texture</div>;
+        const src = resolveImage(node, contextData, catalog);
+        return src ? <ImageLayer src={src} node={node} contained={style.containerType === 'size'} /> : <div className="image-placeholder">Image / texture</div>;
       })()}
       {shape}{nested}{vectorEditor}
       {node.type === 'compound'
@@ -154,11 +157,70 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       : hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 });
 
-export const ComponentThumbnail = memo(function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width = 100 }: {
+export const ComponentThumbnail = memo(function ComponentThumbnail({ component, components = [component], row = 0, back = false, hidden = false, width: fixedWidth = 100, height }: {
   component: Component; components?: Component[]; row?: number; back?: boolean; hidden?: boolean; width?: number;
+  /** Fit this height instead of the width, keeping the component's aspect ratio. */
+  height?: number;
 }) {
+  const width = height !== undefined ? height * component.width / component.height : fixedWidth;
   const scale = width / component.width;
   return <div className="component-thumbnail" style={{ width, height: component.height * scale }}>
     <div style={{ transform: `scale(${scale})`, transformOrigin: 'top left' }}><ComponentView component={component} components={components} row={row} back={back} hidden={hidden} /></div>
   </div>;
 });
+
+export type ImageFit = NonNullable<DesignNode['imageFit']>;
+/** Where the picture sits inside an image layer, relative to its fitted, centred position. */
+export function imagePlacement(node: Pick<DesignNode, 'imageOffsetX' | 'imageOffsetY' | 'imageScaleX' | 'imageScaleY' | 'imageRotation'>) {
+  return { x: node.imageOffsetX ?? 0, y: node.imageOffsetY ?? 0, scaleX: node.imageScaleX ?? 1, scaleY: node.imageScaleY ?? 1, rotation: node.imageRotation ?? 0 };
+}
+/** The fitted picture size inside a layer box, before its placement is applied. Tiles cover the layer. */
+export function fittedImageSize(fit: ImageFit, natural: { width: number; height: number } | undefined, width: number, height: number) {
+  if (fit === 'stretch' || fit === 'tile' || !natural) return { width, height };
+  const scale = fit === 'contain' ? Math.min(width / natural.width, height / natural.height)
+    : fit === 'cover' ? Math.max(width / natural.width, height / natural.height) : 1;
+  return { width: natural.width * scale, height: natural.height * scale };
+}
+
+const naturalSizes = new Map<string, { width: number; height: number }>();
+/** The intrinsic size of an image source, loaded once and shared by every layer that shows it. */
+export function useNaturalSize(src: string | undefined) {
+  const [loaded, setLoaded] = useState<{ src: string; size: { width: number; height: number } }>();
+  useEffect(() => {
+    if (!src || naturalSizes.has(src)) return;
+    let live = true;
+    const image = new Image();
+    image.onload = () => {
+      const size = { width: image.naturalWidth, height: image.naturalHeight };
+      if (!size.width || !size.height) return;
+      if (naturalSizes.size > 256) naturalSizes.delete(naturalSizes.keys().next().value!);
+      naturalSizes.set(src, size);
+      if (live) setLoaded({ src, size });
+    };
+    image.src = src;
+    return () => { live = false; };
+  }, [src]);
+  return src ? naturalSizes.get(src) ?? (loaded?.src === src ? loaded.size : undefined) : undefined;
+}
+
+/** An image layer's picture: fitted (stretch, contain, cover, original size or tiled), then moved, rotated and scaled; the layer crops it. */
+function ImageLayer({ src, node, contained }: { src: string; node: DesignNode; contained: boolean }) {
+  const fit: ImageFit = node.imageFit ?? 'cover';
+  const natural = useNaturalSize(fit === 'contain' || fit === 'cover' ? src : undefined);
+  const placed = imagePlacement(node);
+  const moved = placed.x || placed.y || placed.rotation || placed.scaleX !== 1 || placed.scaleY !== 1;
+  const transform = `translate(-50%, -50%)${moved ? ` translate(${placed.x}px, ${placed.y}px) rotate(${placed.rotation}deg) scale(${placed.scaleX}, ${placed.scaleY})` : ''}`;
+  // Hug-sized layers can't be measured: keep the original fill-and-crop picture.
+  if (!contained) return <img src={src} alt="" draggable={false} style={{ objectFit: fit === 'stretch' ? 'fill' : fit === 'original' ? 'none' : fit === 'tile' ? 'cover' : fit }} />;
+  if (fit === 'tile') {
+    const reach = Math.min(40000, (node.width + node.height) * 3 / Math.max(.05, Math.min(placed.scaleX, placed.scaleY)));
+    return <div className="image-tiles" aria-hidden="true" style={{ position: 'absolute', left: '50%', top: '50%', width: reach, height: reach, transform,
+      backgroundImage: `url("${src}")`, backgroundRepeat: 'repeat', backgroundPosition: 'center' }} />;
+  }
+  const ratio = natural ? natural.width / natural.height : undefined;
+  const size: CSSProperties = fit === 'original' ? { width: 'auto', height: 'auto' }
+    : fit === 'stretch' || !ratio ? { width: '100%', height: '100%', objectFit: fit === 'stretch' ? 'fill' : fit }
+    : fit === 'contain' ? { width: `min(100cqw, ${100 * ratio}cqh)`, height: `min(100cqh, ${100 / ratio}cqw)` }
+    : { width: `max(100cqw, ${100 * ratio}cqh)`, height: `max(100cqh, ${100 / ratio}cqw)` };
+  return <img src={src} alt="" draggable={false} style={{ position: 'absolute', left: '50%', top: '50%', maxWidth: 'none', maxHeight: 'none', ...size, transform }} />;
+}

@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Undo2, Upload, Users, Wifi, WifiOff, X } from 'lucide-react';
-import { applyCommand, archiveSchema, canStack, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
 import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './storage';
 import { createPortableZip, downloadZip, projectZip, readPortableZip } from './portable';
-import { ASSET_ACCEPT, importAsset } from './assets';
+import { FONT_ACCEPT, importAsset, TEXTURE_ACCEPT } from './assets';
 import { AssetFonts, AssetInspector } from './AssetInspector';
 import { ComponentThumbnail } from './ComponentView';
 import { Designer } from './Designer';
 import { Playground } from './Playground';
 import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
-import { ColorField, Field, Modal, Notice, ScrollArrows, useSmoothHorizontalWheel } from './ui';
+import { ColorField, Field, Modal, Notice, NumberField, ScrollArrows, useSmoothHorizontalWheel } from './ui';
+import { applyUiScale, clampUiScale, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_PRESETS } from './uiScale';
 import { Home } from './Home';
 import { LinkedComponent } from './LinkedComponent';
 import { linkComponent, localComponentCopy, refreshProjectLinks } from './projectLinks';
@@ -20,7 +21,8 @@ import { LibraryVariants } from './LibraryVariants';
 import { startLibraryDrag } from './libraryDrag';
 import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, saveSettings, validName, watchTheme, type UserSettings } from './settings';
 
-const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} /> : <Square size={size} />;
+const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
+  : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} /> : <Square size={size} />;
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
 function boot(): { archive: Archive; error: string | null; lastProjectId: string | null } {
   try { return { archive: refreshProjectLinks(loadWorkspace()), lastProjectId: localStorage.getItem(LAST_PROJECT_KEY), error: null }; }
@@ -38,14 +40,14 @@ function loadSnapshots(): { projects: Project[]; error: string | null } {
   }
 }
 
-// Dice rows are faces of one die, not separately spawnable variants.
-const hasVariants = (component: Component) => component.kind !== 'dice' && component.rows.length > 1;
+// Dice faces and book pages are rows of one piece, not separately spawnable variants.
+const hasVariants = (component: Component) => !hasPages(component) && component.rows.length > 1;
 
 export default function App() {
   const [initial] = useState(boot);
   const templatePreviews = useMemo(() => ({
     card: templateBundle('card'), token: templateBundle('token'),
-    board: templateBundle('board'), dice: templateBundle('dice'), artwork: templateBundle('artwork'),
+    board: templateBundle('board'), dice: templateBundle('dice'), book: templateBundle('book'), artwork: templateBundle('artwork'),
   }), []);
   const [workspace, setWorkspace] = useState<{ archive: Archive; histories: Record<string, PlaygroundHistory> }>({ archive: initial.archive, histories: {} });
   const { archive } = workspace;
@@ -105,7 +107,8 @@ export default function App() {
   const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
   const { projects: snapshots, error: snapshotError } = snapshotStore;
   const fileInput = useRef<HTMLInputElement>(null);
-  const assetInput = useRef<HTMLInputElement>(null);
+  const textureInput = useRef<HTMLInputElement>(null);
+  const fontInput = useRef<HTMLInputElement>(null);
   const confirmed = archive.projects.find(p => p.id === projectId) ?? archive.projects[0] ?? fallbackProject;
   // Live actions are predicted locally until their reducer replies, so the table responds without waiting for the server.
   // The SDK applies the room update before the reducer promise settles, so dropping a prediction then never applies it twice;
@@ -124,7 +127,18 @@ export default function App() {
     try { return entry.apply(current); } catch { return current; }
   }, confirmed), [confirmed, predictions]);
   const activeComponent = project.components.find(c => c.id === componentId) ?? project.components[0];
-  const fontFamilies = [...new Set(project.components.flatMap(c => [...c.front, ...c.back].filter(n => n.type === 'text' && !n.fontId).map(n => n.font)).filter(Boolean))].sort().join('|');
+  // Google fonts used by text layers, resolving {{bindings}} per data row and skipping names of imported fonts.
+  const fontFamilies = useMemo(() => {
+    const families = new Set<string>();
+    for (const c of project.components) for (const n of [...c.front, ...c.back]) {
+      if (n.type !== 'text' || n.fontId) continue;
+      for (const row of n.font.includes('{{') && c.rows.length ? c.rows.slice(0, 1000) : [{}]) {
+        const family = bind(n.font, row).trim();
+        if (family && family.length <= 100 && !assetByName(project.components, 'font', family)) families.add(family);
+      }
+    }
+    return [...families].sort().join('|');
+  }, [project.components]);
   const fontCatalog = useMemo(() => home
     ? [...new Map(archive.projects.flatMap(project => project.components.filter(component => component.kind === 'font')).map(component => [component.id, component])).values()]
     : project.components, [home, archive.projects, project.components]);
@@ -151,6 +165,7 @@ export default function App() {
   const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
   const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, layersVisible, notify);
   useEffect(() => watchTheme(settings.theme), [settings.theme]);
+  useEffect(() => applyUiScale(settings.uiScale), [settings.uiScale]);
   // Defaults prefill the session form; an open live session keeps the address it connected with.
   useEffect(() => { if (!sessionRef.current) { setUri(settings.server); setDatabase(settings.database); } }, [settings.server, settings.database]);
   const updateSettings = (patch: Partial<UserSettings>) => {
@@ -341,7 +356,7 @@ export default function App() {
   const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }, stacked = false) => {
     if (isAsset(component)) { edit(component.id); return; }
     if (viewer) { notify('You are watching as a viewer. Take a seat in Players to play.', true); return; }
-    if (component.kind === 'dice') { rows = [0]; stacked = false; }
+    if (hasPages(component)) { rows = [0]; stacked = false; }
     if (!rows.length || rows.length > 1000 || rows.some(row => !Number.isSafeInteger(row) || row < 0 || row >= Math.max(component.rows.length, 1))) {
       notify('Choose up to 1,000 valid variants to spawn at once.', true); return;
     }
@@ -399,17 +414,18 @@ export default function App() {
         setStorageError(null); notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.`);
       } else {
         if (home) throw new Error('Open a project before importing a component.');
-        const remapped = remapComponentBundle(imported.bundle);
+        const bundle = remapComponentBundle(imported.bundle);
+        const remapped = { ...bundle, components: withUniqueAssetNames(bundle.components, project.components) };
         validateProject({ ...project, components: [...project.components, ...remapped.components] });
         if (!await dispatch({ type: 'addComponents', components: remapped.components })) throw new Error('Components could not be imported.');
         edit(remapped.rootId); notify(`Imported ${remapped.components.length} linked component${remapped.components.length === 1 ? '' : 's'}.`);
       }
     } catch (error) { notify(`Import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
   };
-  const importAssets = async (files: FileList | null) => {
+  const importAssets = async (files: FileList | null, kind: 'texture' | 'font') => {
     if (!files?.length) return;
     try {
-      const components = await Promise.all(Array.from(files, importAsset));
+      const components = withUniqueAssetNames(await Promise.all(Array.from(files, file => importAsset(file, kind))), project.components);
       validateProject({ ...project, components: [...project.components, ...components] });
       if (await dispatch({ type: 'addComponents', components })) {
         edit(components[0].id); setModal(undefined);
@@ -464,7 +480,8 @@ export default function App() {
   };
   const copyLinked = async (component: Component) => {
     try {
-      const copy = localComponentCopy(project, component.id);
+      const local = localComponentCopy(project, component.id);
+      const copy = { ...local, components: withUniqueAssetNames(local.components, project.components) };
       if (await dispatch({ type: 'addComponents', components: copy.components })) { edit(copy.rootId); notify('Created an editable local copy, including nested artwork.'); }
     } catch (error) { notify(`Unable to copy component: ${String(error)}`, true); }
   };
@@ -516,7 +533,7 @@ export default function App() {
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
         <div className={`library-filter-scroll${filterEdges.left ? ' overflow-left' : ''}${filterEdges.right ? ' overflow-right' : ''}`}>
           <ScrollArrows target={filterStrip} {...filterEdges} label="library filters" />
-          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'artwork', label: 'Artwork' }, { id: 'texture', label: 'Textures' }, { id: 'font', label: 'Fonts' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
+          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'book', label: 'Books' }, { id: 'artwork', label: 'Artwork' }, { id: 'texture', label: 'Textures' }, { id: 'font', label: 'Fonts' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
         </div>
         <div className="library-section-label">PROJECT LIBRARY <span>{visible.length}</span></div>
         <div className="component-library">{visible.map((comp, index) => <div key={comp.id}
@@ -590,7 +607,8 @@ export default function App() {
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>
     <input ref={fileInput} type="file" accept=".zip,application/zip" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
-    <input ref={assetInput} type="file" accept={ASSET_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files); e.target.value = ''; }} />
+    <input ref={textureInput} type="file" accept={TEXTURE_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files, 'texture'); e.target.value = ''; }} />
+    <input ref={fontInput} type="file" accept={FONT_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files, 'font'); e.target.value = ''; }} />
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}
     {modal === 'seat' && session && <Modal title="Pick your seat" subtitle="Take an empty seat to play, or watch the table as a viewer. You can switch any time from the Players tab." wide onClose={() => setModal(undefined)}>
       <div className="seat-picker">
@@ -642,10 +660,12 @@ export default function App() {
       <div className="template-grid">{([
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
         ['board', 'Boards', 'Build a world to play in.'], ['dice', 'Dice', 'Leave a little to chance.'],
-        ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
-      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}</div>
+        ['book', 'Books', 'Rules, journals and lore. Turn pages with Shift+Q/E.'], ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
+      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : kind === 'book' ? 84 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
+        <button className="template-card template-texture" onClick={() => textureInput.current?.click()}><div className="template-art"><ImageIcon size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Textures<ArrowRight size={15} /></strong><small>Import PNG, JPEG, WebP or GIF images. Embedded in your ZIP save.</small></button>
+        <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><span className="template-font-sample" aria-hidden="true">Aa</span><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>
+      </div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
-      <button className="blank-template" onClick={() => assetInput.current?.click()}><Upload size={24} /><span><strong>Import textures or fonts</strong><small>PNG, JPEG, WebP, GIF, TTF, OTF, WOFF or WOFF2. Embedded in your ZIP save.</small></span><ArrowRight size={17} /></button>
     </Modal>}
     {settingsOpen && <Modal title={settings.onboarded ? 'Make it yours.' : 'Welcome to Tablecraft.'} subtitle={settings.onboarded ? 'Preferences for you on this device. They stay in this browser and are never shared with other players.' : 'Before you start, tell the table who you are. Everything here stays in this browser, and you can change it any time in Settings.'} wide onClose={closeSettings}>
       <div className="settings-dialog">
@@ -670,6 +690,14 @@ export default function App() {
           ] as const).map(([value, label, Icon, hint]) => <button key={value} role="radio" aria-checked={settings.theme === value} className={`theme-option theme-option-${value} ${settings.theme === value ? 'active' : ''}`} onClick={() => updateSettings({ theme: value })}>
             <span className="theme-swatch" data-theme-fixed="" aria-hidden="true"><span /><span /><span /></span><strong><Icon size={14} /> {label}{settings.theme === value && <Check size={14} className="theme-check" />}</strong><small>{hint}</small>
           </button>)}</div>
+          <div className="ui-scale-setting">
+            <div><strong id="settings-ui-scale">Interface scale</strong><small>Makes every panel, label and control larger or smaller. 100% is the default.</small></div>
+            <div className="ui-scale-controls">
+              <div className="ui-scale-presets" role="radiogroup" aria-labelledby="settings-ui-scale">{UI_SCALE_PRESETS.map(value => <button key={value} type="button" role="radio" aria-checked={settings.uiScale === value}
+                className={settings.uiScale === value ? 'active' : ''} onClick={() => updateSettings({ uiScale: value })}>{value}%</button>)}</div>
+              <NumberField deferred label={`Custom scale (${UI_SCALE_MIN}–${UI_SCALE_MAX}%)`} value={settings.uiScale} min={UI_SCALE_MIN} max={UI_SCALE_MAX} step={5} onChange={value => updateSettings({ uiScale: clampUiScale(value) })} />
+            </div>
+          </div>
         </section>
         <section className="settings-section" aria-labelledby="settings-multiplayer">
           <header><span className="settings-section-icon"><Wifi size={18} /></span><div><h3 id="settings-multiplayer">Multiplayer</h3><p>Prefilled when you invite players or join a table. You can still change them for a single session.</p></div></header>
@@ -729,7 +757,7 @@ export default function App() {
     </Modal>}
     {modal === 'help' && <Modal title="Welcome to your workshop." subtitle="Less setup. More 'what if?'" wide onClose={() => setModal(undefined)}>
       <div className="help-grid"><div><span>01</span><h3>Make your pieces</h3><p>Start from a template or a blank component. Add layers and nested frames, style them, and connect text or images to CSV columns with {'{{bindings}}'}.</p></div><div><span>02</span><h3>Bring them to the table</h3><p>Click a library component to spawn it. Shift-click to select multiple pieces, then stack compatible pieces. Double-click to flip a card or draw from a stack.</p></div><div><span>03</span><h3>Find the fun</h3><p>Add hotseat players, switch seats and play. Connect a SpaceTimeDB room for online play. Design changes stay live for everyone.</p></div></div>
-      <div className="keyboard-shortcuts"><span><kbd>Z</kbd> Fullscreen preview</span><span><kbd>F</kbd> Flip</span><span><kbd>Q/E</kbd> Rotate</span><span><kbd>R</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>L</kbd> Lock</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
+      <div className="keyboard-shortcuts"><span><kbd>Z</kbd> Fullscreen preview</span><span><kbd>F</kbd> Flip</span><span><kbd>Q/E</kbd> Rotate</span><span><kbd>Shift Q/E</kbd> Turn page / die face</span><span><kbd>G</kbd> Group (over Pieces)</span><span><kbd>R</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>L</kbd> Lock</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
       <div className="help-footer"><Leaf size={18} /><p>Your work stays in this browser. Export ZIP to back it up or move it to another device. Imported textures and fonts travel with your save; external texture URLs and Google Fonts need internet access.</p></div>
     </Modal>}
     {curtain && <div className="privacy-curtain"><span className="brand-mark"><Layers size={32} /></span><p>PASS THE SCREEN TO</p><h1>{curtain.name}</h1><span className="curtain-avatar" style={{ background: curtain.color }}>{curtain.name[0]}</span><p className="curtain-description">A little privacy for your next big move.</p><button className="button primary" onClick={() => { setActor(curtain.id); setCurtain(undefined); }}>I'm {curtain.name}. Let's play. <ArrowRight size={17} /></button><button className="text-button" onClick={() => setCurtain(undefined)}>Back to the current player</button></div>}

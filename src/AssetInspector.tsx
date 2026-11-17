@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { ComponentThumbnail } from './ComponentView';
-import { assetFontFamily, assetUrl, type Component } from './domain';
+import { assetFontFamily, assetUrl, isAsset, type Component } from './domain';
 import { componentZip, downloadZip } from './portable';
-import { Field, Modal } from './ui';
+import { Modal } from './ui';
 
 export function AssetFonts({ components, notify }: { components: Component[]; notify: (message: string, error?: boolean) => void }) {
   const registered = useRef(new Map<string, { data: string; mime: string; font: FontFace }>());
@@ -35,13 +35,26 @@ export function AssetInspector({ component, components, onChange, onDelete, noti
   onDelete: () => Promise<void>; notify: (message: string, error?: boolean) => void;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [name, setName] = useState(component.name);
+  useEffect(() => setName(component.name), [component.name]);
+  // Names select assets in {{bindings}}, so every texture and font needs its own.
+  const clash = components.find(other => other.id !== component.id && isAsset(other) && other.name.trim().toLowerCase() === name.trim().toLowerCase());
+  const commitName = () => {
+    const next = name.trim();
+    if (!next || clash) { setName(component.name); return; }
+    if (next !== component.name) void onChange({ ...component, name: next });
+  };
   return <section className="linked-component-view">
     <h1>{component.kind === 'font' ? 'Imported font' : 'Imported texture'}</h1>
-    <Field label="Asset name"><input maxLength={100} value={component.name} onChange={event => {
-      void onChange({ ...component, name: event.target.value });
-    }} /></Field>
+    <label className={`field asset-name-field${clash ? ' invalid' : ''}`}><span>Asset name</span>
+      <input maxLength={100} value={name} aria-invalid={!!clash} aria-describedby="asset-name-hint" onChange={event => setName(event.target.value)} onBlur={commitName}
+        onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); else if (event.key === 'Escape') { setName(component.name); } }} />
+      <small id="asset-name-hint" role={clash ? 'alert' : undefined}>{clash ? `“${clash.name}” already uses this name. Asset names must be unique.` : 'Unique across textures and fonts.'}</small>
+    </label>
     <p>{component.asset?.name} · {component.asset?.mime}</p>
-    <p>{component.kind === 'font' ? 'Select this font on a text layer in the designer.' : 'Select this texture on an image layer in the designer.'} This asset is embedded in ZIP saves and cannot be spawned as a piece.</p>
+    <p>{component.kind === 'font'
+      ? <>Select this font on a text layer in the designer, or type its name (or bind a column whose value is its name, as in <code>{'{{font}}'}</code>) in the Google font field.</>
+      : <>Select this texture on an image layer in the designer, or use its name as the image source, directly or through a binding such as <code>{'{{art}}'}</code>.</>} This asset is embedded in ZIP saves and cannot be spawned as a piece.</p>
     <ComponentThumbnail component={component} components={components} width={280} />
     <div className="button-row">
       <button className="button" onClick={() => {

@@ -17,7 +17,7 @@ test('imported assets and their references synchronize through authoritative liv
     await pickSeat(guest, 'watch');
     await host.getByRole('button', { name: 'Add component', exact: true }).click();
     const chooser = host.waitForEvent('filechooser');
-    await host.getByRole('button', { name: /Import textures or fonts/ }).click();
+    await host.getByRole('dialog').getByRole('button', { name: /^Textures/ }).click();
     await (await chooser).setFiles({
       name: 'Live texture.png', mimeType: 'image/png',
       buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64'),

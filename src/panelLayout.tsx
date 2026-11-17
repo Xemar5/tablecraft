@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
+import { cssPx } from './uiScale';
 
 export type PanelName = 'library' | 'layers' | 'designerInspector' | 'playgroundInspector' | 'hand';
 type Sizes = Record<PanelName, number>;
@@ -123,7 +124,7 @@ export function PanelSeparator({ label, controls, value, min, max, orientation =
     }}
     onPointerMove={event => {
       const start = drag.current;
-      if (start?.pointer === event.pointerId) onResize(start.value + (position(event) - start.position) * direction);
+      if (start?.pointer === event.pointerId) onResize(start.value + cssPx(position(event) - start.position) * direction);
     }}
     onPointerUp={event => { if (drag.current?.pointer === event.pointerId) drag.current = null; }}
     onPointerCancel={() => { drag.current = null; }}

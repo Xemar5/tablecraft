@@ -10,8 +10,14 @@ describe('user settings', () => {
 
   it('keeps valid fields and replaces only the invalid ones', () => {
     const settings = parseSettings(JSON.stringify({ name: 'Ada', color: 'red', server: 'https://maincloud.spacetimedb.com', database: '', theme: 'neon' }));
-    expect(settings).toEqual({ name: 'Ada', color: DEFAULT_COLOR, server: 'https://maincloud.spacetimedb.com', database: DEFAULT_DATABASE, theme: 'system', onboarded: false });
+    expect(settings).toEqual({ name: 'Ada', color: DEFAULT_COLOR, server: 'https://maincloud.spacetimedb.com', database: DEFAULT_DATABASE, theme: 'system', uiScale: 100, onboarded: false });
     expect(parseSettings(JSON.stringify({ color: '#11223344', theme: 'dark', onboarded: true }))).toMatchObject({ color: '#112233', theme: 'dark', onboarded: true });
+  });
+
+  it('keeps the interface scale between 50% and 200%', () => {
+    expect(defaultSettings().uiScale).toBe(100);
+    expect(parseSettings(JSON.stringify({ uiScale: 125 })).uiScale).toBe(125);
+    for (const uiScale of [20, 400, 'big', 99.5]) expect(parseSettings(JSON.stringify({ uiScale })).uiScale).toBe(100);
   });
 
   it('limits names to 32 printable ASCII characters and requires more than whitespace', () => {

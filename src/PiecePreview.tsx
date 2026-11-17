@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ComponentView } from './ComponentView';
 import { type Component, type Instance } from './domain';
 import { previewPermission } from './playgroundPreview';
+import { cssPx } from './uiScale';
 import './playgroundPreview.css';
 
 export function PiecePreview({ item, component, components, actor, viewer, onClose }: {
@@ -65,8 +66,8 @@ export function PiecePreview({ item, component, components, actor, viewer, onClo
       const width = (Math.abs(Math.cos(turn)) * component.width + Math.abs(Math.sin(turn)) * component.height) * zoom;
       const height = (Math.abs(Math.sin(turn)) * component.width + Math.abs(Math.cos(turn)) * component.height) * zoom;
       setPan({
-        x: (.5 - (event.clientX - rect.left) / rect.width) * Math.max(0, width - rect.width + 100),
-        y: (.5 - (event.clientY - rect.top) / rect.height) * Math.max(0, height - rect.height + 160),
+        x: (.5 - (event.clientX - rect.left) / rect.width) * Math.max(0, width - cssPx(rect.width) + 100),
+        y: (.5 - (event.clientY - rect.top) / rect.height) * Math.max(0, height - cssPx(rect.height) + 160),
       });
     }}>
     <div ref={art} className="piece-preview-art" data-back={back} data-rotation={rotation} style={{

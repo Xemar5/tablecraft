@@ -8,14 +8,19 @@ const font = readFileSync('node_modules/playwright-core/lib/vite/traceViewer/cod
 
 test('imported textures and fonts render, travel in ZIP saves and are deleted with their components', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Add component', exact: true }).click();
-  const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: /Import textures or fonts/ }).click();
-  await (await chooser).setFiles([
-    { name: 'Custom texture.png', mimeType: 'image/png', buffer: image },
-    { name: 'Custom font.ttf', mimeType: 'font/ttf', buffer: font },
-  ]);
+  // Textures and fonts have their own tiles in the component grid; each accepts only its kind.
+  const importFrom = async (tile: RegExp, file: { name: string; mimeType: string; buffer: Buffer }) => {
+    await page.getByRole('button', { name: 'Add component', exact: true }).click();
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('dialog').getByRole('button', { name: tile }).click();
+    const fileChooser = await chooser;
+    expect(fileChooser.isMultiple()).toBe(true);
+    await fileChooser.setFiles(file);
+  };
+  await importFrom(/^Textures/, { name: 'Custom texture.png', mimeType: 'image/png', buffer: image });
   await expect(page.getByRole('heading', { name: 'Imported texture', exact: true })).toBeVisible();
+  await importFrom(/^Fonts/, { name: 'Custom font.ttf', mimeType: 'font/ttf', buffer: font });
+  await expect(page.getByRole('heading', { name: 'Imported font', exact: true })).toBeVisible();
   await expect(page.locator('.library-item').filter({ hasText: 'Custom texture' })).toContainText('texture');
   await expect(page.locator('.library-item').filter({ hasText: 'Custom font' })).toContainText('font');
   await expect(page.getByRole('button', { name: 'Spawn Custom texture', exact: true })).toHaveCount(0);
@@ -28,7 +33,7 @@ test('imported textures and fonts render, travel in ZIP saves and are deleted wi
   await expect(page.locator('.designer-canvas .node-image img').last()).toHaveAttribute('src', /^data:image\/png;base64,/);
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
   await page.getByLabel('Imported font', { exact: true }).selectOption({ label: 'Custom font' });
-  await expect(page.getByLabel('Google font', { exact: true })).toBeDisabled();
+  await expect(page.getByLabel('Google font / binding', { exact: true })).toBeDisabled();
   const before = await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!));
   const current = before.projects[0], importedFont = current.components.find((component: { kind: string }) => component.kind === 'font');
   await expect(page.locator('.designer-canvas .node-text').last()).toHaveCSS('font-family', new RegExp(importedFont.id));
