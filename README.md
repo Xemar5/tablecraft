@@ -245,6 +245,7 @@ On first pointer focus, input contents are selected only after releasing the poi
 ## Saves and portability
 
 - The workspace automatically persists in browser local storage after every accepted change. No external service is contacted for offline game-state storage.
+- Component designer edits apply to the table when you return to the **Playground** (or open Home or another project). In a live room, other players see your design changes at that point too. Until then the edits are saved on their own right after each change, so closing or reloading the page mid-edit keeps them: they are applied the next time Tablecraft opens, which shows a short notice. Any other change you make while designing (adding, importing or deleting components) applies the pending designs first. Every design change is still checked as you make it.
 - Projects group designs, CSV sources, pieces, seats, hands and table settings.
 - **Save playground** creates a named snapshot. **Load** opens a restored copy as a project, preserving seats, hands, stack order and design links.
 - **Export ZIP** saves one project as `.tablecraft.zip`. **Export all projects** on Home backs up the whole workspace. Each ZIP contains a root `project.json` (versioned `format: "tablecraft", version: 1`) and imported binary files under `assets/`; no external file paths are needed. Component ZIPs use the same structure with a component-bundle manifest.

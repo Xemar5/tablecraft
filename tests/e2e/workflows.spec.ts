@@ -2,10 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { fillServer, pickSeat, settleJoin, setProfileName } from './liveSeat';
 import type { Archive } from '../../src/domain';
 import { createPortableZip } from '../../src/portable';
+import { savedWorkspace } from './savedWorkspace';
 
-async function workspace(page: Page): Promise<Archive> {
-  return page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!));
-}
+const workspace = (page: Page): Promise<Archive> => savedWorkspace(page);
 async function openDesigner(page: Page) {
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Add text', exact: true })).toBeVisible();
@@ -290,7 +289,7 @@ test('designer supports hierarchy, front/back, CSV updates and component behavio
   await page.getByLabel('Layer name', { exact: true }).fill('Card footer');
   await page.getByLabel('Child layout').selectOption('row');
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
-  expect((await workspace(page)).projects[0].components[0].front.find(node => node.name === 'Text')?.parent).toBeTruthy();
+  await expect.poll(async () => (await workspace(page)).projects[0].components[0].front.find(node => node.name === 'Text')?.parent).toBeTruthy();
   await page.getByLabel('Text / binding').fill('Power: {{power}}');
   await expect(page.locator('.artboard')).toContainText('Power: 4');
   await updateCsv(page, 'Updated guardian');

@@ -4,6 +4,7 @@ import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isA
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
 import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './storage';
+import { addDraftEdit, clearDesignDraft, loadDesignDraft, recoverDesignDraft, saveDesignDraft, withDraft, type DesignDraft } from './designDraft';
 import { createPortableZip, downloadZip, projectZip, readPortableZip } from './portable';
 import { FONT_ACCEPT, importAsset, TEXTURE_ACCEPT } from './assets';
 import { AssetFonts, AssetInspector } from './AssetInspector';
@@ -24,9 +25,15 @@ import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, 
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
   : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} /> : <Square size={size} />;
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
-function boot(): { archive: Archive; error: string | null; lastProjectId: string | null } {
-  try { return { archive: refreshProjectLinks(loadWorkspace()), lastProjectId: localStorage.getItem(LAST_PROJECT_KEY), error: null }; }
-  catch (error) { return { archive: { format: 'tablecraft', version: 1, projects: [starterProject()] }, lastProjectId: null, error: `Your previous save couldn't be read. It has not been overwritten. ${error instanceof Error ? error.message : String(error)}` }; }
+function boot(): { archive: Archive; error: string | null; lastProjectId: string | null; draftNotice?: string; draftStored: boolean } {
+  const draft = loadDesignDraft();
+  try {
+    // Designer changes still pending when the page closed are applied as if the playground had been opened.
+    const { archive, recovered, skipped } = recoverDesignDraft(loadWorkspace(), draft);
+    const draftNotice = recovered || skipped ? `Restored ${recovered} unsaved designer change${recovered === 1 ? '' : 's'}${skipped ? `; ${skipped} no longer applied` : ''}.` : undefined;
+    return { archive: refreshProjectLinks(archive), lastProjectId: localStorage.getItem(LAST_PROJECT_KEY), error: null, draftNotice, draftStored: !!draft };
+  }
+  catch (error) { return { archive: { format: 'tablecraft', version: 1, projects: [starterProject()] }, lastProjectId: null, draftStored: !!draft, error: `Your previous save couldn't be read. It has not been overwritten. ${error instanceof Error ? error.message : String(error)}` }; }
 }
 function loadSnapshots(): { projects: Project[]; error: string | null } {
   try {
@@ -92,7 +99,7 @@ export default function App() {
   }, []);
   const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link' | 'seat'>();
   const [removeLink, setRemoveLink] = useState<Component>();
-  const [toast, setToast] = useState<{ message: string; error: boolean; id: number }>();
+  const [toast, setToast] = useState<{ message: string; error: boolean; id: number } | undefined>(() => initial.draftNotice ? { message: initial.draftNotice, error: false, id: Date.now() } : undefined);
   const [session, setSession] = useState<LiveSession>();
   const [liveUndo, setLiveUndo] = useState({ count: 0, notice: '' });
   const sessionRef = useRef<LiveSession | undefined>(undefined);
@@ -123,9 +130,15 @@ export default function App() {
     return sent;
   }, []);
   useEffect(() => { if (!session) setPredictions([]); }, [session]);
-  const project = useMemo(() => predictions.reduce((current, entry) => {
+  const committed = useMemo(() => predictions.reduce((current, entry) => {
     try { return entry.apply(current); } catch { return current; }
   }, confirmed), [confirmed, predictions]);
+  // Designer edits wait in a draft until the playground is shown again (see designDraft.ts). The app shows the
+  // project with the draft applied; the table, saves of the workspace and a live room only get committed edits.
+  const [draft, setDraftState] = useState<DesignDraft>();
+  const draftRef = useRef<DesignDraft | undefined>(undefined);
+  const setDraft = useCallback((next: DesignDraft | undefined) => { draftRef.current = next; setDraftState(next); }, []);
+  const project = useMemo(() => withDraft(committed, draft), [committed, draft]);
   const activeComponent = project.components.find(c => c.id === componentId) ?? project.components[0];
   // Google fonts used by text layers, resolving {{bindings}} per data row and skipping names of imported fonts.
   const fontFamilies = useMemo(() => {
@@ -194,9 +207,10 @@ export default function App() {
     if (actor && !own && !project.players.some(player => player.id === actor)) notify('Your seat was removed. You are now watching as a viewer.', true);
     setActor(own);
   }, [session, actor, project.players, notify]);
+  const savedArchive = useRef<Archive>(undefined);
   useEffect(() => {
     if (storageError) return;
-    try { saveWorkspace(archive); } catch (error) { setStorageError(`Unable to save in this browser: ${String(error)}. Export your project to keep your work.`); }
+    try { saveWorkspace(archive); savedArchive.current = archive; } catch (error) { setStorageError(`Unable to save in this browser: ${String(error)}. Export your project to keep your work.`); }
   }, [archive, storageError]);
   useEffect(() => {
     if (!fontFamilies) return;
@@ -253,8 +267,8 @@ export default function App() {
     try { localStorage.setItem(LAST_PROJECT_KEY, next.id); }
     catch (error) { notify(`Unable to remember the last project: ${String(error)}`, true); }
   }, [notify]);
-  const dispatch = useCallback((command: Command): Promise<boolean> => {
-    if (sessionRef.current) {
+  const send = useCallback((command: Command, target = projectId): Promise<boolean> => {
+    if (sessionRef.current && target === projectId) {
       return predict(p => applyCommand(p, command, actor || undefined), sessionRef.current.send(command, actor)).then(() => true).catch(error => {
         notify(error instanceof Error ? error.message : String(error), true);
         return false;
@@ -263,13 +277,13 @@ export default function App() {
     return new Promise(resolve => {
       setWorkspace(current => {
         try {
-          const source = current.archive.projects.find(p => p.id === projectId);
+          const source = current.archive.projects.find(p => p.id === target);
           if (!source) throw new Error('Project no longer exists.');
-          const result = applyPlaygroundCommand(source, current.histories[projectId] ?? emptyPlaygroundHistory(), command, actor);
-          const updated = { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) };
+          const result = applyPlaygroundCommand(source, current.histories[target] ?? emptyPlaygroundHistory(), command, actor);
+          const updated = { ...current.archive, projects: current.archive.projects.map(p => p.id === target ? result.project : p) };
           // Linked snapshots can only change when a command changes designs (it then returns new component objects).
           const refreshed = result.project.components === source.components ? updated : refreshProjectLinks(updated);
-          const histories = { ...current.histories, [projectId]: result.history };
+          const histories = { ...current.histories, [target]: result.history };
           for (const project of refreshed.projects) if (project !== updated.projects.find(p => p.id === project.id)) {
             histories[project.id] = { entries: [], notice: 'Undo history cleared because linked component designs changed.' };
           }
@@ -283,6 +297,60 @@ export default function App() {
       });
     });
   }, [actor, projectId, notify, predict]);
+  /** Commits pending designer edits to their project (and live room) as ordinary `component` commands. */
+  const flushDesign = useCallback(() => {
+    const pending = draftRef.current;
+    if (!pending) return;
+    setDraft(undefined);
+    for (const { component, removedDataRow } of pending.edits) {
+      void send({ type: 'component', component, ...(removedDataRow === undefined ? {} : { removedDataRow }) }, pending.projectId);
+    }
+  }, [send, setDraft]);
+  // Any other change lands after the pending designs, in the order they were made.
+  const dispatch = useCallback((command: Command) => { flushDesign(); return send(command); }, [flushDesign, send]);
+  const editDesign = (component: Component, removedDataRow?: number): Promise<boolean> => {
+    if (draftRef.current && draftRef.current.projectId !== committed.id) flushDesign();
+    try {
+      const edits = addDraftEdit(committed.components, draftRef.current?.edits ?? [], component, removedDataRow);
+      setDraft({ projectId: committed.id, edits });
+      return Promise.resolve(true);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : String(error), true);
+      return Promise.resolve(false);
+    }
+  };
+  // Showing the playground (or the home screen, or another project) commits the designs.
+  useEffect(() => { if (draft && (mode !== 'designer' || home || draft.projectId !== committed.id)) flushDesign(); }, [draft, mode, home, committed.id, flushDesign]);
+  // The draft is saved on its own right after each change (at most every 300 ms while dragging or typing) and
+  // whenever the page is hidden, so closing the page mid-edit keeps it. It holds only the edited components.
+  const draftSaveFailed = useRef(false);
+  const lastDraftSave = useRef(0);
+  const draftStored = useRef(initial.draftStored);
+  const draftTimer = useRef<number>(undefined);
+  const storeDraft = useCallback(() => {
+    window.clearTimeout(draftTimer.current); draftTimer.current = undefined;
+    const pending = draftRef.current;
+    if (!pending) return;
+    const saved = saveDesignDraft(pending);
+    lastDraftSave.current = performance.now();
+    if (saved) draftStored.current = true;
+    else if (!draftSaveFailed.current) notify('Unable to save designer changes in this browser. Open the playground to save them with the project.', true);
+    draftSaveFailed.current = !saved;
+  }, [notify]);
+  useEffect(() => {
+    if (!draft || draftTimer.current !== undefined) return;
+    const wait = lastDraftSave.current + 300 - performance.now();
+    if (wait <= 0) storeDraft(); else draftTimer.current = window.setTimeout(storeDraft, wait);
+  }, [draft, storeDraft]);
+  useEffect(() => {
+    const hidden = () => { if (document.visibilityState === 'hidden') storeDraft(); };
+    window.addEventListener('pagehide', storeDraft); document.addEventListener('visibilitychange', hidden);
+    return () => { window.removeEventListener('pagehide', storeDraft); document.removeEventListener('visibilitychange', hidden); window.clearTimeout(draftTimer.current); };
+  }, [storeDraft]);
+  // Once committed edits are saved with the workspace, the separately stored draft is no longer needed.
+  useEffect(() => {
+    if (!draft && draftStored.current && savedArchive.current === archive) { clearDesignDraft(); draftStored.current = false; }
+  }, [draft, archive]);
   const viewer = !!session && !actor;
   const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
   const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
@@ -602,7 +670,7 @@ export default function App() {
         activeComponent && isAsset(activeComponent) ? <AssetInspector key={activeComponent.id} component={activeComponent} components={project.components} notify={notify} onChange={component => dispatch({ type: 'component', component })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} /> :
-        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={(component, removedDataRow) => dispatch({ type: 'component', component, removedDataRow })} onDelete={async () => {
+        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={editDesign} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>

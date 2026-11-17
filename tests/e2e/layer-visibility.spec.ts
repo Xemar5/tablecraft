@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Archive } from '../../src/domain';
+import { savedWorkspace } from './savedWorkspace';
 
 test('layer and group visibility controls preserve the design and support undo', async ({ page }) => {
   await page.goto('/');
@@ -13,7 +13,7 @@ test('layer and group visibility controls preserve the design and support undo',
   const groupRow = page.locator('.layer-tree-row').filter({ has: page.getByRole('button', { name: 'Visibility group', exact: true }) });
   const childRow = page.locator('.layer-tree-row').filter({ has: page.getByRole('button', { name: 'Visibility child', exact: true }) });
   const stored = async () => {
-    const archive = await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!)) as Archive;
+    const archive = await savedWorkspace(page);
     return archive.projects[0].components[0].front.filter(node => node.name.startsWith('Visibility '));
   };
   await expect(face).toContainText('Unique child text');

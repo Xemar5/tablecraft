@@ -495,15 +495,9 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
   switch (command.type) {
     case 'component': {
       const index = p.components.findIndex(c => c.id === command.component.id);
-      if (p.components[index]?.source || command.component.source) throw new Error('Linked components are read-only. Make a local copy to edit them.');
-      assertUniqueAssetName(p.components, command.component);
+      assertComponentEdit(p.components, command.component, command.removedDataRow);
       if (command.removedDataRow !== undefined) {
         const previous = p.components[index];
-        if (!previous || !hasPages(previous) || previous.kind !== command.component.kind ||
-          previous.rows.length < 2 || command.removedDataRow >= previous.rows.length ||
-          JSON.stringify(previous.rows.filter((_, row) => row !== command.removedDataRow)) !== JSON.stringify(command.component.rows)) {
-          throw new Error(`Remove exactly one existing ${previous?.kind === 'book' ? 'page' : 'dice variant'} and keep at least one.`);
-        }
         const removed = command.removedDataRow;
         const remap = (row: number) => Math.min(row > removed ? row - 1 : row, command.component.rows.length - 1);
         p.instances.filter(item => item.componentId === previous.id).forEach(item => { item.row = remap(item.row); });
@@ -981,6 +975,33 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
   });
   normalizeGroups(p);
   return validateProject(p);
+}
+
+/** The checks a `component` command makes on the edited design itself, before it touches table state. */
+function assertComponentEdit(components: Component[], component: Component, removedDataRow?: number) {
+  const previous = components.find(c => c.id === component.id);
+  if (previous?.source || component.source) throw new Error('Linked components are read-only. Make a local copy to edit them.');
+  assertUniqueAssetName(components, component);
+  if (removedDataRow === undefined) return;
+  if (!previous || !hasPages(previous) || previous.kind !== component.kind ||
+    previous.rows.length < 2 || removedDataRow >= previous.rows.length ||
+    JSON.stringify(previous.rows.filter((_, row) => row !== removedDataRow)) !== JSON.stringify(component.rows)) {
+    throw new Error(`Remove exactly one existing ${previous?.kind === 'book' ? 'page' : 'dice variant'} and keep at least one.`);
+  }
+}
+
+/**
+ * Checks one design change against the other components as the `component` command would, without parsing the
+ * whole project (imported asset data included) or table state. Returns the components with the change applied.
+ * Table fix-ups (unstacking, dropping held pieces, remapping removed pages) still happen when the command runs.
+ */
+export function validateComponentEdit(components: Component[], raw: Component, removedDataRow?: number): Component[] {
+  const component = componentSchema.parse(raw);
+  assertComponentEdit(components, component, removedDataRow);
+  const index = components.findIndex(c => c.id === component.id);
+  const next = index < 0 ? [...components, component] : components.map((c, i) => i === index ? component : c);
+  validateComponents(next);
+  return next;
 }
 
 function assertUniqueAssetName(components: Component[], component: Component) {
