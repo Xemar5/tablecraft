@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { applyCommand, commandSchema, instanceSchema, projectSchema, validateProject, type Command, type Project } from './domain';
+import { applyCommand, commandSchema, instanceSchema, pieceGroupSchema, projectSchema, validateProject, type Command, type Project } from './domain';
 
 export const PLAYGROUND_HISTORY_LIMIT = 50;
 const seatPresentation = z.object({
@@ -8,6 +8,8 @@ const seatPresentation = z.object({
 const entrySchema = z.object({
   instances: z.array(instanceSchema),
   settings: projectSchema.shape.settings,
+  /** Pieces panel groups; omitted when the table had none. */
+  groups: z.array(pieceGroupSchema).optional(),
   seat: seatPresentation.optional(),
 });
 export const playgroundHistorySchema = z.object({
@@ -39,7 +41,7 @@ export function applyPlaygroundCommand(
   if (command.type === 'rename' || command.type === 'reorderComponent' || command.type === 'handSettings' || command.type === 'reorderPlayers') return { project: next, history };
   const player = command.type === 'player' ? project.players.find(player => player.id === command.player.id) : undefined;
   const entry = entrySchema.parse({
-    instances: project.instances, settings: project.settings,
+    instances: project.instances, settings: project.settings, ...(project.groups?.length ? { groups: project.groups } : {}),
     seat: player && { id: player.id, name: player.name, color: player.color, x: player.x, y: player.y, rotation: player.rotation },
   });
   return {
@@ -57,8 +59,9 @@ export function undoPlayground(
   try {
     if (entry.seat && !project.players.some(player => player.id === entry.seat!.id)) throw new Error('Seat no longer exists.');
     // Undo never touches designs, so keep the current component objects (validateProject still checks them).
+    // Entries without groups were recorded when the table had none.
     const next = validateProject({ ...projectSchema.omit({ components: true }).parse({
-      ...project, instances: entry.instances, settings: entry.settings,
+      ...project, instances: entry.instances, settings: entry.settings, groups: entry.groups?.length ? entry.groups : undefined,
       players: project.players.map(player => player.id === entry.seat?.id ? { ...player, ...entry.seat } : player),
     }), components: project.components });
     return { project: next, history: { entries: history.entries.slice(0, -1), notice: '' }, undone: true };

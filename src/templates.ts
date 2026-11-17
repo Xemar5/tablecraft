@@ -9,6 +9,12 @@ const cardRows = [
   { id: 'night', name: 'Night wanderer', type: 'WOODLAND SPIRIT', cost: '4', power: '5', description: 'Look at the top three cards.\nNot all who wander are lost.', art: 'moon' },
 ];
 
+const bookRows = [
+  { page: '1', title: 'Welcome, wanderer', text: 'The forest is older than any map.\nRead on to learn its ways.' },
+  { page: '2', title: 'Setting up', text: 'Place the clearing in the middle of the table. Shuffle the spirit deck and deal three cards to each player.' },
+  { page: '3', title: 'Taking a turn', text: 'Play a card, gather amber, then pass the turn.\nTurn pages with Shift+Q and Shift+E.' },
+];
+
 export type TemplateKind = Exclude<Component['kind'], 'texture' | 'font'> | 'blank';
 export function template(kind: TemplateKind): Component {
   const base: Component = {
@@ -49,6 +55,17 @@ export function template(kind: TemplateKind): Component {
     base.front = [
       makeNode('shape', { name: 'Clearing', x: 12, y: 12, width: 616, height: 396, radius: 200, fill: '#304c3e', text: 'fern' }),
       makeNode('text', { name: 'Board title', x: 160, y: 34, width: 320, height: 44, text: 'THE CLEARING', font: 'Lora', fontSize: 25, color: '#d8d6b7', align: 'center' }),
+    ];
+  } else if (kind === 'book') {
+    Object.assign(base, { name: 'Field guide', width: 300, height: 400, color: '#f3eedf', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
+    base.rows = bookRows;
+    base.csv = 'page,title,text\n' + bookRows.map(r => [r.page, r.title, `"${r.text}"`].join(',')).join('\n');
+    base.front = [
+      makeNode('shape', { name: 'Page edge', x: 10, y: 10, width: 280, height: 380, fill: 'transparent', stroke: '#c9bf9f', strokeWidth: 1.5, radius: 6 }),
+      makeNode('text', { name: 'Chapter', x: 30, y: 34, width: 240, height: 22, text: 'WILDWOOD FIELD GUIDE', fontSize: 9, color: '#9a9172', align: 'center' }),
+      makeNode('text', { name: 'Title', x: 30, y: 64, width: 240, height: 44, text: '{{title}}', fontSize: 26, font: 'Lora', align: 'center' }),
+      makeNode('text', { name: 'Body', x: 34, y: 124, width: 232, height: 210, text: '{{text}}', fontSize: 13, color: '#4e5b4f', align: 'center' }),
+      makeNode('text', { name: 'Page number', x: 120, y: 350, width: 60, height: 22, text: '{{page}}', fontSize: 11, color: '#9a9172', align: 'center' }),
     ];
   } else {
     Object.assign(base, { name: 'Spirit die', width: 70, height: 70, color: '#e9e5d7', flippable: false, hand: false, stackable: false });

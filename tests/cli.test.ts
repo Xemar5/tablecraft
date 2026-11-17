@@ -40,7 +40,7 @@ describe('agent CLI', () => {
 
   it('generates artwork and exposes its kind in help and the component schema', () => {
     const help = execFileSync(process.execPath, [runner, cli, '--help'], { encoding: 'utf8' });
-    expect(help).toContain('blank|card|token|board|dice|artwork');
+    expect(help).toContain('blank|card|token|board|dice|book|artwork');
     expect(run('schema', '--what', 'component').properties.kind.enum).toContain('artwork');
     const file = join(dir, 'game.json'), data = join(dir, 'artwork.json');
     run('new', '--out', file);
@@ -83,6 +83,27 @@ describe('agent CLI', () => {
     expect(run('inspect', '--file', file).settings.snap).toBe(false);
     writeFileSync(batch, JSON.stringify({ type: 'undo' }));
     expect(fail('apply', '--file', file, '--commands', batch)).toMatch(/nothing to undo/i);
+  }, 30000);
+
+  it('creates, renames, nests, moves, lists and ungroups piece groups', () => {
+    const file = join(dir, 'game.json');
+    run('new', '--out', file, '--template', 'wildwood');
+    const instances: { id: string; stack: string | null }[] = run('list', '--file', file, '--what', 'instances');
+    const deck = instances.find(i => i.stack)!, loose = instances.filter(i => !i.stack);
+    const created = run('group', 'create', '--file', file, '--name', 'Deck', '--pieces', deck.id, '--id', 'deck');
+    expect(created.groups).toEqual([{ id: 'deck', name: 'Deck', parent: null }]);
+    run('group', 'create', '--file', file, '--pieces', `${loose[0].id}, ${loose[1].id}`, '--groups', 'deck', '--id', 'outer');
+    run('group', 'rename', '--file', file, '--group', 'outer', '--name', 'Table');
+    const listed: { id: string; name: string; parent: string | null; pieces: string[] }[] = run('list', '--file', file, '--what', 'groups');
+    expect(listed.map(({ id, name, parent }) => ({ id, name, parent }))).toEqual([{ id: 'deck', name: 'Deck', parent: 'outer' }, { id: 'outer', name: 'Table', parent: null }]);
+    expect(listed.find(g => g.id === 'outer')!.pieces).toHaveLength(instances.filter(i => i.stack === deck.stack).length + 2);
+    run('group', 'move', '--file', file, '--groups', 'deck', '--parent', 'root');
+    run('group', 'ungroup', '--file', file, '--group', 'outer');
+    expect(run('list', '--file', file, '--what', 'groups').map((g: { id: string }) => g.id)).toEqual(['deck']);
+    expect(fail('group', 'move', '--file', file, '--groups', 'deck', '--parent', 'missing')).toMatch(/no longer exists/i);
+    expect(fail('group', 'rename', '--file', file, '--group', 'deck')).toMatch(/--name is required/);
+    expect(fail('group', 'split', '--file', file)).toMatch(/Choose group create/);
+    expect(run('validate', '--file', file).valid).toBe(true);
   }, 30000);
 
   it('exposes schemas and rejects invalid flags or untrusted live URLs', () => {

@@ -44,13 +44,19 @@ export const nodeSchema = z.object({
   dataRow: z.number().int().min(0).max(9999).default(0),
   dataField: z.string().max(100).default(''),
   textureId: id.optional(), fontId: id.optional(),
+  /** How an image layer places its picture before the optional placement below; defaults to `cover`. */
+  imageFit: z.enum(['stretch', 'contain', 'cover', 'original', 'tile']).optional(),
+  /** Picture placement inside an image layer (edited by double-clicking it), relative to the fitted picture. */
+  imageOffsetX: num.min(-8000).max(8000).optional(), imageOffsetY: num.min(-8000).max(8000).optional(),
+  imageScaleX: num.min(.01).max(100).optional(), imageScaleY: num.min(.01).max(100).optional(),
+  imageRotation: num.min(-360).max(360).optional(),
   visible: z.boolean().default(true),
   visibilityField: z.string().max(10000).default(''),
   visibilityValue: z.string().max(10000).default(''),
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
-  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'artwork', 'texture', 'font']),
+  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'book', 'artwork', 'texture', 'font']),
   width: num.min(20).max(2000), height: num.min(20).max(2000), color,
   front: z.array(nodeSchema).max(300), back: z.array(nodeSchema).max(300),
   csv: z.string().max(1_000_000),
@@ -62,15 +68,83 @@ export const componentSchema = z.object({
 });
 export type Component = z.infer<typeof componentSchema>;
 export const isAsset = (component: Pick<Component, 'kind'>) => component.kind === 'texture' || component.kind === 'font';
+/** Dice faces and book pages are rows of one piece, not separately spawnable variants. */
+export const hasPages = (component: Pick<Component, 'kind'>) => component.kind === 'dice' || component.kind === 'book';
 export const assetUrl = (component: Component) => component.asset ? `data:${component.asset.mime};base64,${component.asset.data}` : undefined;
 export const assetFontFamily = (component: Component) => `tablecraft-${encodeURIComponent(component.id)}`;
+const assetKey = (name: string) => name.trim().toLowerCase();
+/** The first asset of a kind with this name (names are compared trimmed and case-insensitively). */
+export function assetByName(components: Iterable<Component>, kind: 'texture' | 'font', name: string): Component | undefined {
+  const key = assetKey(name);
+  if (!key) return undefined;
+  for (const component of components) if (component.kind === kind && component.asset && assetKey(component.name) === key) return component;
+  return undefined;
+}
+/** Names an imported asset so it doesn't collide with the project's other textures and fonts. */
+export function uniqueAssetName(name: string, components: Pick<Component, 'kind' | 'name' | 'id'>[], ignoreId?: string): string {
+  const taken = new Set(components.filter(component => isAsset(component) && component.id !== ignoreId).map(component => assetKey(component.name)));
+  const base = name.trim().slice(0, 100) || 'Imported asset';
+  if (!taken.has(assetKey(base))) return base;
+  for (let n = 2; ; n++) {
+    const suffix = ` ${n}`, candidate = `${base.slice(0, 100 - suffix.length)}${suffix}`;
+    if (!taken.has(assetKey(candidate))) return candidate;
+  }
+}
+/**
+ * Resolves an image layer's source: an imported texture chosen in the layer, a texture whose name matches the bound text
+ * (or the binding key itself, as in `{{texture-name}}`), or a safe image URL.
+ */
+export function resolveImage(node: Pick<DesignNode, 'textureId' | 'text'>, data: Record<string, string>, catalog: Map<string, Component>): string | undefined {
+  const texture = node.textureId ? catalog.get(node.textureId) : undefined;
+  if (texture) return assetUrl(texture);
+  const bound = bind(node.text, data).trim();
+  const url = safeImage(bound);
+  if (url) return url;
+  const named = assetByName(catalog.values(), 'texture', bound) ?? bindingKeyAsset(node.text, data, catalog, 'texture');
+  return named && assetUrl(named);
+}
+/** Resolves a text layer's font family: a chosen imported font, an imported font named by the (bound) font field, or a Google font. */
+export function resolveFontFamily(node: Pick<DesignNode, 'fontId' | 'font'>, data: Record<string, string>, catalog: Map<string, Component>): string {
+  const chosen = node.fontId ? catalog.get(node.fontId) : undefined;
+  if (chosen) return assetFontFamily(chosen);
+  const bound = bind(node.font, data).trim();
+  const named = assetByName(catalog.values(), 'font', bound) ?? bindingKeyAsset(node.font, data, catalog, 'font');
+  return named ? assetFontFamily(named) : bound || 'DM Sans';
+}
+/** Imported assets a component's layers pick by name, through literal text or {{bindings}} evaluated against its own rows. */
+export function namedAssetReferences(component: Component, catalog: Iterable<Component>): string[] {
+  const assets = [...catalog].filter(item => isAsset(item) && item.asset);
+  if (!assets.length) return [];
+  const rows = component.rows.length ? component.rows : [{}];
+  const ids = new Set<string>();
+  const add = (kind: 'texture' | 'font', text: string) => {
+    if (!text.trim()) return;
+    const key = /^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$/.exec(text)?.[1];
+    const values = new Set([...(text.includes('{{') ? rows.map(row => bind(text, row).trim()) : [text.trim()]), ...(key ? [key] : [])]);
+    for (const value of values) { const asset = assetByName(assets, kind, value); if (asset) ids.add(asset.id); }
+  };
+  for (const node of [...component.front, ...component.back]) {
+    if (node.type === 'image' && !node.textureId) add('texture', node.text);
+    if (node.type === 'text' && !node.fontId) add('font', node.font);
+  }
+  return [...ids];
+}
+// `{{name}}` where `name` is not a data column but names an asset directly.
+function bindingKeyAsset(text: string, data: Record<string, string>, catalog: Map<string, Component>, kind: 'texture' | 'font') {
+  const match = /^\s*\{\{\s*([^{}]+?)\s*\}\}\s*$/.exec(text);
+  return match && !(match[1] in data) ? assetByName(catalog.values(), kind, match[1]) : undefined;
+}
 export const instanceSchema = z.object({
   id, componentId: id, row: z.number().int().min(0), x: num, y: num,
   rotation: num, scale: num.min(0.1).max(5), flipped: z.boolean(),
   holder: id.nullable(), stack: id.nullable(), order: num, locked: z.boolean(),
   stackReversed: z.boolean().optional(),
   rolls: z.number().int().min(0).optional(),
+  /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
+  group: id.optional(),
 });
+export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable() });
+export type PieceGroup = z.infer<typeof pieceGroupSchema>;
 export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
   id, owner: z.string().max(200), name: z.string().min(1).max(50), color,
@@ -84,6 +158,8 @@ export const projectSchema = z.object({
   components: z.array(componentSchema).max(500),
   instances: z.array(instanceSchema).max(10000),
   players: z.array(playerSchema),
+  /** Named, nestable groups of table pieces shown in the Pieces panel. */
+  groups: z.array(pieceGroupSchema).max(2000).optional(),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
     hands: z.boolean(), allowOtherHands: z.boolean().optional(),
@@ -112,6 +188,16 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('front'), ids: z.array(id).min(1) }),
   z.object({ type: z.literal('extractMove'), id, x: num, y: num }),
   z.object({ type: z.literal('roll'), ids: z.array(id).min(1), seed: z.number().int() }),
+  /** Turns book pages (clamped) or steps dice to their next face (looped) by `delta` rows. */
+  z.object({ type: z.literal('cycleVariant'), ids: z.array(id).min(1), delta: z.number().int().min(-10000).max(10000).refine(value => value !== 0, 'Choose a direction.') }),
+  /** Creates a group under `parent` holding the given table pieces (with their whole stacks) and existing groups. */
+  z.object({ type: z.literal('createGroup'), id, name: pieceGroupSchema.shape.name, parent: id.nullable().default(null),
+    ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
+  z.object({ type: z.literal('renameGroup'), id, name: pieceGroupSchema.shape.name }),
+  /** Removes groups, moving their pieces and subgroups up to each group's parent. */
+  z.object({ type: z.literal('ungroup'), ids: z.array(id).min(1).max(2000) }),
+  /** Moves table pieces (with their whole stacks) and groups into `parent`, or to the top level when it is null. */
+  z.object({ type: z.literal('moveToGroup'), parent: id.nullable(), ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
   z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num }),
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
   z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
@@ -259,8 +345,64 @@ export function validateProject(project: Project): Project {
     if (group.some(i => !!i.stackReversed !== !!group[0].stackReversed)) throw new Error('Inconsistent stack orientation.');
   }
   if (project.instances.some(i => !i.stack && i.stackReversed)) throw new Error('Only stacks can have a stack orientation.');
+  validateGroups(project);
   validatedComponents.add(project.components);
   return project;
+}
+
+function validateGroups(project: Project) {
+  const groups = new Map((project.groups ?? []).map(group => [group.id, group]));
+  if (groups.size !== (project.groups ?? []).length) throw new Error('Duplicate piece group identifiers.');
+  for (const group of groups.values()) {
+    let depth = 0;
+    for (let parent = group.parent; parent; parent = groups.get(parent)!.parent) {
+      if (!groups.has(parent)) throw new Error('A piece group references a missing parent group.');
+      if (parent === group.id || ++depth > 32) throw new Error('Piece groups cannot contain themselves or nest more than 32 levels deep.');
+    }
+  }
+  const stackGroups = new Map<string, string>();
+  for (const item of project.instances) {
+    if (item.group) {
+      if (!groups.has(item.group)) throw new Error('A piece references a missing group.');
+      if (item.holder) throw new Error('Held pieces cannot belong to a piece group.');
+    }
+    if (!item.stack) continue;
+    const seen = stackGroups.get(item.stack);
+    if (seen !== undefined && seen !== (item.group ?? '')) throw new Error('Every piece in a stack must share its group.');
+    stackGroups.set(item.stack, item.group ?? '');
+  }
+}
+
+/** Group IDs that contain `id` (inclusive), from the group itself up to its top-level ancestor. */
+export function groupAncestors(groups: PieceGroup[], id: string | null | undefined): string[] {
+  const byId = new Map(groups.map(group => [group.id, group]));
+  const chain: string[] = [];
+  for (let current = id ? byId.get(id) : undefined; current && !chain.includes(current.id); current = current.parent ? byId.get(current.parent) : undefined) chain.push(current.id);
+  return chain;
+}
+
+/** Keeps piece groups consistent after a tabletop change: held pieces leave groups, stacks share their bottom piece's group, empty groups disappear. */
+function normalizeGroups(p: Project) {
+  const groups = p.groups ?? [];
+  // A table without groups has no `groups` field, so ungrouped projects keep their original shape.
+  if (!groups.length) { p.instances.forEach(item => { delete item.group; }); delete p.groups; return; }
+  const known = new Set(groups.map(group => group.id));
+  const bottoms = new Map<string, Instance>();
+  for (const item of p.instances) {
+    if (item.holder || (item.group && !known.has(item.group))) delete item.group;
+    if (item.stack && (!bottoms.has(item.stack) || item.order < bottoms.get(item.stack)!.order)) bottoms.set(item.stack, item);
+  }
+  for (const item of p.instances) if (item.stack) {
+    const group = bottoms.get(item.stack)!.group;
+    if (group) item.group = group; else delete item.group;
+  }
+  let remaining = groups;
+  for (let previous = -1; previous !== remaining.length;) {
+    previous = remaining.length;
+    const used = new Set([...p.instances.flatMap(item => item.group ? [item.group] : []), ...remaining.flatMap(group => group.parent ? [group.parent] : [])]);
+    remaining = remaining.filter(group => used.has(group.id));
+  }
+  if (remaining.length) p.groups = remaining; else delete p.groups;
 }
 
 /** Reuses previous component objects whose content is unchanged (and the previous array when nothing changed). */
@@ -320,6 +462,26 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       item.stackReversed = false;
     });
   };
+  // Grouping is organisational: it takes whole table stacks (locked pieces too) and never moves anything on the table.
+  const groupedPieces = (ids: string[]) => {
+    const pieces = new Set<Instance>();
+    for (const item of [...new Set(ids)].map(get)) {
+      if (item.holder) throw new Error('Only table pieces can be grouped.');
+      stackMembers(p, item).forEach(member => pieces.add(member));
+    }
+    return [...pieces];
+  };
+  const existingGroups = (ids: string[]) => [...new Set(ids)].map(key => {
+    const group = p.groups?.find(item => item.id === key);
+    if (!group) throw new Error('Piece group no longer exists.');
+    return group;
+  });
+  const regroup = (pieces: Instance[], moving: PieceGroup[], parent: string | null) => {
+    const ancestors = groupAncestors(p.groups ?? [], parent);
+    if (moving.some(group => ancestors.includes(group.id))) throw new Error('A group cannot be moved into itself.');
+    pieces.forEach(item => { if (parent) item.group = parent; else delete item.group; });
+    moving.forEach(group => { group.parent = parent; });
+  };
   const drawOrder = (items: Instance[]) => {
     const seen = new Set<string>();
     return items.flatMap(item => {
@@ -334,12 +496,13 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     case 'component': {
       const index = p.components.findIndex(c => c.id === command.component.id);
       if (p.components[index]?.source || command.component.source) throw new Error('Linked components are read-only. Make a local copy to edit them.');
+      assertUniqueAssetName(p.components, command.component);
       if (command.removedDataRow !== undefined) {
         const previous = p.components[index];
-        if (!previous || previous.kind !== 'dice' || command.component.kind !== 'dice' ||
+        if (!previous || !hasPages(previous) || previous.kind !== command.component.kind ||
           previous.rows.length < 2 || command.removedDataRow >= previous.rows.length ||
           JSON.stringify(previous.rows.filter((_, row) => row !== command.removedDataRow)) !== JSON.stringify(command.component.rows)) {
-          throw new Error('Remove exactly one existing dice variant and keep at least one variant.');
+          throw new Error(`Remove exactly one existing ${previous?.kind === 'book' ? 'page' : 'dice variant'} and keep at least one.`);
         }
         const removed = command.removedDataRow;
         const remap = (row: number) => Math.min(row > removed ? row - 1 : row, command.component.rows.length - 1);
@@ -368,6 +531,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const previous = p.components.find(c => c.id === component.id);
         if (command.type === 'addComponents') {
           if (previous) throw new Error('Component identifier already exists.');
+          assertUniqueAssetName(p.components, component);
           p.components.push(component);
         } else {
           if (!component.source || (previous && (!previous.source ||
@@ -478,6 +642,41 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         item.row = seed % Math.max(c.rows.length, 1);
         item.rolls = (item.rolls ?? 0) + 1;
       }
+      break;
+    }
+    case 'cycleVariant':
+      for (const key of new Set(command.ids)) {
+        const item = get(key), c = component(item);
+        editable(item);
+        if (!hasPages(c)) throw new Error('Only books and dice have pages or faces to turn.');
+        if (c.kind === 'dice' && item.locked) throw new Error('Unlock this die first.');
+        const count = Math.max(c.rows.length, 1);
+        item.row = c.kind === 'dice' ? ((item.row + command.delta) % count + count) % count : Math.max(0, Math.min(count - 1, item.row + command.delta));
+      }
+      break;
+    case 'createGroup': {
+      const groups = p.groups ??= [];
+      if (groups.some(group => group.id === command.id)) throw new Error('Group identifier already exists.');
+      if (command.parent && !groups.some(group => group.id === command.parent)) throw new Error('Parent group no longer exists.');
+      const pieces = groupedPieces(command.ids), moving = existingGroups(command.groups);
+      if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to group.');
+      groups.push({ id: command.id, name: command.name, parent: command.parent });
+      regroup(pieces, moving, command.id);
+      break;
+    }
+    case 'renameGroup': existingGroups([command.id])[0].name = command.name; break;
+    case 'ungroup':
+      for (const group of existingGroups(command.ids)) {
+        p.instances.forEach(item => { if (item.group === group.id) { if (group.parent) item.group = group.parent; else delete item.group; } });
+        p.groups!.forEach(child => { if (child.parent === group.id) child.parent = group.parent; });
+        p.groups = p.groups!.filter(item => item !== group);
+      }
+      break;
+    case 'moveToGroup': {
+      const pieces = groupedPieces(command.ids), moving = existingGroups(command.groups);
+      if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to move.');
+      if (command.parent && !(p.groups ?? []).some(group => group.id === command.parent)) throw new Error('Group no longer exists.');
+      regroup(pieces, moving, command.parent);
       break;
     }
     case 'releaseMany': {
@@ -780,7 +979,25 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       i.stackReversed = false;
     }
   });
+  normalizeGroups(p);
   return validateProject(p);
+}
+
+function assertUniqueAssetName(components: Component[], component: Component) {
+  if (!isAsset(component) || component.source) return;
+  const clash = components.find(other => other.id !== component.id && isAsset(other) && assetKey(other.name) === assetKey(component.name));
+  if (clash) throw new Error(`An asset named “${clash.name}” already exists. Give each texture and font a unique name.`);
+}
+
+/** Renames incoming local textures and fonts whose names are already used by the project's (or each other's) assets. */
+export function withUniqueAssetNames(incoming: Component[], existing: Component[]): Component[] {
+  const known: Pick<Component, 'id' | 'kind' | 'name'>[] = [...existing];
+  return incoming.map(component => {
+    if (!isAsset(component) || component.source) return component;
+    const name = uniqueAssetName(component.name, known, component.id);
+    known.push({ id: component.id, kind: component.kind, name });
+    return name === component.name ? component : { ...component, name };
+  });
 }
 
 export function makeInstance(componentId: string, row = 0, x = 700, y = 450): Instance {

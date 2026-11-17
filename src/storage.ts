@@ -1,4 +1,4 @@
-import { archiveSchema, componentSchema, uid, validateProject, type Archive, type Component } from './domain';
+import { archiveSchema, componentSchema, namedAssetReferences, uid, validateProject, type Archive, type Component } from './domain';
 import { starterProject, upgradeLegacyArtwork } from './templates';
 
 const KEY = 'tablecraft.workspace.v1';
@@ -62,7 +62,7 @@ export function exportComponentBundle(component: Component, catalog: Component[]
     const item = byId.get(id);
     if (!item) throw new Error(`Nested component ${id} is missing from this project.`);
     visiting.add(id);
-    linkedIds(item).forEach(visit);
+    [...linkedIds(item), ...namedAssetReferences(item, catalog)].forEach(visit);
     visiting.delete(id); visited.add(id); ordered.push(item);
   };
   visit(component.id);
@@ -85,7 +85,7 @@ export function parseComponentBundle(raw: string): ComponentBundle {
       if (visited.has(id)) return;
       const item = byId.get(id);
       if (!item) throw new Error(`Nested component ${id} is missing from this bundle.`);
-      linkedIds(item).forEach(visit);
+      [...linkedIds(item), ...namedAssetReferences(item, components)].forEach(visit);
       visited.add(id); ordered.push(item);
     };
     visit(bundle.rootId);

@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { link, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, projectSchema, validateProject, type Archive, type Project } from '../src/domain';
+import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Project } from '../src/domain';
+import { groupMembers, nextGroupName } from '../src/pieceGroups';
 import { exportComponentBundle, remapComponentBundle } from '../src/storage';
 import { createPortableZip, readPortableZip } from '../src/portable';
 import { blankProject, starterProject, templateBundle } from '../src/templates';
@@ -14,13 +15,17 @@ const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzer
 Usage: npm --silent run cli -- <command> [options]
 
   new --out FILE [--template blank|wildwood] [--name NAME] [--force]
-  generate --file FILE --template blank|card|token|board|dice|artwork [--name NAME] [--data JSON_FILE]
+  generate --file FILE --template blank|card|token|board|dice|book|artwork [--name NAME] [--data JSON_FILE]
   import --file FILE --bundle COMPONENT_ZIP
-  list --file FILE [--what components|instances|players]
+  list --file FILE [--what components|instances|players|groups]
   inspect --file FILE [--component ID]
   schema --what project|archive|component|command
   apply --file FILE --commands JSON_FILE [--actor PLAYER_ID]
   spawn --file FILE --component ID [--count N] [--row N] [--x N] [--y N] [--actor PLAYER_ID]
+  group create --file FILE [--name NAME] [--pieces IDS] [--groups IDS] [--parent GROUP_ID] [--id GROUP_ID]
+  group rename --file FILE --group GROUP_ID --name NAME
+  group ungroup --file FILE --group GROUP_IDS
+  group move --file FILE [--pieces IDS] [--groups IDS] --parent GROUP_ID|root
   validate --file FILE
   export --file FILE --out FILE [--component ID] [--force]
   live host --file FILE --code CODE [live options]
@@ -31,6 +36,9 @@ Usage: npm --silent run cli -- <command> [options]
 Live options: --uri URL (default http://127.0.0.1:3000), --database NAME
   (default tablecraft-studio), --name NAME, --color COLOR, --timeout MS.
 Project and component files are ZIP saves containing project.json and assets.
+Groups organise table pieces in the Pieces panel; IDS are comma-separated, pieces
+bring their whole stack, and empty groups are removed. Book pages and dice faces
+step with {"type":"cycleVariant","ids":[...],"delta":1} in apply.
 For archives with multiple projects use --project PROJECT_ID. Offline mutations
 replace --file atomically after the full batch succeeds. Offline apply supports
 {"type":"undo"} within the current batch only. Live batches commit one command
@@ -94,7 +102,7 @@ async function main(args: string[]) {
   const { positionals, options: o } = parseArgs(args);
   const [cmd, sub] = positionals;
   if (o.help || !cmd) { console.log(help); return; }
-  if (positionals.length > (cmd === 'live' ? 2 : 1)) throw new Error('Unexpected positional argument.');
+  if (positionals.length > (cmd === 'live' || cmd === 'group' ? 2 : 1)) throw new Error('Unexpected positional argument.');
   let result: unknown;
   if (cmd === 'schema') {
     allowed(o, ['what']);
@@ -131,6 +139,7 @@ async function main(args: string[]) {
       list: [...common, 'what'], inspect: [...common, 'component'], validate: [...common],
       apply: [...common, 'commands', 'actor'], spawn: [...common, 'component', 'count', 'row', 'x', 'y', 'actor'],
       export: [...common, 'out', 'component', 'force'],
+      group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id'],
     };
     if (!(cmd in supported)) throw new Error(`Unknown command ${cmd}. Use --help.`);
     allowed(o, supported[cmd]);
@@ -140,7 +149,7 @@ async function main(args: string[]) {
     let changed = false;
     if (cmd === 'generate') {
       const kind = option(o, 'template') as Parameters<typeof templateBundle>[0];
-      if (!['blank', 'card', 'token', 'board', 'dice', 'artwork'].includes(kind)) throw new Error('Unknown component template.');
+      if (!['blank', 'card', 'token', 'board', 'dice', 'book', 'artwork'].includes(kind)) throw new Error('Unknown component template.');
       const data = o.data ? await jsonFile(option(o, 'data')) : {};
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Component data must be a JSON object.');
       const bundle = templateBundle(kind);
@@ -154,7 +163,8 @@ async function main(args: string[]) {
     } else if (cmd === 'import') {
       const imported = readPortableZip(await readFile(option(o, 'bundle')));
       if (imported.kind !== 'component') throw new Error('Choose a component ZIP, not a project archive.');
-      const bundle = remapComponentBundle(imported.bundle);
+      const remapped = remapComponentBundle(imported.bundle);
+      const bundle = { ...remapped, components: withUniqueAssetNames(remapped.components, project.components) };
       project = applyCommand(project, { type: 'addComponents', components: bundle.components });
       changed = true; result = bundle;
     } else if (cmd === 'apply' || cmd === 'spawn') {
@@ -172,10 +182,22 @@ async function main(args: string[]) {
         } else ({ project, history } = applyPlaygroundCommand(project, history, command, o.actor as string | undefined));
       }
       changed = true; result = { commandsApplied: batch.length, project };
+    } else if (cmd === 'group') {
+      if (!['create', 'rename', 'ungroup', 'move'].includes(sub)) throw new Error('Choose group create, rename, ungroup or move.');
+      const list = (name: string) => typeof o[name] === 'string' ? option(o, name).split(',').map(value => value.trim()).filter(Boolean) : [];
+      const command: Command = sub === 'create'
+        ? { type: 'createGroup', id: typeof o.id === 'string' ? option(o, 'id') : uid('group'), name: typeof o.name === 'string' ? option(o, 'name') : nextGroupName(project),
+          parent: typeof o.parent === 'string' ? option(o, 'parent') : null, ids: list('pieces'), groups: list('groups') }
+        : sub === 'rename' ? { type: 'renameGroup', id: option(o, 'group'), name: option(o, 'name') }
+        : sub === 'ungroup' ? { type: 'ungroup', ids: list('group') }
+        : { type: 'moveToGroup', parent: option(o, 'parent') === 'root' ? null : option(o, 'parent'), ids: list('pieces'), groups: list('groups') };
+      ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), command));
+      changed = true; result = { command, groups: project.groups ?? [] };
     } else if (cmd === 'list') {
       const what = option(o, 'what', 'components');
-      if (!['components', 'instances', 'players'].includes(what)) throw new Error('Unknown list type.');
-      result = project[what as 'components' | 'instances' | 'players'];
+      if (!['components', 'instances', 'players', 'groups'].includes(what)) throw new Error('Unknown list type.');
+      result = what === 'groups' ? (project.groups ?? []).map(group => ({ ...group, pieces: groupMembers(project, group.id) }))
+        : project[what as 'components' | 'instances' | 'players'];
     } else if (cmd === 'inspect') {
       result = o.component ? project.components.find(c => c.id === o.component) : project;
       if (!result) throw new Error('Component not found.');
