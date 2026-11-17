@@ -205,3 +205,92 @@ export function polygonArea(geometry: MultiPolygon): number {
     return area + (index === 0 ? ringArea : -ringArea);
   }, 0), 0);
 }
+
+/** Shrinks or grows a path layer's box to fit its points exactly, keeping every point fixed in the parent's space. */
+export function fitPathBounds(node: DesignNode): DesignNode {
+  if (node.type !== 'shape' || node.shapeKind !== 'path' || !node.points.length) return node;
+  const bounds = pathBounds(node);
+  const width = Math.max(1, bounds.maxX - bounds.minX), height = Math.max(1, bounds.maxY - bounds.minY);
+  if (width > 4000 || height > 4000) throw new Error('Path bounds cannot exceed 4000 units.');
+  const angle = node.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+  const dx = bounds.minX + width / 2 - node.width / 2, dy = bounds.minY + height / 2 - node.height / 2;
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return { ...node, x: round(node.x + node.width / 2 + dx * cos - dy * sin - width / 2),
+    y: round(node.y + node.height / 2 + dx * sin + dy * cos - height / 2), width: round(width), height: round(height),
+    points: node.points.map(point => ({ ...point, x: round(point.x - bounds.minX), y: round(point.y - bounds.minY),
+      inX: round(point.inX), inY: round(point.inY), outX: round(point.outX), outY: round(point.outY) })) };
+}
+
+const corner = (x: number, y: number, inX = 0, inY = 0, outX = 0, outY = 0): VectorPoint => ({ x, y, inX, inY, outX, outY });
+/** Merges consecutive points at the same place (a fully rounded side), keeping the curve on both sides. */
+function mergeCoincident(points: VectorPoint[]): VectorPoint[] {
+  const result: VectorPoint[] = [];
+  for (const point of points) {
+    const last = result.at(-1);
+    if (last && Math.abs(last.x - point.x) < 1e-6 && Math.abs(last.y - point.y) < 1e-6) result[result.length - 1] = { ...last, outX: point.outX, outY: point.outY };
+    else result.push(point);
+  }
+  const first = result[0], last = result.at(-1);
+  if (result.length > 1 && first && last && Math.abs(last.x - first.x) < 1e-6 && Math.abs(last.y - first.y) < 1e-6) {
+    result[0] = { ...first, inX: last.inX, inY: last.inY };
+    result.pop();
+  }
+  return result;
+}
+
+/**
+ * The points and Bézier handles that draw a rectangle, ellipse, polygon or star exactly as it renders, so it can be
+ * edited as a pen path. Rounded corners are quadratic curves, which convert to cubic handles of 2/3 the radius.
+ */
+export function shapeAsPath(node: DesignNode): VectorPoint[] {
+  const { width: w, height: h } = node;
+  if (node.shapeKind === 'path') return node.points;
+  if (node.shapeKind === 'ellipse') {
+    const k = 0.5522847498, rx = w / 2, ry = h / 2;
+    return [corner(rx, 0, -k * rx, 0, k * rx, 0), corner(w, ry, 0, -k * ry, 0, k * ry),
+      corner(rx, h, k * rx, 0, -k * rx, 0), corner(0, ry, 0, k * ry, 0, -k * ry)];
+  }
+  if (node.shapeKind === 'rectangle') {
+    const r = Math.min(node.radius, w / 2, h / 2), c = r * 2 / 3;
+    if (!r) return [corner(0, 0), corner(w, 0), corner(w, h), corner(0, h)];
+    return mergeCoincident([corner(r, 0, -c, 0), corner(w - r, 0, 0, 0, c, 0), corner(w, r, 0, -c), corner(w, h - r, 0, 0, 0, c),
+      corner(w - r, h, c, 0), corner(r, h, 0, 0, -c, 0), corner(0, h - r, 0, c), corner(0, r, 0, 0, 0, -c)]);
+  }
+  return regularPoints(node, node.shapeKind === 'star').map(([x, y]) => corner(x, y));
+}
+
+/** Removes points that barely change a closed ring's outline (Ramer–Douglas–Peucker), within `tolerance` units. */
+export function simplifyRing(ring: Point[], tolerance: number): Point[] {
+  if (ring.length <= 3) return ring;
+  const distance = ([x, y]: Point, [ax, ay]: Point, [bx, by]: Point) => {
+    const dx = bx - ax, dy = by - ay, length = dx * dx + dy * dy;
+    const t = length ? Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / length)) : 0;
+    return Math.hypot(x - ax - t * dx, y - ay - t * dy);
+  };
+  const keep = (points: Point[]): Point[] => {
+    let index = -1, furthest = 0;
+    for (let i = 1; i < points.length - 1; i++) {
+      const d = distance(points[i], points[0], points[points.length - 1]);
+      if (d > furthest) { furthest = d; index = i; }
+    }
+    if (furthest <= tolerance) return [points[0], points[points.length - 1]];
+    return [...keep(points.slice(0, index + 1)).slice(0, -1), ...keep(points.slice(index))];
+  };
+  // Split the closed ring at its two most distant points so both halves simplify as open lines.
+  let far = 0;
+  ring.forEach((point, i) => { if (Math.hypot(point[0] - ring[0][0], point[1] - ring[0][1]) > Math.hypot(ring[far][0] - ring[0][0], ring[far][1] - ring[0][1])) far = i; });
+  const first = keep(ring.slice(0, far + 1)), second = keep([...ring.slice(far), ring[0]]);
+  return [...first.slice(0, -1), ...second.slice(0, -1)];
+}
+
+/** The outline rings of a live compound in its own coordinates, each simplified to at most `maxPoints` points. */
+export function compoundRings(nodes: DesignNode[], compound: DesignNode, maxPoints = 128): Point[][] {
+  const geometry = compoundGeometry(nodes.filter(node => node.parent === compound.id), compound.compoundOperation, nodes);
+  return geometry.flatMap(polygon => polygon).map(ring => {
+    // polygon-clipping repeats the first point at the end of each ring.
+    const open = ring.length > 1 && ring[0][0] === ring.at(-1)![0] && ring[0][1] === ring.at(-1)![1] ? ring.slice(0, -1) : ring;
+    let tolerance = .05, simplified = simplifyRing(open as Point[], tolerance);
+    while (simplified.length > maxPoints && tolerance < 1000) simplified = simplifyRing(open as Point[], tolerance *= 2);
+    return simplified;
+  }).filter(ring => ring.length >= 3);
+}

@@ -22,7 +22,9 @@ export const nodeSchema = z.object({
   text: z.string().max(10000), fill: color, color, fontSize: num.min(4).max(400),
   font: z.string().max(100), radius: num.min(0).max(2000), rotation: num,
   layout: z.enum(['absolute', 'row', 'column']), gap: num.min(0).max(200),
-  padding: num.min(0).max(200), align: z.enum(['start', 'center', 'end']),
+  padding: num.min(0).max(200),
+  /** Text alignment (justify applies to text only) or a frame's cross-axis child alignment. */
+  align: z.enum(['start', 'center', 'end', 'justify']),
   widthMode: z.enum(['fixed', 'hug', 'fill']).default('fixed'),
   heightMode: z.enum(['fixed', 'hug', 'fill']).default('fixed'),
   wrap: z.boolean().default(false),
@@ -50,6 +52,20 @@ export const nodeSchema = z.object({
   imageOffsetX: num.min(-8000).max(8000).optional(), imageOffsetY: num.min(-8000).max(8000).optional(),
   imageScaleX: num.min(.01).max(100).optional(), imageScaleY: num.min(.01).max(100).optional(),
   imageRotation: num.min(-360).max(360).optional(),
+  /** Typography for text layers; all optional so older saves stay valid. */
+  fontWeight: z.number().int().min(100).max(900).optional(),
+  italic: z.boolean().optional(),
+  textDecoration: z.enum(['none', 'underline', 'line-through']).optional(),
+  textTransform: z.enum(['none', 'uppercase', 'lowercase', 'capitalize']).optional(),
+  /** Extra space between letters, in px. */
+  letterSpacing: num.min(-50).max(200).optional(),
+  /** Line height as a multiple of the font size. */
+  lineHeight: num.min(.5).max(5).optional(),
+  /** Where text sits vertically inside its box. */
+  verticalAlign: z.enum(['start', 'center', 'end']).optional(),
+  textStroke: color.optional(), textStrokeWidth: num.min(0).max(50).optional(),
+  textShadow: color.optional(), textShadowX: num.min(-200).max(200).optional(), textShadowY: num.min(-200).max(200).optional(),
+  textShadowBlur: num.min(0).max(200).optional(),
   visible: z.boolean().default(true),
   visibilityField: z.string().max(10000).default(''),
   visibilityValue: z.string().max(10000).default(''),
@@ -266,8 +282,9 @@ function validateComponents(components: Component[]) {
         if (node.type === 'shape' && node.shapeKind === 'path' && node.points.length < (node.pathClosed ? 3 : 2)) {
           throw new Error(`Path “${node.name}” needs at least ${node.pathClosed ? 3 : 2} points.`);
         }
-        if (node.type === 'component') {
-          if (!node.componentId || !componentIds.has(node.componentId)) throw new Error(`Nested component “${node.name}” references a missing component.`);
+        // A linked artwork layer may not have chosen its component yet; it renders a placeholder.
+        if (node.type === 'component' && node.componentId !== undefined) {
+          if (!componentIds.has(node.componentId)) throw new Error(`Nested component “${node.name}” references a missing component.`);
           const nested = components.find(item => item.id === node.componentId)!;
           if (isAsset(nested)) throw new Error('Assets must be used through image or text layers, not nested as pieces.');
           if (node.dataSource === 'row' && node.dataRow >= nested.rows.length) {

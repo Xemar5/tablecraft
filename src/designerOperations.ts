@@ -1,4 +1,5 @@
 import { makeNode, uid, type DesignNode } from './domain';
+import { compoundRings, expandPathBounds, fitPathBounds, shapeAsPath } from './vectorGeometry';
 
 function bounds(node: DesignNode) {
   const radians = node.rotation * Math.PI / 180;
@@ -165,4 +166,41 @@ export function uncombineLayers(nodes: DesignNode[], ids: string[]): { nodes: De
     else if (!transformed.has(node.id)) result.push(node);
   });
   return { nodes: result, selected: children.map(child => child.id) };
+}
+
+/**
+ * Converts shapes and live boolean groups into editable pen paths ("flatten"). Shapes keep their exact outline as
+ * points and Bézier handles. A boolean group becomes one path; when its result has several outlines (separate pieces
+ * or holes) it stays a group of paths combined with Exclude, which reproduces the holes.
+ */
+export function convertToPaths(nodes: DesignNode[], ids: string[]): { nodes: DesignNode[]; selected: string[] } {
+  const roots = selectedRoots(nodes, ids).filter(node => !(node.type === 'shape' && node.shapeKind === 'path'));
+  if (!roots.length || roots.some(node => node.type !== 'shape' && node.type !== 'compound')) throw new Error('Select shapes or boolean groups to convert to paths.');
+  let result = nodes;
+  for (const root of roots) {
+    const descendants = new Set<string>();
+    for (let size = -1; size !== descendants.size;) {
+      size = descendants.size;
+      result.forEach(node => { if (node.parent && (node.parent === root.id || descendants.has(node.parent))) descendants.add(node.id); });
+    }
+    if (root.type === 'shape') {
+      const converted = expandPathBounds({ ...root, shapeKind: 'path', points: shapeAsPath(root).map(point => ({ ...point })), pathClosed: true });
+      result = result.map(node => node.id === root.id ? converted : node);
+      continue;
+    }
+    const rings = compoundRings(result, root);
+    if (!rings.length) throw new Error(`“${root.name}” has no outline to convert.`);
+    const points = (ring: [number, number][]) => ring.map(([x, y]) => ({ x, y, inX: 0, inY: 0, outX: 0, outY: 0 }));
+    let replacement: DesignNode[];
+    if (rings.length === 1) {
+      replacement = [fitPathBounds({ ...root, type: 'shape', shapeKind: 'path', points: points(rings[0]), pathClosed: true, layout: 'absolute' })];
+    } else {
+      replacement = [{ ...root, compoundOperation: 'exclude' }, ...rings.map((ring, index) => fitPathBounds(makeNode('shape', {
+        name: `${root.name} outline ${index + 1}`, parent: root.id, x: 0, y: 0, width: root.width, height: root.height,
+        shapeKind: 'path', points: points(ring), pathClosed: true, fill: root.fill, stroke: root.stroke, strokeWidth: root.strokeWidth,
+      })))];
+    }
+    result = result.flatMap(node => node.id === root.id ? replacement : descendants.has(node.id) ? [] : [node]);
+  }
+  return { nodes: result, selected: roots.map(node => node.id) };
 }
