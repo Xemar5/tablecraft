@@ -57,6 +57,41 @@ test('fullscreen preview is local, starts at 100%, zooms, rotates, flips and clo
   await expect(dialog).toHaveCount(0);
 });
 
+test('fullscreen preview keeps following the pointer while zooming, rotating and moving', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).first();
+  await stack.hover();
+  await page.keyboard.press('z');
+  const dialog = page.getByRole('dialog', { name: /^Fullscreen preview:/ });
+  const art = dialog.locator('.piece-preview-art');
+  const box = async () => (await art.boundingBox())!;
+  const bars = async () => ({ top: (await dialog.locator('.piece-preview-title').boundingBox())!, help: (await dialog.locator('.piece-preview-help').boundingBox())! });
+  // Zoom in without moving the pointer afterwards: the view must already be aimed at the pointer's edge.
+  await page.mouse.move(640, 2);
+  for (let n = 0; n < 15; n++) await page.mouse.wheel(0, -100);
+  await expect(dialog).toContainText('418%');
+  const { top, help } = await bars();
+  await expect.poll(async () => Math.round((await box()).y - (top.y + top.height))).toBe(24);
+  await page.mouse.move(640, 798);
+  await expect.poll(async () => Math.round(help.y - ((await box()).y + (await box()).height))).toBe(24);
+  // Rotating swaps the sides; the pointer at the bottom-right corner still shows that corner of the turned piece.
+  await page.mouse.move(1278, 798);
+  await page.keyboard.press('e');
+  await expect(art).toHaveAttribute('data-rotation', '90');
+  await expect.poll(async () => { const b = await box(); return [Math.round(1280 - (b.x + b.width)), Math.round(help.y - (b.y + b.height))]; }).toEqual([24, 24]);
+  await page.mouse.move(2, 400);
+  await expect.poll(async () => Math.round((await box()).x)).toBe(24);
+  await page.keyboard.press('Escape');
+
+  // A piece that fits stays centred in the space between the bars, wherever the pointer is.
+  await stack.hover();
+  await page.keyboard.press('z');
+  const fitting = await box(), bands = await bars();
+  expect(Math.round(fitting.x + fitting.width / 2)).toBe(640);
+  expect(Math.abs((fitting.y + fitting.height / 2) - (bands.top.y + bands.top.height + bands.help.y) / 2)).toBeLessThan(1);
+});
+
 test('Z works for main hands and private table hands without exposing a hidden front', async ({ page }) => {
   let project = starterProject();
   const deck = project.instances.find(i => i.stack)!;

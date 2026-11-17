@@ -73,9 +73,11 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
   const [previewOnLeft, setPreviewOnLeft] = useState(false);
-  const [fullscreenId, setFullscreenId] = useState<string>();
-  const closeFullscreen = useCallback(() => setFullscreenId(undefined), []);
-  const fullscreenItem = p.instances.find(item => item.id === fullscreenId);
+  // The pointer position at opening lets a large preview start aimed where the pointer already is.
+  const [fullscreen, setFullscreen] = useState<{ id: string; pointer?: { x: number; y: number } }>();
+  const lastPointer = useRef<{ x: number; y: number }>(undefined);
+  const closeFullscreen = useCallback(() => setFullscreen(undefined), []);
+  const fullscreenItem = p.instances.find(item => item.id === fullscreen?.id);
   const fullscreenComponent = p.components.find(component => component.id === fullscreenItem?.componentId);
   const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number; rotation: number }>();
   const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number; startWorld: { x: number; y: number }; rotation: number }>(null);
@@ -218,8 +220,13 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
       }
     };
     const blur = () => { setAltDown(false); setHovered(undefined); setPreviewItem(undefined); pointer.current = null; };
+    const track = (event: PointerEvent) => { lastPointer.current = { x: event.clientX, y: event.clientY }; };
     window.addEventListener('keydown', key); window.addEventListener('keyup', key); window.addEventListener('blur', blur);
-    return () => { window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); window.removeEventListener('blur', blur); };
+    window.addEventListener('pointermove', track, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('keydown', key); window.removeEventListener('keyup', key); window.removeEventListener('blur', blur);
+      window.removeEventListener('pointermove', track, { capture: true });
+    };
   }, []);
   useEffect(() => {
     if (!pointer.current || gesture.current || handGesture.current) return;
@@ -518,7 +525,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
       if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"]') || document.querySelector('[role="dialog"],[aria-modal="true"]')) return;
       if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'z') {
         const target = p.instances.find(item => item.id === (hovered ?? selected.at(-1)));
-        if (target) { e.preventDefault(); setFullscreenId(target.id); setAltDown(false); }
+        if (target) { e.preventDefault(); setFullscreen({ id: target.id, pointer: lastPointer.current }); setAltDown(false); }
         return;
       }
       if (e.key === 'Escape') { setSelected([]); setSelectedSeatId(undefined); }
@@ -1121,7 +1128,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     {removingSeat && <Modal title={`Remove ${removingSeat.name}?`} subtitle={`The seat is removed from the table. ${(() => { const n = p.instances.filter(i => i.holder === removingSeat.id).length; return n ? `Its ${n} held ${n === 1 ? 'piece is' : 'pieces are'} spread on the table where the seat was. ` : ''; })()}${seatOverride(removingSeat) ? `${overrideLabel(seatOverride(removingSeat)!)}: ${overrideNote(seatOverride(removingSeat)!, removingSeat.name)} ` : ''}This also clears undo history.`} onClose={() => setRemovingSeat(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setRemovingSeat(undefined)}>Cancel</button><button className="button danger" onClick={() => { const id = removingSeat.id; void dispatch({ type: 'removePlayer', playerId: id }).then(ok => { if (ok) { setSelectedSeatId(seat => seat === id ? undefined : seat); setRemovingSeat(undefined); } }); }}>Remove seat</button></div>
     </Modal>}
-    {fullscreenItem && fullscreenComponent && <PiecePreview key={fullscreenItem.id} item={fullscreenItem} component={fullscreenComponent} components={p.components} actor={actor} viewer={viewer} onClose={closeFullscreen} />}
+    {fullscreenItem && fullscreenComponent && <PiecePreview key={fullscreenItem.id} item={fullscreenItem} component={fullscreenComponent} components={p.components} actor={actor} viewer={viewer} pointer={fullscreen?.pointer} onClose={closeFullscreen} />}
     {seatEditor && <Modal title="A seat at the table" subtitle="Your name, your color, your little corner of the world." onClose={() => setSeatEditor(undefined)}>
       <form className="seat-form" onSubmit={e => { e.preventDefault(); dispatch({ type: 'player', player: seatEditor }); setSeatEditor(undefined); }}>
         <Field label="Player name"><input required maxLength={50} value={seatEditor.name} onChange={e => setSeatEditor({ ...seatEditor, name: e.target.value })} /></Field>

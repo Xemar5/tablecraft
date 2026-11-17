@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ComponentView } from './ComponentView';
 import { type Component, type Instance } from './domain';
@@ -6,25 +6,65 @@ import { previewPermission } from './playgroundPreview';
 import { cssPx } from './uiScale';
 import './playgroundPreview.css';
 
-export function PiecePreview({ item, component, components, actor, viewer, onClose }: {
-  item: Instance; component: Component; components: Component[]; actor: string; viewer: boolean; onClose: () => void;
+/** Space kept between a panned piece's edge and the window or the title and help bars, in page CSS pixels. */
+const PREVIEW_MARGIN = 24;
+
+/**
+ * Where a piece of `size` sits along one axis of the visible band from `start` to `end`. A piece that fits is
+ * centred; a larger one pans with the pointer, so the pointer at either end of the band shows that edge of the piece.
+ */
+function previewCentre(size: number, start: number, end: number, pointer: number | undefined) {
+  const room = end - start, centre = (start + end) / 2, overflow = size - room;
+  if (overflow <= 0 || room <= 1 || pointer === undefined) return centre;
+  return centre + (.5 - Math.max(0, Math.min(1, (pointer - start) / room))) * overflow;
+}
+
+export function PiecePreview({ item, component, components, actor, viewer, pointer: openedAt, onClose }: {
+  item: Instance; component: Component; components: Component[]; actor: string; viewer: boolean;
+  /** The pointer position (viewport pixels) when the preview opened. */
+  pointer?: { x: number; y: number }; onClose: () => void;
 }) {
   const permission = previewPermission(item, component, actor, viewer);
   const [zoom, setZoom] = useState(1);
   const [flipped, setFlipped] = useState(false);
   const [rotation, setRotation] = useState(0);
-  const [pan, setPan] = useState({ x: 0, y: 0 });
   const root = useRef<HTMLDivElement>(null);
   const art = useRef<HTMLDivElement>(null);
+  const title = useRef<HTMLDivElement>(null);
+  const help = useRef<HTMLDivElement>(null);
   const animation = useRef<Animation>(undefined);
-  useLayoutEffect(() => {
-    const element = art.current;
-    if (!element) return;
-    const transform = `translate(-50%, -50%) translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scale(${zoom})`;
+  // The pan is derived from the latest pointer position, so zooming, rotating and resizing re-aim the view as well as
+  // moving the pointer. It is applied straight to the compositor animation instead of re-rendering on every move.
+  const pointer = useRef(openedAt);
+  const view = useRef({ zoom, rotation });
+  const place = useCallback(() => {
+    const element = art.current, frame = root.current;
+    if (!element || !frame) return;
+    const { zoom, rotation } = view.current;
+    const turn = rotation * Math.PI / 180, cos = Math.abs(Math.cos(turn)), sin = Math.abs(Math.sin(turn));
+    const width = (cos * component.width + sin * component.height) * zoom;
+    const height = (sin * component.width + cos * component.height) * zoom;
+    // Layout sizes are page CSS pixels; pointer and bounding-rect positions are viewport pixels.
+    const rect = frame.getBoundingClientRect(), frameWidth = frame.clientWidth, frameHeight = frame.clientHeight;
+    const at = pointer.current && { x: cssPx(pointer.current.x - rect.left), y: cssPx(pointer.current.y - rect.top) };
+    const top = (title.current?.offsetHeight ?? 0) + PREVIEW_MARGIN, bottom = frameHeight - (help.current?.offsetHeight ?? 0) - PREVIEW_MARGIN;
+    const x = previewCentre(width, PREVIEW_MARGIN, frameWidth - PREVIEW_MARGIN, at?.x) - frameWidth / 2;
+    const y = previewCentre(height, top, bottom, at?.y) - frameHeight / 2;
+    const transform = `translate(-50%, -50%) translate(${x}px, ${y}px) rotate(${rotation}deg) scale(${zoom})`;
     const frames = [{ transform }, { transform }];
-    if (animation.current?.playState === 'running' && animation.current.effect instanceof KeyframeEffect) animation.current.effect.setKeyframes(frames);
+    const effect = animation.current?.effect;
+    if (animation.current?.playState === 'running' && effect instanceof KeyframeEffect) effect.setKeyframes(frames);
     else animation.current = element.animate(frames, { duration: 1000, iterations: Infinity });
-  }, [pan.x, pan.y, rotation, zoom]);
+  }, [component.width, component.height]);
+  useLayoutEffect(() => {
+    view.current = { zoom, rotation };
+    place();
+  }, [place, rotation, zoom]);
+  useEffect(() => {
+    const observer = new ResizeObserver(() => place());
+    for (const element of [root.current, title.current, help.current]) if (element) observer.observe(element);
+    return () => observer.disconnect();
+  }, [place]);
   useEffect(() => () => animation.current?.cancel(), []);
   useEffect(() => {
     const previous = document.activeElement;
@@ -60,21 +100,12 @@ export function PiecePreview({ item, component, components, actor, viewer, onClo
   const back = permission.canFlip ? permission.back !== flipped : permission.back;
   return createPortal(<div ref={root} tabIndex={-1} role="dialog" aria-modal="true" data-theme-fixed aria-label={`Fullscreen preview: ${component.name}`}
     className="piece-preview-fullscreen" onClick={onClose} onPointerDown={event => event.stopPropagation()}
-    onPointerMove={event => {
-      const rect = event.currentTarget.getBoundingClientRect();
-      const turn = rotation * Math.PI / 180;
-      const width = (Math.abs(Math.cos(turn)) * component.width + Math.abs(Math.sin(turn)) * component.height) * zoom;
-      const height = (Math.abs(Math.sin(turn)) * component.width + Math.abs(Math.cos(turn)) * component.height) * zoom;
-      setPan({
-        x: (.5 - (event.clientX - rect.left) / rect.width) * Math.max(0, width - cssPx(rect.width) + 100),
-        y: (.5 - (event.clientY - rect.top) / rect.height) * Math.max(0, height - cssPx(rect.height) + 160),
-      });
-    }}>
+    onPointerMove={event => { pointer.current = { x: event.clientX, y: event.clientY }; place(); }}>
     <div ref={art} className="piece-preview-art" data-back={back} data-rotation={rotation} style={{
       width: component.width, height: component.height,
     }}><ComponentView component={component} components={components} row={item.row} back={back} hidden={permission.hidden} /></div>
-    <div className="piece-preview-title"><strong>{component.name}</strong><span>{Math.round(zoom * 100)}%</span></div>
-    <div className="piece-preview-help">
+    <div ref={title} className="piece-preview-title"><strong>{component.name}</strong><span>{Math.round(zoom * 100)}%</span></div>
+    <div ref={help} className="piece-preview-help">
       <span>Wheel · Zoom</span><span>Move pointer · Pan</span>
       {permission.canFlip ? <span>F · Flip</span> : <span>Back only</span>}
       <span>Q / E · Rotate</span><span>Click / Z / Esc · Close</span>
