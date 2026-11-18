@@ -61,3 +61,39 @@ test('the selection ring and its corner handles keep their on-screen size at any
     expect((await sizes()).corner).toBeCloseTo(6, 0);
   }
 });
+
+test('pieces move to the back or front and step past overlapping pieces with Ctrl/Cmd+[ and ] or the inspector', async ({ page }) => {
+  await page.goto('/');
+  const project = await saved(page);
+  const kind = (componentId: string) => project.components.find(c => c.id === componentId)!.kind;
+  const [a, b] = project.instances.filter(i => !i.holder && !i.stack && kind(i.componentId) === 'token').slice(0, 2);
+  // Put the second token over the right part of the first, so the first's left edge stays clickable.
+  await page.evaluate(([id, x, y]) => {
+    const archive = JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!);
+    Object.assign(archive.projects[0].instances.find((i: { id: string }) => i.id === id), { x, y });
+    localStorage.setItem('tablecraft.workspace.v1', JSON.stringify(archive));
+  }, [b.id, a.x + 30, a.y] as const);
+  await page.reload();
+  // Bottom-to-top table units, as the table draws them (stacks once, boards always underneath).
+  const units = async () => {
+    const current = await saved(page);
+    return [...new Set(current.instances.filter(i => !i.holder && current.components.find(c => c.id === i.componentId)!.kind !== 'board').map(i => i.stack ?? i.id))];
+  };
+  const order = async () => (await units()).filter(key => key === a.id || key === b.id);
+  const first = page.locator(`[data-piece-id="${a.id}"]`);
+  const leftEdge = async () => { const box = (await first.boundingBox())!; return { x: 8, y: box.height / 2 }; };
+  // Clicking raises the piece; the inspector's Send backward steps it under the token it overlaps.
+  await first.click({ position: await leftEdge() });
+  await expect.poll(order).toEqual([b.id, a.id]);
+  await page.mouse.move(5, 5);
+  await page.locator('.action-grid').getByRole('button', { name: /^Send backward/ }).click();
+  await expect.poll(order).toEqual([a.id, b.id]);
+  await page.keyboard.press('Control+BracketRight');
+  await expect.poll(order).toEqual([b.id, a.id]);
+  // With Shift, the hovered piece goes all the way to the back or front.
+  await first.hover({ position: await leftEdge() });
+  await page.keyboard.press('Control+Shift+BracketLeft');
+  await expect.poll(async () => (await units())[0]).toBe(a.id);
+  await page.keyboard.press('Control+Shift+BracketRight');
+  await expect.poll(async () => (await units()).at(-1)).toBe(a.id);
+});

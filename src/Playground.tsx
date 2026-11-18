@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView } from './ComponentView';
 import { canStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
@@ -570,6 +570,13 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'l' && shortcutPiece) { e.preventDefault(); dispatch({ type: 'move', ids: shortcutIds, patch: { locked: !shortcutPiece.locked } }); }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); dispatch({ type: 'delete', ids: shortcutIds }); setSelected([]); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); clone(shortcutIds); }
+      // Ctrl/Cmd+] and [ step pieces forward or backward past the next piece they overlap; with Shift, to the front or back.
+      // The physical bracket keys are matched, since Shift changes the typed character.
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.code === 'BracketRight' || e.code === 'BracketLeft') && shortcutIds.length) {
+        e.preventDefault();
+        const up = e.code === 'BracketRight';
+        dispatch({ type: 'zOrder', ids: shortcutIds, move: e.shiftKey ? up ? 'front' : 'back' : up ? 'forward' : 'backward' });
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c' && selected.length) {
         e.preventDefault();
         const originals = p.instances.filter(i => selected.includes(i.id) || (i.stack && p.instances.some(other => selected.includes(other.id) && other.stack === i.stack)));
@@ -1077,6 +1084,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
               <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Layers size={17} /><span>Draw all</span></button>
             </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
+            <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'forward' })} disabled={selectedPieces.every(i => i.holder)} title="Bring forward (Ctrl/Cmd+]; with Shift, to the front)"><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
+            <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'backward' })} disabled={selectedPieces.every(i => i.holder)} title="Send backward (Ctrl/Cmd+[; with Shift, to the back)"><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>

@@ -9,7 +9,7 @@ test('selection actions show their shortcuts and L toggles the lock', async ({ p
   const piece = page.locator(`[data-piece-id="${single.id}"]`);
   await piece.click();
   const grid = page.locator('.action-grid');
-  for (const [name, key] of [['Flip', 'F'], ['Rotate −90°', 'Q'], ['Rotate +90°', 'E'], ['Clone', 'Ctrl D'], ['Draw to hand', '1'], ['Lock', 'L'], ['Delete', 'Del']])
+  for (const [name, key] of [['Flip', 'F'], ['Rotate −90°', 'Q'], ['Rotate +90°', 'E'], ['Clone', 'Ctrl D'], ['Draw to hand', '1'], ['Bring forward', 'Ctrl ]'], ['Send backward', 'Ctrl ['], ['Lock', 'L'], ['Delete', 'Del']])
     await expect(grid.getByRole('button', { name: new RegExp(`^${name.replace(/[+]/g, '\\$&')}`) }).locator('kbd')).toHaveText(key);
   await page.mouse.move(5, 5);
   await page.keyboard.press('l');

@@ -1,5 +1,6 @@
 import { makeNode, uid, type DesignNode } from './domain';
 import { compoundRings, expandPathBounds, fitPathBounds, shapeAsPath } from './vectorGeometry';
+import { reorder, type OrderMove } from './zOrder';
 
 function bounds(node: DesignNode) {
   const radians = node.rotation * Math.PI / 180;
@@ -203,4 +204,20 @@ export function convertToPaths(nodes: DesignNode[], ids: string[]): { nodes: Des
     result = result.flatMap(node => node.id === root.id ? replacement : descendants.has(node.id) ? [] : [node]);
   }
   return { nodes: result, selected: roots.map(node => node.id) };
+}
+
+/**
+ * Moves the selected layers forward, backward, to the front or to the back among their siblings (paint order is
+ * array order, so the front is last). Each parent's children are reordered on their own and written back into the
+ * same array slots, so other layers keep their places; selected descendants of selected layers move with them.
+ */
+export function reorderLayers(nodes: DesignNode[], ids: string[], move: OrderMove): DesignNode[] {
+  const chosen = new Set(selectedRoots(nodes, ids).map(node => node.id));
+  const next = [...nodes];
+  for (const parent of new Set(nodes.filter(node => chosen.has(node.id)).map(node => node.parent))) {
+    const slots = nodes.flatMap((node, index) => node.parent === parent ? [index] : []);
+    const ordered = reorder(slots.map(index => nodes[index]), node => chosen.has(node.id), move);
+    slots.forEach((slot, index) => { next[slot] = ordered[index]; });
+  }
+  return next;
 }

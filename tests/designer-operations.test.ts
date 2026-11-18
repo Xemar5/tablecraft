@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { makeNode } from '../src/domain';
-import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, uncombineLayers, ungroupLayers } from '../src/designerOperations';
+import { combineLayers, copySubtrees, groupLayers, pasteSubtrees, reorderLayers, uncombineLayers, ungroupLayers } from '../src/designerOperations';
 
 describe('designer subtree operations', () => {
+  it('moves layers forward, backward, to the front or back among their own siblings only', () => {
+    const a = makeNode('text', { name: 'a' }), frame = makeNode('frame', { name: 'frame' });
+    const inner1 = makeNode('text', { name: 'inner1', parent: frame.id }), b = makeNode('text', { name: 'b' });
+    const inner2 = makeNode('text', { name: 'inner2', parent: frame.id }), c = makeNode('text', { name: 'c' });
+    const nodes = [a, frame, inner1, b, inner2, c];
+    const names = (list: typeof nodes, parent: string | null = null) => list.filter(node => node.parent === parent).map(node => node.name);
+    expect(names(reorderLayers(nodes, [a.id], 'forward'))).toEqual(['frame', 'a', 'b', 'c']);
+    expect(names(reorderLayers(nodes, [a.id], 'front'))).toEqual(['frame', 'b', 'c', 'a']);
+    expect(names(reorderLayers(nodes, [c.id], 'back'))).toEqual(['c', 'a', 'frame', 'b']);
+    expect(names(reorderLayers(nodes, [b.id], 'backward'))).toEqual(['a', 'b', 'frame', 'c']);
+    // Children reorder inside their parent; other layers keep their array slots.
+    const inner = reorderLayers(nodes, [inner2.id, b.id], 'back');
+    expect(names(inner, frame.id)).toEqual(['inner2', 'inner1']);
+    expect(names(inner)).toEqual(['b', 'a', 'frame', 'c']);
+    expect(inner.map(node => node.parent)).toEqual(nodes.map(node => node.parent));
+    // A selected child of a selected layer moves with its parent, not on its own.
+    expect(names(reorderLayers(nodes, [frame.id, inner1.id], 'back'), frame.id)).toEqual(['inner1', 'inner2']);
+    expect(reorderLayers(nodes, [c.id], 'forward')).toEqual(nodes);
+  });
   it('copies selected subtrees once, remapping every ID and internal parent', () => {
     const frame = makeNode('frame');
     const child = makeNode('frame', { parent: frame.id });

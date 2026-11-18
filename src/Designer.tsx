@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
-import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, CaseLower, CaseSensitive, CaseUpper, ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Italic, Layers, Link2, MousePointer2, MoveHorizontal, MoveVertical, PenTool, Redo2, RemoveFormatting, RotateCcw, RotateCw, Spline, Square, Strikethrough, Trash2, Type, Underline, Undo2, Ungroup, Upload } from 'lucide-react';
+import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, BringToFront, CaseLower, CaseSensitive, CaseUpper, ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Italic, Layers, Link2, MousePointer2, MoveHorizontal, MoveVertical, PenTool, Redo2, RemoveFormatting, RotateCcw, RotateCw, SendToBack, Spline, Square, Strikethrough, Trash2, Type, Underline, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
 import { hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
-import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
+import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees, reorderLayers, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
+import type { OrderMove } from './zOrder';
 import { componentZip, downloadZip } from './portable';
 import { FontPicker } from './FontPicker';
 import { ColorField, Field, HorizontalScroll, IconChoice, Modal, NumberField, ScrollArrows, SectionTitle, Toggle, useSmoothHorizontalWheel } from './ui';
@@ -444,6 +445,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     try { const result = groupLayers(nodes, selected); update({ [face]: result.nodes }); setSelected(result.selected); }
     catch (error) { notify(error instanceof Error ? error.message : 'Unable to group layers.', true); }
   };
+  const orderLayers = (move: OrderMove) => {
+    const next = reorderLayers(nodes, selected, move);
+    if (next.some((item, index) => item !== nodes[index])) void update({ [face]: next });
+  };
   const removeNode = () => {
     if (!selected.length) return;
     const remove = descendantsOf(nodes, selected);
@@ -584,6 +589,12 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           const copied = key === 'd' ? copySubtrees(nodes, selected) : clipboard.current!.nodes;
           if (key === 'v' && (clipboard.current!.componentId !== component.id || clipboard.current!.face !== face)) throw new Error('Paste layers into their original component face.');
           const result = pasteSubtrees(nodes, copied); update({ [face]: result.nodes }); setSelected(result.selected);
+        } else if (command && (event.code === 'BracketRight' || event.code === 'BracketLeft') && selected.length) {
+          // Ctrl/Cmd+] and [ step layers forward or backward; with Shift, to the front or back. The physical keys are
+          // matched, since Shift changes the typed character.
+          event.preventDefault();
+          const up = event.code === 'BracketRight';
+          orderLayers(event.shiftKey ? up ? 'front' : 'back' : up ? 'forward' : 'backward');
         } else if (command && key === 'g') {
           event.preventDefault();
           if (event.shiftKey) {
@@ -1081,7 +1092,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             </div>}
           </div>
           <div className="inspector-section design-section transform-section">
-            <SectionTitle title="Position and size" />
+            <SectionTitle title="Position and size">
+              <button className="icon-button" title="Bring forward (Ctrl/Cmd+]; with Shift, to the front)" aria-label="Bring forward" onClick={() => orderLayers('forward')}><BringToFront size={14} /></button>
+              <button className="icon-button" title="Send backward (Ctrl/Cmd+[; with Shift, to the back)" aria-label="Send backward" onClick={() => orderLayers('backward')}><SendToBack size={14} /></button>
+            </SectionTitle>
             <div className="field-grid transform-grid"><NumberField label="X" icon={<span className="axis-glyph">X</span>} value={node.x} onChange={x => updateNode({ x })}
                 disabled={!positionsX} title={positionsX ? undefined : 'Ignored: this layer is placed by its sizing mode or parent layout'} />
               <NumberField label="Y" icon={<span className="axis-glyph">Y</span>} value={node.y} onChange={y => updateNode({ y })}

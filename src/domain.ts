@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { reorder } from './zOrder';
 
 const id = z.string().min(1).max(100);
 const num = z.number().finite();
@@ -202,6 +203,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('paste'), instances: z.array(instanceSchema).min(1).max(1000) }),
   z.object({ type: z.literal('duplicate'), copies: z.array(z.object({ sourceId: id, id, stack: id.nullable() })).min(1).max(1000), dx: num, dy: num }),
   z.object({ type: z.literal('front'), ids: z.array(id).min(1) }),
+  /** Moves table pieces (whole stacks) to the front or back, or one step past the next overlapping piece. Boards stay underneath. */
+  z.object({ type: z.literal('zOrder'), ids: z.array(id).min(1), move: z.enum(['front', 'back', 'forward', 'backward']) }),
   z.object({ type: z.literal('extractMove'), id, x: num, y: num }),
   z.object({ type: z.literal('roll'), ids: z.array(id).min(1), seed: z.number().int() }),
   /** Turns book pages (clamped) or steps dice to their next face (looped) by `delta` rows. */
@@ -633,6 +636,31 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       const items = [...new Set(command.ids)].map(get);
       items.forEach(editable);
       p.instances = [...p.instances.filter(i => !items.includes(i)), ...items];
+      break;
+    }
+    case 'zOrder': {
+      const ids = new Set(command.ids.map(key => get(key).id));
+      // Each stack moves as one unit; held pieces and boards (always drawn underneath) keep their places.
+      const units = new Map<string, Instance[]>();
+      const rest: Instance[] = [];
+      for (const item of p.instances) {
+        if (item.holder || component(item).kind === 'board') { rest.push(item); continue; }
+        const key = item.stack ?? item.id;
+        units.set(key, [...units.get(key) ?? [], item]);
+      }
+      const chosen = new Set([...units.values()].filter(members => members.some(item => ids.has(item.id))));
+      chosen.forEach(members => members.forEach(editable));
+      const box = (members: Instance[]) => {
+        const item = members.at(-1)!, c = component(item), turn = item.rotation * Math.PI / 180;
+        const cos = Math.abs(Math.cos(turn)), sin = Math.abs(Math.sin(turn));
+        const halfWidth = (c.width * cos + c.height * sin) * item.scale / 2, halfHeight = (c.width * sin + c.height * cos) * item.scale / 2;
+        return { left: item.x - halfWidth, right: item.x + halfWidth, top: item.y - halfHeight, bottom: item.y + halfHeight };
+      };
+      const overlaps = (a: Instance[], b: Instance[]) => {
+        const first = box(a), second = box(b);
+        return first.left < second.right && second.left < first.right && first.top < second.bottom && second.top < first.bottom;
+      };
+      p.instances = [...rest, ...reorder([...units.values()], members => chosen.has(members), command.move, overlaps).flat()];
       break;
     }
     case 'extractMove': {

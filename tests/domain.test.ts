@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, bind, canStack, makeInstance, makeNode, nextSeatPlacement, safeImage, shareComponents, stackMembers, validateProject, visibleBack, visibleStackMembers } from '../src/domain';
 import { starterProject, template } from '../src/templates';
 import { parseArchive, parseComponent } from '../src/storage';
+import type { Project } from '../src/domain';
 
 describe('component design and bindings', () => {
   it('reorders components relative to a target without changing designs or placed pieces', () => {
@@ -275,6 +276,39 @@ describe('tabletop commands', () => {
     expect(stackMembers(pasted, pasted.instances.find(i => i.id === copies[0].id)!).map(i => i.id)).toEqual(copies.map(i => i.id));
     expect(() => applyCommand(pasted, { type: 'paste', instances: copies }, 'player-1')).toThrow('identifier');
     expect(() => applyCommand(p, { type: 'paste', instances: [{ ...copies[0], holder: 'player-2' }] }, 'player-1')).toThrow('unlocked');
+  });
+  it('moves table pieces and whole stacks forward, backward, to the front and to the back', () => {
+    let p = starterProject();
+    const kind = (project: Project, componentId: string) => project.components.find(c => c.id === componentId)!.kind;
+    // Bottom-to-top table units: a stack counts once; boards and held pieces are not ordered.
+    const units = (project: Project) => [...new Set(project.instances.filter(i => !i.holder && kind(project, i.componentId) !== 'board').map(i => i.stack ?? i.id))];
+    const tokens = p.instances.filter(i => !i.stack && !i.holder && kind(p, i.componentId) === 'token').slice(0, 3).map(i => i.id);
+    expect(tokens).toHaveLength(3);
+    // The three tokens overlap far away from everything else.
+    p = applyCommand(p, { type: 'move', ids: tokens, patch: { x: -4000, y: -4000 } }, 'player-1');
+    const order = (project: Project) => units(project).filter(key => tokens.includes(key));
+    const [a, b, c] = order(p);
+    p = applyCommand(p, { type: 'zOrder', ids: [a], move: 'forward' }, 'player-1');
+    expect(order(p)).toEqual([b, a, c]);
+    p = applyCommand(p, { type: 'zOrder', ids: [b], move: 'front' }, 'player-1');
+    expect(order(p)).toEqual([a, c, b]);
+    expect(units(p).at(-1)).toBe(b);
+    p = applyCommand(p, { type: 'zOrder', ids: [b], move: 'backward' }, 'player-1');
+    expect(order(p)).toEqual([a, b, c]);
+    p = applyCommand(p, { type: 'zOrder', ids: [c], move: 'back' }, 'player-1');
+    expect(units(p)[0]).toBe(c);
+    // A piece that overlaps nothing above it stays where it is.
+    p = applyCommand(p, { type: 'move', ids: [a], patch: { x: 9000, y: 9000 } }, 'player-1');
+    expect(applyCommand(p, { type: 'zOrder', ids: [a], move: 'forward' }, 'player-1').instances).toEqual(p.instances);
+    // Choosing any member moves the whole stack, which stays together; boards keep their places.
+    const deck = p.instances.find(i => i.stack)!;
+    const boards = p.instances.filter(i => kind(p, i.componentId) === 'board').map(i => i.id);
+    p = applyCommand(p, { type: 'zOrder', ids: [deck.id], move: 'back' }, 'player-1');
+    expect(units(p)[0]).toBe(deck.stack);
+    const members = p.instances.map((item, index) => item.stack === deck.stack ? index : -1).filter(index => index >= 0);
+    expect(members.at(-1)! - members[0]).toBe(members.length - 1);
+    expect(p.instances.filter(i => kind(p, i.componentId) === 'board').map(i => i.id)).toEqual(boards);
+    expect(() => applyCommand(p, { type: 'zOrder', ids: ['missing'], move: 'front' }, 'player-1')).toThrow('no longer exists');
   });
   it('raises pieces, extracts one from a stack and rolls dice without rotating them', () => {
     let p = starterProject();
