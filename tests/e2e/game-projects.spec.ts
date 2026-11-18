@@ -16,6 +16,10 @@ test('New project can start from a ready-to-play game, which fills in its name a
   await expect(page.locator('.library-panel')).toContainText('Island tile');
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Island tile/ })).toHaveCount(19);
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Tide marker/ })).toHaveCount(18);
+  // Pieces are filed in groups in the Pieces panel, and the laid-out island is locked.
+  const panel = page.locator('#playground-pieces-panel');
+  for (const name of ['Island', 'Supply', 'Crimson pieces', 'Azure pieces', 'Ivory pieces', 'Amber pieces']) await expect(panel.getByRole('button', { name: new RegExp(`^Group ${name}, `) })).toBeVisible();
+  await expect(page.locator('.table-viewport .table-piece.locked').filter({ has: page.locator('.component-card') })).not.toHaveCount(0);
 
   await page.getByRole('link', { name: 'Tablecraft home' }).click();
   await page.getByRole('button', { name: 'New project', exact: true }).click();

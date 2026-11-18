@@ -1,8 +1,10 @@
-import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type Player, type Project } from './domain';
+import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PieceGroup, type Player, type Project } from './domain';
 
 /**
  * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
  * an original hex-island trading game. Everything is built from ordinary components, so every piece stays editable.
+ * Each side's or player's pieces sit in a named group in the Pieces panel, and parts that never move during play
+ * (boards, bowls, the laid-out island, reference cards) are locked so pieces can be dragged and box-selected over them.
  */
 export type GameProjectId = 'chess' | 'checkers' | 'backgammon' | 'go' | 'tidewater';
 export const GAME_PROJECTS: readonly { id: GameProjectId; name: string; summary: string; description: string }[] = [
@@ -52,8 +54,16 @@ function seats(profile: Profile, colors: string[]): Player[] {
     color: index ? color : profile.color, ...nextSeatPlacement(players) }));
   return players;
 }
-function project(name: string, description: string, components: Component[], instances: Instance[], players: Player[], hands = false): Project {
-  return { id: uid('project'), name, description, components, instances, players,
+/** Piece groups for the Pieces panel: `add` creates a group, `into` files pieces (whole stacks) under one. */
+function grouping() {
+  const groups: PieceGroup[] = [];
+  const add = (name: string, parent: string | null = null) => { const id = uid('group'); groups.push({ id, name, parent }); return id; };
+  const into = (group: string, items: Instance[]) => items.map(item => ({ ...item, group }));
+  return { groups, add, into };
+}
+const locked = (items: Instance[]) => items.map(item => ({ ...item, locked: true }));
+function project(name: string, description: string, components: Component[], instances: Instance[], players: Player[], groups: PieceGroup[], hands = false): Project {
+  return { id: uid('project'), name, description, components, instances, players, groups,
     settings: { grid: false, snap: false, gridSize: 25, hands, turns: true, turn: 0 } };
 }
 
@@ -107,12 +117,16 @@ export function chessProject(name: string, description: string, profile: Profile
     ],
   });
   const backRank = [2, 4, 3, 1, 0, 3, 4, 2];
+  const { groups, add, into } = grouping();
+  const army = (offset: number, back: number, pawns: number) => [
+    ...backRank.map((row, file) => place(pieces, row + offset, square(file, back).x, square(file, back).y)),
+    ...Array.from({ length: 8 }, (_, file) => place(pieces, 5 + offset, square(file, pawns).x, square(file, pawns).y)),
+  ];
   const instances = [
     place(board, 0, CENTER.x, CENTER.y, { locked: true }),
-    ...backRank.flatMap((row, file) => [place(pieces, row, square(file, 0).x, square(file, 0).y), place(pieces, row + 6, square(file, 7).x, square(file, 7).y)]),
-    ...Array.from({ length: 8 }, (_, file) => [place(pieces, 5, square(file, 1).x, square(file, 1).y), place(pieces, 11, square(file, 6).x, square(file, 6).y)]).flat(),
+    ...into(add('White pieces'), army(0, 0, 1)), ...into(add('Black pieces'), army(6, 7, 6)),
   ];
-  return project(name, description, [board, pieces], instances, seats(profile, ['#f1ead8', '#3a3029']));
+  return project(name, description, [board, pieces], instances, seats(profile, ['#f1ead8', '#3a3029']), groups);
 }
 
 /** A round checker, with an optional king's star. */
@@ -131,11 +145,14 @@ export function checkersProject(name: string, description: string, profile: Prof
     flippable: true, rows: [{ name: 'Light checker', side: 'light' }, { name: 'Dark checker', side: 'dark' }],
     front: checkerFaces(50, sides, false), back: checkerFaces(50, sides, true),
   });
-  const instances = [place(board, 0, CENTER.x, CENTER.y, { locked: true })];
-  for (let rank = 0; rank < 8; rank++) for (let file = 0; file < 8; file++) {
-    if ((rank + file) % 2 === 0 && (rank < 3 || rank > 4)) instances.push(place(checker, rank < 3 ? 0 : 1, square(file, rank).x, square(file, rank).y));
-  }
-  return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']));
+  const { groups, add, into } = grouping();
+  const side = (row: number, ranks: number[]) => ranks.flatMap(rank => Array.from({ length: 8 }, (_, file) => file)
+    .filter(file => (rank + file) % 2 === 0).map(file => place(checker, row, square(file, rank).x, square(file, rank).y)));
+  const instances = [
+    place(board, 0, CENTER.x, CENTER.y, { locked: true }),
+    ...into(add('Light checkers'), side(0, [0, 1, 2])), ...into(add('Dark checkers'), side(1, [5, 6, 7])),
+  ];
+  return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']), groups);
 }
 
 // Backgammon points are numbered from the light player's side: 1–6 bottom right (light's home), 7–12 bottom left,
@@ -172,14 +189,15 @@ export function backgammonProject(name: string, description: string, profile: Pr
   const left = CENTER.x - 380, top = CENTER.y - 280;
   const stackOn = (point: number, count: number, row: number) => Array.from({ length: count }, (_, index) =>
     place(checker, row, left + pointX(point), point >= 13 ? top + 30 + 20 + index * 40 : top + 530 - 20 - index * 40));
+  const { groups, add, into } = grouping();
   const instances = [
     place(board, 0, CENTER.x, CENTER.y, { locked: true }),
-    ...stackOn(24, 2, 0), ...stackOn(13, 5, 0), ...stackOn(8, 3, 0), ...stackOn(6, 5, 0),
-    ...stackOn(1, 2, 1), ...stackOn(12, 5, 1), ...stackOn(17, 3, 1), ...stackOn(19, 5, 1),
-    place(die, 2, CENTER.x + 440, CENTER.y - 40, { rotation: 8 }), place(die, 4, CENTER.x + 445, CENTER.y + 30, { rotation: -6 }),
-    place(cube, 0, left + 340, CENTER.y),
+    ...into(add('Light checkers'), [...stackOn(24, 2, 0), ...stackOn(13, 5, 0), ...stackOn(8, 3, 0), ...stackOn(6, 5, 0)]),
+    ...into(add('Dark checkers'), [...stackOn(1, 2, 1), ...stackOn(12, 5, 1), ...stackOn(17, 3, 1), ...stackOn(19, 5, 1)]),
+    ...into(add('Dice and doubling cube'), [place(die, 2, CENTER.x + 440, CENTER.y - 40, { rotation: 8 }), place(die, 4, CENTER.x + 445, CENTER.y + 30, { rotation: -6 }),
+      place(cube, 0, left + 340, CENTER.y)]),
   ];
-  return project(name, description, [board, checker, die, cube], instances, seats(profile, ['#f2e8d0', '#2d2a28']));
+  return project(name, description, [board, checker, die, cube], instances, seats(profile, ['#f2e8d0', '#2d2a28']), groups);
 }
 
 export function goProject(name: string, description: string, profile: Profile): Project {
@@ -204,13 +222,15 @@ export function goProject(name: string, description: string, profile: Profile): 
   });
   const bowl = component('Stone bowl', 'token', 96, 96, { color: '#6b4a2b',
     front: [shape('Hollow', { shapeKind: 'ellipse', x: 10, y: 10, width: 76, height: 76, fill: '#8a6440', stroke: '#5a3d22', strokeWidth: 2 })] });
+  const { groups, add, into } = grouping();
+  // Each player's stones sit in their bowl, which is locked so the stones can be dragged off it.
+  const stones = (row: number, count: number, x: number, y: number) => [place(bowl, 0, x, y, { locked: true }), ...pile(stone, Array<number>(count).fill(row), x, y)];
   const instances = [
     place(board, 0, CENTER.x, CENTER.y, { locked: true }),
-    place(bowl, 0, CENTER.x - 390, CENTER.y + 200, { locked: true }), place(bowl, 0, CENTER.x + 390, CENTER.y - 200, { locked: true }),
-    ...pile(stone, Array<number>(181).fill(0), CENTER.x - 390, CENTER.y + 200),
-    ...pile(stone, Array<number>(180).fill(1), CENTER.x + 390, CENTER.y - 200),
+    ...into(add('Black stones'), stones(0, 181, CENTER.x - 390, CENTER.y + 200)),
+    ...into(add('White stones'), stones(1, 180, CENTER.x + 390, CENTER.y - 200)),
   ];
-  return project(name, description, [board, stone, bowl], instances, seats(profile, ['#1d1d1f', '#f4f2ec']));
+  return project(name, description, [board, stone, bowl], instances, seats(profile, ['#1d1d1f', '#f4f2ec']), groups);
 }
 
 // Tidewater Isles: an original game of settling tidal islands. Pointy-top hex tiles 97 wide and 112 tall tile at
@@ -388,27 +408,37 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ['stone', 'reed', 'fish'], ['clay', 'salt', 'fish', 'reed'], ['salt', 'stone', 'dunes', 'reed', 'clay'], ['reed', 'fish', 'clay', 'salt'], ['fish', 'salt', 'stone'],
   ];
   const markers = [[10, 2, 9], [12, 6, 4, 10], [9, 11, 0, 3, 8], [8, 3, 4, 5], [5, 6, 11]];
-  const instances: Instance[] = [place(sea, 0, CENTER.x, CENTER.y, { locked: true })];
-  const tops: Instance[] = [];
+  // The island is laid out and locked: tiles, tide markers and harbors stay put while huts, boardwalks and the
+  // squall are placed on them. Unlock a part (L) to rearrange it, for example to deal a random island.
+  const { groups, add, into } = grouping();
+  const island = add('Island'), tiles: Instance[] = [], tides: Instance[] = [], harborPieces: Instance[] = [];
+  let storm: Instance | undefined;
   layout.forEach((row, rowIndex) => row.forEach((terrain, column) => {
     const x = CENTER.x + (column - (row.length - 1) / 2) * HEX.width, y = CENTER.y + (rowIndex - 2) * 84;
-    instances.push(place(tile, TERRAINS.findIndex(item => item.terrain === terrain), x, y));
+    tiles.push(place(tile, TERRAINS.findIndex(item => item.terrain === terrain), x, y));
     const number = markers[rowIndex][column];
-    if (number) tops.push(place(marker, numbers.indexOf(number), x, y + 4));
-    else tops.push(place(squall, 0, x, y));
+    if (number) tides.push(place(marker, numbers.indexOf(number), x, y + 4));
+    else storm = place(squall, 0, x, y);
   }));
-  instances.push(...tops);
   [0, 1, 0, 2, 3, 0, 4, 0, 5].forEach((row, index) => {
     const angle = (20 + index * 40) * Math.PI / 180;
-    instances.push(place(harbor, row, CENTER.x + Math.cos(angle) * 332, CENTER.y - Math.sin(angle) * 287));
+    harborPieces.push(place(harbor, row, CENTER.x + Math.cos(angle) * 332, CENTER.y - Math.sin(angle) * 287));
   });
-  TERRAINS.slice(0, 5).forEach((_, row) => instances.push(...pile(resource, Array<number>(19).fill(row), 1450, 330 + row * 100)));
+  const instances: Instance[] = [
+    place(sea, 0, CENTER.x, CENTER.y, { locked: true }),
+    ...into(add('Island tiles', island), locked(tiles)), ...into(add('Tide markers', island), locked(tides)),
+    ...into(add('Harbors', island), locked(harborPieces)), ...into(island, [storm!]),
+  ];
+  const supply = add('Supply');
+  instances.push(...into(add('Resources', supply), TERRAINS.slice(0, 5).flatMap((_, row) => pile(resource, Array<number>(19).fill(row), 1450, 330 + row * 100))));
   const deck = TIDE_CARDS.flatMap(({ count }, row) => Array<number>(count).fill(row));
   for (let index = deck.length - 1; index > 0; index--) { const swap = Math.floor(Math.random() * (index + 1)); [deck[index], deck[swap]] = [deck[swap], deck[index]]; }
-  instances.push(...pile(tideCard, deck, 520, 330, { flipped: true }));
-  instances.push(place(award, 0, 520, 470), place(award, 1, 520, 550));
-  instances.push(place(die, 2, 495, 650, { rotation: 8 }), place(die, 4, 550, 655, { rotation: -6 }));
-  instances.push(place(book, 0, 520, 810, { scale: .55 }));
+  instances.push(...into(supply, [
+    ...pile(tideCard, deck, 520, 330, { flipped: true }),
+    place(award, 0, 520, 470), place(award, 1, 520, 550),
+    place(die, 2, 495, 650, { rotation: 8 }), place(die, 4, 550, 655, { rotation: -6 }),
+    place(book, 0, 520, 810, { scale: .55 }),
+  ]));
 
   const players = seats(profile, PLAYER_COLORS.map(item => item.fill));
   players.forEach((seat, index) => {
@@ -416,12 +446,15 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     const reach = Math.abs(ux) > Math.abs(uy) ? 150 : 105, baseX = seat.x + ux * reach, baseY = seat.y + uy * reach;
     const at = (offset: number) => ({ x: baseX - uy * offset, y: baseY + ux * offset });
     const spot = [at(-72), at(-24), at(24)], costSpot = at(110);
-    instances.push(...pile(hut, Array<number>(5).fill(index), spot[0].x, spot[0].y, { rotation: seat.rotation }));
-    instances.push(...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }));
-    instances.push(...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: seat.rotation + 90 }));
-    instances.push(place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation }));
+    instances.push(...into(add(`${PLAYER_COLORS[index].name} pieces`), [
+      ...pile(hut, Array<number>(5).fill(index), spot[0].x, spot[0].y, { rotation: seat.rotation }),
+      ...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }),
+      ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: seat.rotation + 90 }),
+      // The building costs card is a reference, so it is locked in front of its player.
+      place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true }),
+    ]));
   });
-  return project(name, description, [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book], instances, players, true);
+  return project(name, description, [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book], instances, players, groups, true);
 }
 
 export function gameProject(id: GameProjectId, name: string, description: string, profile: Profile): Project {
