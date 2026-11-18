@@ -128,3 +128,16 @@ test('previews follow hover and Alt only temporarily suppresses the hovered piec
   await page.mouse.move(viewport.x + 12, viewport.y + viewport.height - 70);
   await expect(preview).toHaveCount(0);
 });
+
+test('the corner preview centres its image over the name and shortcut table', async ({ page }) => {
+  for (const width of [1600, 1000]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    const token = page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first();
+    const preview = page.locator('.hover-preview');
+    await token.hover();
+    await expect(preview).toBeVisible();
+    const [image, table] = await Promise.all([preview.locator('.component-thumbnail').first().boundingBox(), preview.getByRole('table', { name: 'Piece shortcuts' }).boundingBox()]);
+    expect(Math.abs(image!.x + image!.width / 2 - (table!.x + table!.width / 2))).toBeLessThan(2);
+  }
+});

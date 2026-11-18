@@ -43,3 +43,21 @@ test('hand cards reorder with Alt+arrow keys instead of arrow buttons, and the f
   await page.keyboard.press('Alt+ArrowRight');
   await expect.poll(() => cards.evaluateAll(elements => elements.map(element => element.getAttribute('data-hand-id')))).toEqual([...before].reverse());
 });
+
+test('the selection ring and its corner handles keep their on-screen size at any table zoom', async ({ page }) => {
+  await page.goto('/');
+  await page.locator('#playground-pieces-panel').getByRole('button', { name: 'Amber token', exact: true }).first().click();
+  const piece = page.locator('.table-piece.selected');
+  const sizes = () => piece.evaluate(element => {
+    const shadow = getComputedStyle(element, '::after').boxShadow;
+    const spread = Number(shadow.match(/(-?[\d.]+)px\s*$/)![1]);
+    const scale = element.getBoundingClientRect().width / (element as HTMLElement).offsetWidth;
+    return { ring: spread * scale, corner: element.querySelector('.selection-corner')!.getBoundingClientRect().width };
+  });
+  for (const zoom of ['25%', '100%', '300%']) {
+    await page.getByRole('button', { name: 'Fit table', exact: true }).hover();
+    await page.getByRole('button', { name: `Zoom to ${zoom}`, exact: true }).click();
+    await expect.poll(async () => (await sizes()).ring).toBeCloseTo(2, 1);
+    expect((await sizes()).corner).toBeCloseTo(6, 0);
+  }
+});

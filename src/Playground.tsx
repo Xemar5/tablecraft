@@ -743,8 +743,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         onPointerUp={endGesture}
         onPointerCancel={() => { gesture.current = null; setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
         <div ref={world} className={`table-world ${p.settings.grid ? 'show-grid' : ''}`} style={{
-          backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`,
-        }}>
+          backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`, '--table-zoom': zoom,
+        } as React.CSSProperties}>
           <div className="table-watermark" aria-hidden="true"><span><Layers size={34} strokeWidth={1.4} /></span><p>TABLECRAFT</p><small>MAKE SOMETHING WORTH PLAYING</small></div>
           {p.settings.hands && p.players.map(player => {
             const seatSpot = seatPosition?.id === player.id ? seatPosition : player;
@@ -1244,7 +1244,7 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
   }, [dragging]);
   return <div ref={element} className={`table-piece ${rollingRow !== undefined ? 'rolling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
     data-testid="table-piece" data-piece-id={item.id}
-    style={{ ...(pieceZoom !== undefined ? { '--piece-zoom': pieceZoom } : {}), left: dragging ? item.x : x, top: dragging ? item.y : y, width: comp.width, height: comp.height, zIndex, transform } as React.CSSProperties}
+    style={{ ...(pieceZoom !== undefined ? { '--piece-zoom': pieceZoom } : {}), '--piece-scale': item.scale, left: dragging ? item.x : x, top: dragging ? item.y : y, width: comp.width, height: comp.height, zIndex, transform } as React.CSSProperties}
     onPointerDown={e => events.current.start(e, item)}
     onPointerEnter={e => events.current.enter(e, item.id)} onPointerLeave={e => events.current.leave(e)}
     onFocus={() => events.current.focus(item.id)} onBlur={() => events.current.blur()} tabIndex={0} role="button" aria-label={`${comp.name}${count > 1 ? `, stack of ${count}` : ''}${pages ? `, page ${item.row + 1} of ${pages}` : ''}`}

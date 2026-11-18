@@ -187,3 +187,19 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 /* Scroll edge shades: a dark shade disappears on dark panels, so night mode uses a light one. */
 :root[data-theme=dark] .horizontal-scroll::before,:root[data-theme=dark] .designer-toolbar-scroll::before,:root[data-theme=dark] .library-filter-scroll::before{background:linear-gradient(to right,#e4ecd833,#e4ecd816 25%,#e4ecd808 50%,#e4ecd802 75%,transparent)}
 :root[data-theme=dark] .horizontal-scroll::after,:root[data-theme=dark] .designer-toolbar-scroll::after,:root[data-theme=dark] .library-filter-scroll::after{background:linear-gradient(to left,#e4ecd833,#e4ecd816 25%,#e4ecd808 50%,#e4ecd802 75%,transparent)}
+/* Selection, focus and drop rings keep the same on-screen size at any table zoom or piece scale. Outline and border
+   widths round up to whole pixels before the table's scale, so the ring is a box-shadow divided by the zoom. */
+.table-piece{--ring-zoom:calc(var(--table-zoom,1) * var(--piece-scale,1));--ring-color:transparent;--ring-width:2px;--ring-offset:4px}
+.table-piece,.table-piece.selected,.table-piece:focus-visible,.table-piece.stack-drop-target{outline:none}
+.table-piece::after{content:'';position:absolute;inset:calc(-1 * var(--ring-offset) / var(--ring-zoom));border-radius:calc(12px + var(--ring-offset) / var(--ring-zoom));box-shadow:0 0 0 calc(var(--ring-width) / var(--ring-zoom)) var(--ring-color);pointer-events:none;transition:box-shadow .2s}
+.table-piece.selected{--ring-color:#89a969}
+.table-piece:focus-visible{--ring-color:#365d46;--ring-width:3px}
+.table-piece.stack-drop-target{--ring-color:#7d9b60;--ring-width:4px;--ring-offset:9px}
+/* Corner handles sit on the ring and keep their size too. */
+.table-piece .selection-corner{transform:scale(calc(1 / var(--ring-zoom)))}
+.table-piece .selection-corner.tl{left:calc(-4px - 5px / var(--ring-zoom));top:calc(-4px - 5px / var(--ring-zoom))}
+.table-piece .selection-corner.tr{right:calc(-4px - 5px / var(--ring-zoom));top:calc(-4px - 5px / var(--ring-zoom))}
+.table-piece .selection-corner.bl{left:calc(-4px - 5px / var(--ring-zoom));bottom:calc(-4px - 5px / var(--ring-zoom))}
+.table-piece .selection-corner.br{right:calc(-4px - 5px / var(--ring-zoom));bottom:calc(-4px - 5px / var(--ring-zoom))}
+/* The corner preview's image is centred over its name and shortcut table. */
+.hover-preview .component-thumbnail{justify-self:center}
