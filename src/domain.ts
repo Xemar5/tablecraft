@@ -217,6 +217,13 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ungroup'), ids: z.array(id).min(1).max(2000) }),
   /** Moves table pieces (with their whole stacks) and groups into `parent`, or to the top level when it is null. */
   z.object({ type: z.literal('moveToGroup'), parent: id.nullable(), ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
+  /**
+   * Moves pieces (with their stacks) and groups (with everything in them) into `parent`, and in render order as one
+   * block just above or below the pieces of `target` (a Pieces-panel row). Without target pieces on the table, only
+   * the grouping changes.
+   */
+  z.object({ type: z.literal('arrangePieces'), parent: id.nullable(), ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]),
+    target: z.array(id).max(10000), position: z.enum(['above', 'below']) }),
   z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num }),
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
   z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
@@ -502,6 +509,17 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     pieces.forEach(item => { if (parent) item.group = parent; else delete item.group; });
     moving.forEach(group => { group.parent = parent; });
   };
+  // Table render order works on units: a stack or a single piece. Held pieces and boards (always drawn underneath)
+  // are not ordered and keep their places at the start of the array.
+  const tableUnits = () => {
+    const units = new Map<string, Instance[]>(), rest: Instance[] = [];
+    for (const item of p.instances) {
+      if (item.holder || component(item).kind === 'board') { rest.push(item); continue; }
+      const key = item.stack ?? item.id;
+      units.set(key, [...units.get(key) ?? [], item]);
+    }
+    return { rest, units: [...units.values()] };
+  };
   const drawOrder = (items: Instance[]) => {
     const seen = new Set<string>();
     return items.flatMap(item => {
@@ -640,15 +658,8 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     }
     case 'zOrder': {
       const ids = new Set(command.ids.map(key => get(key).id));
-      // Each stack moves as one unit; held pieces and boards (always drawn underneath) keep their places.
-      const units = new Map<string, Instance[]>();
-      const rest: Instance[] = [];
-      for (const item of p.instances) {
-        if (item.holder || component(item).kind === 'board') { rest.push(item); continue; }
-        const key = item.stack ?? item.id;
-        units.set(key, [...units.get(key) ?? [], item]);
-      }
-      const chosen = new Set([...units.values()].filter(members => members.some(item => ids.has(item.id))));
+      const { rest, units } = tableUnits();
+      const chosen = new Set(units.filter(members => members.some(item => ids.has(item.id))));
       chosen.forEach(members => members.forEach(editable));
       const box = (members: Instance[]) => {
         const item = members.at(-1)!, c = component(item), turn = item.rotation * Math.PI / 180;
@@ -660,7 +671,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const first = box(a), second = box(b);
         return first.left < second.right && second.left < first.right && first.top < second.bottom && second.top < first.bottom;
       };
-      p.instances = [...rest, ...reorder([...units.values()], members => chosen.has(members), command.move, overlaps).flat()];
+      p.instances = [...rest, ...reorder(units, members => chosen.has(members), command.move, overlaps).flat()];
       break;
     }
     case 'extractMove': {
@@ -716,6 +727,23 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to move.');
       if (command.parent && !(p.groups ?? []).some(group => group.id === command.parent)) throw new Error('Group no longer exists.');
       regroup(pieces, moving, command.parent);
+      break;
+    }
+    case 'arrangePieces': {
+      const pieces = groupedPieces(command.ids), moving = existingGroups(command.groups);
+      if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to move.');
+      if (command.parent && !(p.groups ?? []).some(group => group.id === command.parent)) throw new Error('Group no longer exists.');
+      const target = new Set(command.target.map(key => get(key).id));
+      regroup(pieces, moving, command.parent);
+      const inMoving = (item: Instance) => pieces.includes(item) ||
+        (!!item.group && moving.some(group => groupAncestors(p.groups ?? [], item.group).includes(group.id)));
+      const { rest, units } = tableUnits();
+      const block = units.filter(members => members.some(inMoving)), others = units.filter(members => !block.includes(members));
+      block.flat().forEach(editable);
+      const targets = others.flatMap((members, index) => members.some(item => target.has(item.id)) ? [index] : []);
+      if (!block.length || !targets.length) break;
+      const at = command.position === 'above' ? targets.at(-1)! + 1 : targets[0];
+      p.instances = [...rest, ...[...others.slice(0, at), ...block, ...others.slice(at)].flat()];
       break;
     }
     case 'releaseMany': {

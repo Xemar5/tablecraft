@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
 import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, Palette, Square } from 'lucide-react';
 import { groupAncestors, type Command, type Component, type Project } from './domain';
 import { variantLabels } from './csv';
@@ -8,10 +8,14 @@ const kindIcon = (component?: Component) => component?.kind === 'card' ? <Layers
   : component?.kind === 'artwork' ? <Palette size={14} /> : component?.kind === 'book' ? <BookOpen size={14} /> : <Square size={14} />;
 const DRAG_TYPE = 'application/x-tablecraft-pieces';
 
+type DropMode = 'above' | 'below' | 'inside';
+
 /**
  * Lists the pieces on the table, topmost first, inside their (nestable) groups. Stacks expand into their members.
  * Clicking a group selects every piece in it; the standard click / Ctrl-click / Shift-click selection applies to all rows.
- * Groups are renamed by double-clicking them, and rows can be dragged into or out of groups.
+ * Groups are renamed by double-clicking them. Dragging a row onto the top or bottom of another row places it above or
+ * below that row, in the same group and in render order on the table (a group moves as one block); dropping on the
+ * middle of a group puts it inside. Alt+Up/Down moves the focused row past its neighbour.
  */
 export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, readOnly = false }: {
   project: Project; selected: string[]; onSelect: (ids: string[]) => void;
@@ -21,7 +25,8 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
   const [collapsedGroups, setCollapsedGroups] = useState<ReadonlySet<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string>();
   const [dragging, setDragging] = useState<{ ids: string[]; groups: string[] }>();
-  const [dropTarget, setDropTarget] = useState<string | null>();
+  // null is the list itself (out of every group); otherwise a row and where the drop lands on it.
+  const [dropTarget, setDropTarget] = useState<{ key: string; mode: DropMode } | null>();
   const anchor = useRef<string>(undefined);
   const list = useRef<HTMLDivElement>(null);
   const labels = useMemo(() => Object.fromEntries(p.components.map(component => [component.id, component.rows.length > 1 ? variantLabels(component.csv, component.rows) : []])), [p.components]);
@@ -50,30 +55,63 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
     if (isActive(row)) { const plan = groupSelection(p, selected); if (plan) return { ids: plan.ids, groups: plan.groups }; }
     return row.kind === 'group' ? { ids: [], groups: [row.group.id] } : { ids: row.ids, groups: [] };
   };
-  const canDrop = (parent: string | null) => !!dragging && !dragging.groups.some(id => groupAncestors(p.groups ?? [], parent).includes(id));
-  const over = (event: DragEvent, parent: string | null) => {
-    if (!dragging || !canDrop(parent)) return;
-    event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'move';
-    setDropTarget(parent);
+  const canDrop = (units: { groups: string[] } | undefined, parent: string | null) => !!units && !units.groups.some(id => groupAncestors(p.groups ?? [], parent).includes(id));
+  const parentOf = (row: PieceTreeRow) => row.kind === 'group' ? row.group.parent : row.item.group ?? null;
+  // Groups take drops in their middle; the outer quarters (or halves, on pieces) place the drop above or below.
+  const modeAt = (event: DragEvent, row: PieceTreeRow): DropMode => {
+    const box = event.currentTarget.getBoundingClientRect(), at = (event.clientY - box.top) / Math.max(1, box.height);
+    return row.kind === 'group' ? at < .28 ? 'above' : at > .72 ? 'below' : 'inside' : at < .5 ? 'above' : 'below';
   };
-  const drop = (event: DragEvent, parent: string | null) => {
-    if (!dragging || !canDrop(parent)) return;
+  const dropParent = (row: PieceTreeRow, mode: DropMode) => mode === 'inside' && row.kind === 'group' ? row.group.id : parentOf(row);
+  const place = (units: { ids: string[]; groups: string[] }, row: PieceTreeRow, mode: DropMode) => mode === 'inside' && row.kind === 'group'
+    ? dispatch({ type: 'moveToGroup', parent: row.group.id, ids: units.ids, groups: units.groups })
+    : dispatch({ type: 'arrangePieces', parent: parentOf(row), ids: units.ids, groups: units.groups, target: row.ids, position: mode === 'below' ? 'below' : 'above' });
+  const over = (event: DragEvent, row?: PieceTreeRow) => {
+    const mode = row && modeAt(event, row);
+    if (!canDrop(dragging, row && mode ? dropParent(row, mode) : null)) return;
+    event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = 'move';
+    setDropTarget(row && mode ? { key: row.key, mode } : null);
+  };
+  const drop = (event: DragEvent, row?: PieceTreeRow) => {
+    const mode = row && modeAt(event, row);
+    if (!dragging || !canDrop(dragging, row && mode ? dropParent(row, mode) : null)) return;
     event.preventDefault(); event.stopPropagation();
-    void dispatch({ type: 'moveToGroup', parent, ids: dragging.ids, groups: dragging.groups });
+    void (row && mode ? place(dragging, row, mode) : dispatch({ type: 'moveToGroup', parent: null, ids: dragging.ids, groups: dragging.groups }));
     setDragging(undefined); setDropTarget(undefined);
   };
+  // Alt+Up/Down: past the previous or next row at the same level (topmost first, so up is towards the front).
+  const nudge = (row: PieceTreeRow, direction: -1 | 1) => {
+    const index = rows.indexOf(row);
+    let neighbour: PieceTreeRow | undefined;
+    for (let at = index + direction; at >= 0 && at < rows.length; at += direction) {
+      const candidate = rows[at];
+      if (candidate.depth < row.depth) break;
+      if (candidate.depth === row.depth && !(candidate.kind === 'piece' && candidate.member)) { neighbour = candidate; break; }
+    }
+    const units = dragUnits(row);
+    if (!neighbour || !canDrop(units, parentOf(neighbour))) return;
+    void place(units, neighbour, direction < 0 ? 'above' : 'below').then(ok => {
+      if (ok) requestAnimationFrame(() => list.current?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(row.key)}"]`)?.focus());
+    });
+  };
+  const keyDown = (event: KeyboardEvent<HTMLButtonElement>, row: PieceTreeRow) => {
+    if (readOnly || !event.altKey || event.ctrlKey || event.metaKey || (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+    if (row.kind === 'piece' && row.member) return;
+    event.preventDefault(); event.stopPropagation();
+    nudge(row, event.key === 'ArrowUp' ? -1 : 1);
+  };
   return <div ref={list} className={`layer-list piece-tree${dropTarget === null ? ' drop-root' : ''}`} role="tree" aria-label="Table pieces" aria-multiselectable="true"
-    onDragOver={event => over(event, null)} onDrop={event => drop(event, null)}
+    onDragOver={event => over(event)} onDrop={event => drop(event)}
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(undefined); }}>
     {rows.map(row => {
       const active = isActive(row);
-      const parent = row.kind === 'group' ? row.group.id : row.item.group ?? null;
+      const target = dropTarget?.key === row.key ? dropTarget.mode : undefined;
       const rowProps = {
         role: 'treeitem', 'aria-level': row.depth + 1, 'aria-selected': active,
         'aria-expanded': row.kind === 'group' || row.count > 1 ? row.expanded : undefined,
-        className: `layer-tree-row playground-piece${row.kind === 'group' ? ' piece-group' : ''}${active ? ' active' : ''}${dropTarget === parent && row.kind === 'group' && dropTarget !== undefined ? ' group-drop-target' : ''}`,
+        className: `layer-tree-row playground-piece${row.kind === 'group' ? ' piece-group' : ''}${active ? ' active' : ''}${target === 'inside' ? ' group-drop-target' : target ? ` piece-drop-${target}` : ''}`,
         style: { paddingLeft: 8 + row.depth * 14 },
-        onDragOver: (event: DragEvent) => over(event, parent), onDrop: (event: DragEvent) => drop(event, parent),
+        onDragOver: (event: DragEvent) => over(event, row), onDrop: (event: DragEvent) => drop(event, row),
       };
       const dragProps = readOnly || row.kind === 'piece' && row.member ? {} : {
         draggable: true,
@@ -92,7 +130,7 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
           }} /> : <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={`${name} · Double-click to rename`}
             aria-label={`Group ${name}, ${row.count} piece${row.count === 1 ? '' : 's'}`} {...dragProps}
             onClick={event => select(row, event)} onDoubleClick={() => { if (!readOnly) setRenaming(row.group.id); }}
-            onKeyDown={event => { if (event.key === 'F2' && !readOnly) { event.preventDefault(); setRenaming(row.group.id); } }}>
+            data-row-key={row.key} onKeyDown={event => { if (event.key === 'F2' && !readOnly) { event.preventDefault(); setRenaming(row.group.id); } else keyDown(event, row); }}>
             {row.expanded ? <FolderOpen size={14} /> : <Folder size={14} />}<span>{name}</span>
             <small className="playground-piece-count">{row.count}</small>
           </button>}
@@ -107,7 +145,8 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
           {row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button> : <span className="tree-disclosure-spacer" aria-hidden="true" />}
         <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={name} {...dragProps}
-          aria-label={`${name}${row.count > 1 ? `, stack of ${row.count}` : ''}${row.item.locked ? ', locked' : ''}`} onClick={event => select(row, event)}>
+          aria-label={`${name}${row.count > 1 ? `, stack of ${row.count}` : ''}${row.item.locked ? ', locked' : ''}`} onClick={event => select(row, event)}
+          data-row-key={row.key} onKeyDown={event => keyDown(event, row)}>
           {kindIcon(component)}<span>{name}</span>
           {row.count > 1 && <small className="playground-piece-count">{row.count}</small>}
           {row.item.locked && <LockKeyhole size={11} className="playground-piece-lock" aria-hidden="true" />}

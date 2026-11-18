@@ -16,6 +16,35 @@ const group = (p: Project, id: string, name: string, pieces: string[], groups: s
   applyCommand(p, { type: 'createGroup', id, name, parent, ids: pieces, groups });
 
 describe('piece groups', () => {
+  it('arranges pieces and whole groups above or below a row as one block in render order', () => {
+    const p = starterProject(), { cards, tokens } = ids(p);
+    const board = p.instances.find(i => p.components.find(c => c.id === i.componentId)!.kind === 'board')!;
+    // Bottom-to-top table units (stacks once, boards excluded since they always render underneath).
+    const units = (project: Project) => [...new Set(project.instances
+      .filter(i => !i.holder && project.components.find(c => c.id === i.componentId)!.kind !== 'board').map(i => i.stack ?? i.id))];
+    let next = group(p, 'amber', 'Amber', tokens.slice(0, 2));
+    next = applyCommand(next, { type: 'arrangePieces', parent: null, ids: [], groups: ['amber'], target: [cards[0]], position: 'above' });
+    let order = units(next), at = order.indexOf(cards[0]);
+    expect(order.slice(at + 1, at + 3).sort()).toEqual(tokens.slice(0, 2).sort());
+    next = applyCommand(next, { type: 'arrangePieces', parent: null, ids: [], groups: ['amber'], target: [tokens[2]], position: 'below' });
+    order = units(next); at = order.indexOf(tokens[2]);
+    expect(order.slice(at - 2, at).sort()).toEqual(tokens.slice(0, 2).sort());
+    // Dropping a piece on a group member moves it into that group, right above the member.
+    next = applyCommand(next, { type: 'arrangePieces', parent: 'amber', ids: [cards[0]], groups: [], target: [tokens[0]], position: 'above' });
+    expect(next.instances.find(i => i.id === cards[0])!.group).toBe('amber');
+    order = units(next);
+    expect(order[order.indexOf(tokens[0]) + 1]).toBe(cards[0]);
+    // The panel lists the group's rows topmost first.
+    const rows = pieceTree(next, new Set(), new Set()).filter(row => row.kind === 'piece' && row.item.group === 'amber').map(row => row.key);
+    expect(rows.indexOf(cards[0])).toBe(rows.indexOf(tokens[0]) - 1);
+    // A board target (always underneath) only changes the grouping.
+    const regrouped = applyCommand(next, { type: 'arrangePieces', parent: null, ids: [cards[0]], groups: [], target: [board.id], position: 'above' });
+    expect(units(regrouped)).toEqual(units(next));
+    expect(regrouped.instances.find(i => i.id === cards[0])!.group).toBeUndefined();
+    expect(() => applyCommand(next, { type: 'arrangePieces', parent: null, ids: [cards[0]], groups: [], target: ['missing'], position: 'above' })).toThrow('no longer exists');
+    expect(() => applyCommand(next, { type: 'arrangePieces', parent: 'amber', ids: [], groups: ['amber'], target: [], position: 'above' })).toThrow('into itself');
+    expect(() => validateProject(next)).not.toThrow();
+  });
   it('groups whole stacks, renames, nests and ungroups without moving anything on the table', () => {
     const p = starterProject(), { deck, cards, tokens } = ids(p);
     let next = group(p, 'tokens', 'Amber', tokens.slice(0, 2));
