@@ -1,0 +1,10 @@
+/* "Start from" choices in the New project dialog. */
+.new-project-start { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 14px 0 0; padding: 0; border: 0; min-width: 0; }
+.new-project-start legend { padding: 0; margin-bottom: 8px; font-size: 9px; color: #8e9d80; }
+.new-project-option { display: flex; align-items: flex-start; gap: 9px; padding: 10px 12px; border: 1px solid #dfe6d5; border-radius: 8px; background: #fff; cursor: pointer; transition: border-color .15s, background .15s; }
+.new-project-option:hover { border-color: #a6be8f; }
+.new-project-option.active { border-color: #6f8f55; background: #f2f6ec; }
+.new-project-option input { width: auto; height: auto; margin: 2px 0 0; accent-color: #4f7a5a; flex-shrink: 0; }
+.new-project-option span { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.new-project-option strong { font-size: 12px; color: #2f4a38; }
+.new-project-option small { font-size: 10px; line-height: 1.45; color: #8a937c; }

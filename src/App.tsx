@@ -3,6 +3,7 @@ import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circl
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
+import { gameProject, type GameProjectId } from './gameProjects';
 import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './storage';
 import { addDraftEdit, clearDesignDraft, loadDesignDraft, recoverDesignDraft, saveDesignDraft, withDraft, type DesignDraft } from './designDraft';
 import { createPortableZip, downloadZip, projectZip, readPortableZip } from './portable';
@@ -534,16 +535,17 @@ export default function App() {
     if (sessionRef.current) { leave(); notify('Left the live session. The latest table is saved locally.'); }
     setHome(true); setModal(undefined); setCurtain(undefined); setSelected([]);
   };
-  const createProject = (name: string, description = '') => {
+  const createProject = (name: string, description = '', game?: GameProjectId) => {
     if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
     if (!validName(settings.name)) {
       setNameRequired(true); setModal('settings');
       notify('Choose a player name in Settings before creating a project.', true);
       return;
     }
-    const next = blankProject(name, description, { name: settings.name.trim(), color: settings.color });
+    const profile = { name: settings.name.trim(), color: settings.color };
+    const next = game ? gameProject(game, name, description, profile) : blankProject(name, description, profile);
     setProject(next); setActor(next.players[0].id); setComponentId(undefined); setSelected([]);
-    setSearch(''); setFilter('all'); setMode('playground'); setModal('templates');
+    setSearch(''); setFilter('all'); setMode('playground'); setModal(game ? undefined : 'templates');
   };
   const copyLinked = async (component: Component) => {
     try {
