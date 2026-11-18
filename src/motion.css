@@ -203,3 +203,5 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .table-piece .selection-corner.br{right:calc(-4px - 5px / var(--ring-zoom));bottom:calc(-4px - 5px / var(--ring-zoom))}
 /* The corner preview's image is centred over its name and shortcut table. */
 .hover-preview .component-thumbnail{justify-self:center}
+/* A settled table (see useCompositedTransform) is redrawn at its zoom instead of being stretched. */
+.table-world[data-settled]{will-change:auto}

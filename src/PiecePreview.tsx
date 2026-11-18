@@ -40,6 +40,7 @@ export function PiecePreview({ item, component, components, actor, viewer, point
   const title = useRef<HTMLDivElement>(null);
   const help = useRef<HTMLDivElement>(null);
   const animation = useRef<Animation>(undefined);
+  const settle = useRef<number>(undefined);
   // The pan is derived from the latest pointer position, so zooming, rotating and resizing re-aim the view as well as
   // moving the pointer. It is applied straight to the compositor animation instead of re-rendering on every move.
   const pointer = useRef(openedAt);
@@ -62,6 +63,10 @@ export function PiecePreview({ item, component, components, actor, viewer, point
     const effect = animation.current?.effect;
     if (animation.current?.playState === 'running' && effect instanceof KeyframeEffect) effect.setKeyframes(frames);
     else animation.current = element.animate(frames, { duration: 1000, iterations: Infinity });
+    // An animated layer is stretched rather than redrawn when zoomed; once the view rests, a plain transform lets the
+    // browser redraw the piece sharp at its zoom.
+    window.clearTimeout(settle.current);
+    settle.current = window.setTimeout(() => { element.style.transform = transform; animation.current?.cancel(); animation.current = undefined; }, 150);
   }, [component.width, component.height]);
   useLayoutEffect(() => {
     view.current = { zoom, rotation };
@@ -72,7 +77,7 @@ export function PiecePreview({ item, component, components, actor, viewer, point
     for (const element of [root.current, title.current, help.current]) if (element) observer.observe(element);
     return () => observer.disconnect();
   }, [place]);
-  useEffect(() => () => animation.current?.cancel(), []);
+  useEffect(() => () => { window.clearTimeout(settle.current); animation.current?.cancel(); }, []);
   useEffect(() => {
     const previous = document.activeElement;
     const element = root.current;

@@ -47,7 +47,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [camera, setCamera] = useState(0);
   const world = useRef<HTMLDivElement>(null);
-  useCompositedTransform(world, `translate(${pan.x}px, ${pan.y}px) rotate(${camera}deg) scale(${zoom})`);
+  // The table settles into a plain transform once zooming and panning stop, so it is redrawn sharp at the new zoom.
+  useCompositedTransform(world, `translate(${pan.x}px, ${pan.y}px) rotate(${camera}deg) scale(${zoom})`, 150);
   const [tool, setTool] = useState<'select' | 'pan'>('select');
   const [preview, setPreview] = useState<Record<string, { x: number; y: number }>>({});
   const [search, setSearch] = useState<string[]>();
@@ -1276,19 +1277,35 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
  * Inline transform changes make Chrome re-layerize every painted layer of a large table on each frame. Holding the
  * transform in a persistent animation and replacing its keyframes updates it on the compositor instead. Pass
  * undefined to drop the override and fall back to the element's own style.
+ *
+ * A layer moved by a compositor animation (or marked `will-change: transform`) keeps the bitmap it was drawn at and
+ * is stretched when it scales, so a zoomed table looks blurry. With `settleAfter` (ms), the transform is written as a
+ * plain style once it stops changing and the element gets `data-settled`, which drops `will-change`, so the browser
+ * redraws it at its real scale; the next change goes back to the animation.
  */
-function useCompositedTransform(ref: React.RefObject<HTMLElement | null>, transform: string | undefined) {
+function useCompositedTransform(ref: React.RefObject<HTMLElement | null>, transform: string | undefined, settleAfter?: number) {
   const animation = useRef<Animation>(undefined);
+  const settle = useRef<number>(undefined);
   useLayoutEffect(() => {
     const element = ref.current;
+    window.clearTimeout(settle.current);
     if (!transform || !element) { animation.current?.cancel(); animation.current = undefined; return; }
     if (typeof element.animate !== 'function') { element.style.transform = transform; return; }
     const frames = [{ transform }, { transform }];
     const effect = animation.current?.effect;
     if (effect instanceof KeyframeEffect && effect.target === element && animation.current?.playState === 'running') effect.setKeyframes(frames);
-    else { animation.current?.cancel(); animation.current = element.animate(frames, { duration: 1000, iterations: Infinity }); }
-  }, [ref, transform]);
-  useEffect(() => () => animation.current?.cancel(), []);
+    else {
+      animation.current?.cancel();
+      delete element.dataset.settled;
+      animation.current = element.animate(frames, { duration: 1000, iterations: Infinity });
+    }
+    if (settleAfter !== undefined) settle.current = window.setTimeout(() => {
+      element.style.transform = transform;
+      element.dataset.settled = '';
+      animation.current?.cancel(); animation.current = undefined;
+    }, settleAfter);
+  }, [ref, transform, settleAfter]);
+  useEffect(() => () => { window.clearTimeout(settle.current); animation.current?.cancel(); }, []);
 }
 
 type DragOverlayProps = { item: Instance; component: Component; components: Component[]; left: number; top: number; dx: number; dy: number; rotation: number; scale: number };
