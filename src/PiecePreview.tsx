@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Layers } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { ComponentView } from './ComponentView';
 import { type Component, type Instance } from './domain';
 import { previewPermission } from './playgroundPreview';
@@ -31,6 +31,10 @@ export function PiecePreview({ item, component, components, actor, viewer, point
   const [zoom, setZoom] = useState(1);
   const [flipped, setFlipped] = useState(false);
   const [rotation, setRotation] = useState(0);
+  // A book's pages turn inside the preview only (from the page shown on the table); hidden content has no pages to read.
+  const pages = component.kind === 'book' && !permission.hidden ? Math.max(1, component.rows.length) : 0;
+  const [page, setPage] = useState(item.row);
+  const turn = useCallback((delta: number) => setPage(value => Math.max(0, Math.min(pages - 1, value + delta))), [pages]);
   const root = useRef<HTMLDivElement>(null);
   const art = useRef<HTMLDivElement>(null);
   const title = useRef<HTMLDivElement>(null);
@@ -92,13 +96,14 @@ export function PiecePreview({ item, component, components, actor, viewer, point
       if (key === 'escape' || (key === 'z' && !event.ctrlKey && !event.metaKey && !event.altKey)) onClose();
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (key === 'f' && permission.canFlip) setFlipped(value => !value);
-      if (key === 'q' || key === 'e') setRotation(value => value + (key === 'q' ? -90 : 90));
+      if ((key === 'q' || key === 'e') && event.shiftKey) { if (pages) turn(key === 'q' ? -1 : 1); }
+      else if (key === 'q' || key === 'e') setRotation(value => value + (key === 'q' ? -90 : 90));
     };
     window.addEventListener('keydown', key, true);
     return () => {
       window.removeEventListener('keydown', key, true);
     };
-  }, [onClose, permission.canFlip]);
+  }, [onClose, pages, permission.canFlip, turn]);
   // Re-evaluate permissions on every render, including while a remote seat/face changes.
   const back = permission.canFlip ? permission.back !== flipped : permission.back;
   return createPortal(<div ref={root} tabIndex={-1} role="dialog" aria-modal="true" data-theme-fixed aria-label={`Fullscreen preview: ${component.name}`}
@@ -106,14 +111,21 @@ export function PiecePreview({ item, component, components, actor, viewer, point
     onPointerMove={event => { pointer.current = { x: event.clientX, y: event.clientY }; place(); }}>
     <div ref={art} className="piece-preview-art" data-back={back} data-rotation={rotation} style={{
       width: component.width, height: component.height,
-    }}><ComponentView component={component} components={components} row={item.row} back={back} hidden={permission.hidden} /></div>
+    }}><ComponentView component={component} components={components} row={pages ? page : item.row} back={back} hidden={permission.hidden} /></div>
     <div ref={title} className="piece-preview-title"><strong>{component.name}</strong>
       {stackCount > 1 && <span className="piece-preview-stack-count" aria-label={`Stack of ${stackCount}`}><Layers size={13} aria-hidden="true" /> {stackCount}</span>}
+      {pages > 0 && <span className="piece-preview-pages" role="group" aria-label="Book pages" onClick={event => event.stopPropagation()}>
+        <button type="button" aria-label="Previous page" title="Previous page (Shift+Q)" disabled={page <= 0} onClick={() => turn(-1)}>
+          <ChevronLeft size={15} aria-hidden="true" /><kbd>Shift+Q</kbd></button>
+        <span aria-live="polite">Page {page + 1} of {pages}</span>
+        <button type="button" aria-label="Next page" title="Next page (Shift+E)" disabled={page >= pages - 1} onClick={() => turn(1)}>
+          <kbd>Shift+E</kbd><ChevronRight size={15} aria-hidden="true" /></button>
+      </span>}
       <span>{Math.round(zoom * 100)}%</span></div>
     <div ref={help} className="piece-preview-help">
       <span>Wheel · Zoom</span><span>Move pointer · Pan</span>
       {permission.canFlip ? <span>F · Flip</span> : <span>Back only</span>}
-      <span>Q / E · Rotate</span><span>Click / Z / Esc · Close</span>
+      <span>Q / E · Rotate</span>{pages > 0 && <span>Shift+Q / Shift+E · Turn page</span>}<span>Click / Z / Esc · Close</span>
       <small>Preview only · Your table stays unchanged</small>
     </div>
   </div>, document.body);

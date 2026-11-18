@@ -1,4 +1,5 @@
-.piece-preview-fullscreen {
+/* The preview is always dark, so its colors are fixed in both themes ([data-theme-fixed], see darkTheme.ts). */
+.piece-preview-fullscreen[data-theme-fixed] {
   position: fixed;
   inset: 0;
   z-index: 10000;
@@ -16,7 +17,7 @@
   pointer-events: none;
   transform-origin: center;
 }
-.piece-preview-title, .piece-preview-help {
+.piece-preview-fullscreen[data-theme-fixed] .piece-preview-title, .piece-preview-fullscreen[data-theme-fixed] .piece-preview-help {
   position: absolute;
   left: 0;
   right: 0;
@@ -29,7 +30,7 @@
   pointer-events: none;
 }
 .piece-preview-title { top: 0; }
-.piece-preview-stack-count {
+.piece-preview-fullscreen[data-theme-fixed] .piece-preview-stack-count {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -39,6 +40,28 @@
   color: #edf2df;
   font-size: 13px;
 }
+.piece-preview-pages {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  pointer-events: auto;
+  cursor: default;
+}
+.piece-preview-fullscreen[data-theme-fixed] .piece-preview-pages button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid #ffffff33;
+  border-radius: 6px;
+  background: #ffffff14;
+  color: #fff;
+  cursor: pointer;
+}
+.piece-preview-fullscreen[data-theme-fixed] .piece-preview-pages button:hover:not(:disabled) { background: #ffffff29; }
+.piece-preview-pages button:disabled { opacity: .4; cursor: default; }
+.piece-preview-fullscreen[data-theme-fixed] .piece-preview-pages kbd { font: inherit; font-size: 11px; padding: 0; border: 0; background: none; box-shadow: none; color: inherit; opacity: .75; }
 .piece-preview-help { bottom: 0; flex-wrap: wrap; font-size: 13px; }
 .piece-preview-help small { flex-basis: 100%; text-align: center; opacity: .7; }
 /* Fixed geometry: hover placement must never depend on whether the thumbnail has mounted. */

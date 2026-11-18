@@ -68,6 +68,38 @@ test('books turn pages and dice step faces with Shift+Q and Shift+E', async ({ p
   await expect.poll(face).toBe(String((start + 4) % 6 + 1));
 });
 
+test('a book’s fullscreen preview turns its own pages with Shift+Q/E and buttons, leaving the table unchanged', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Add component', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /Books Rules, journals/ }).click();
+  await page.getByRole('button', { name: /Playground/ }).click();
+  await page.getByRole('button', { name: 'Spawn Field guide', exact: true }).click();
+  const book = page.getByRole('button', { name: 'Field guide, page 1 of 3', exact: true });
+  await book.hover();
+  await page.keyboard.press('z');
+  const dialog = page.getByRole('dialog', { name: 'Fullscreen preview: Field guide' });
+  const pages = dialog.getByRole('group', { name: 'Book pages' });
+  await expect(pages).toContainText('Page 1 of 3');
+  await expect(pages.getByRole('button', { name: 'Previous page' })).toBeDisabled();
+  await expect(pages.getByRole('button', { name: 'Next page' })).toContainText('Shift+E');
+  await expect(dialog).toContainText('Shift+Q / Shift+E · Turn page');
+  await page.keyboard.press('Shift+E');
+  await page.keyboard.press('Shift+E');
+  await expect(pages).toContainText('Page 3 of 3');
+  await expect(pages.getByRole('button', { name: 'Next page' })).toBeDisabled();
+  await page.keyboard.press('Shift+Q');
+  await expect(pages).toContainText('Page 2 of 3');
+  await pages.getByRole('button', { name: 'Previous page' }).click();
+  await expect(pages).toContainText('Page 1 of 3');
+  await expect(dialog).toBeVisible();
+  // Q alone still rotates the preview.
+  await page.keyboard.press('e');
+  await expect(dialog.locator('.piece-preview-art')).toHaveAttribute('data-rotation', '90');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(book).toBeVisible();
+});
+
 test('the interface scale zooms the page without page scrolling, and pieces still follow the pointer', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 600 });
   await page.goto('/');
