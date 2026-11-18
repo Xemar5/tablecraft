@@ -106,6 +106,28 @@ describe('agent CLI', () => {
     expect(run('validate', '--file', file).valid).toBe(true);
   }, 30000);
 
+  it('creates the ready-to-play games and locks or unlocks pieces, stacks and groups', () => {
+    const file = join(dir, 'go.json');
+    run('new', '--out', file, '--template', 'go');
+    type Row = { id: string; stack: string | null; locked: boolean; group?: string };
+    const instances = () => run('list', '--file', file, '--what', 'instances') as Row[];
+    const groups: { id: string; name: string; pieces: string[] }[] = run('list', '--file', file, '--what', 'groups');
+    expect(groups.map(group => group.name)).toEqual(['Black stones', 'White stones']);
+    const black = groups[0];
+    // The group's bowl is already locked, so only its stones change; a piece brings its whole stack.
+    expect(run('lock', '--file', file, '--groups', black.id).locked).toHaveLength(181);
+    expect(instances().filter(item => item.group === black.id).every(item => item.locked)).toBe(true);
+    const stone = instances().find(item => item.group === black.id && item.stack)!;
+    expect(run('unlock', '--file', file, '--pieces', stone.id).unlocked).toHaveLength(181);
+    expect(run('unlock', '--file', file, '--pieces', stone.id).unlocked).toEqual([]);
+    expect(fail('lock', '--file', file)).toMatch(/--pieces or --groups/);
+    expect(fail('lock', '--file', file, '--groups', 'missing')).toMatch(/does not exist/);
+    expect(run('validate', '--file', file).valid).toBe(true);
+    const island = join(dir, 'tidewater.json');
+    expect(run('new', '--out', island, '--template', 'tidewater', '--name', 'Isles').project).toMatchObject({ name: 'Isles' });
+    expect(fail('new', '--out', join(dir, 'other.json'), '--template', 'poker')).toMatch(/Unknown project template/);
+  }, 30000);
+
   it('exposes schemas and rejects invalid flags or untrusted live URLs', () => {
     expect(run('schema', '--what', 'command').oneOf.length).toBeGreaterThan(1);
     expect(fail('schema', '--what', 'command', '--typo', 'x')).toMatch(/unknown option/i);

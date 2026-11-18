@@ -7,6 +7,7 @@ import { groupMembers, nextGroupName } from '../src/pieceGroups';
 import { exportComponentBundle, remapComponentBundle } from '../src/storage';
 import { createPortableZip, readPortableZip } from '../src/portable';
 import { blankProject, starterProject, templateBundle } from '../src/templates';
+import { GAME_PROJECTS, gameProject, type GameProjectId } from '../src/gameProjects';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { live } from './live';
 import { refreshProjectLinks } from '../src/projectLinks';
@@ -14,7 +15,7 @@ import { refreshProjectLinks } from '../src/projectLinks';
 const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzero exit.
 Usage: npm --silent run cli -- <command> [options]
 
-  new --out FILE [--template blank|wildwood] [--name NAME] [--force]
+  new --out FILE [--template blank|wildwood|chess|checkers|backgammon|go|tidewater] [--name NAME] [--force]
   generate --file FILE --template blank|card|token|board|dice|book|artwork [--name NAME] [--data JSON_FILE]
   import --file FILE --bundle COMPONENT_ZIP
   list --file FILE [--what components|instances|players|groups]
@@ -26,6 +27,7 @@ Usage: npm --silent run cli -- <command> [options]
   group rename --file FILE --group GROUP_ID --name NAME
   group ungroup --file FILE --group GROUP_IDS
   group move --file FILE [--pieces IDS] [--groups IDS] --parent GROUP_ID|root
+  lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--actor PLAYER_ID]
   validate --file FILE
   export --file FILE --out FILE [--component ID] [--force]
   live host --file FILE --code CODE [live options]
@@ -37,7 +39,10 @@ Live options: --uri URL (default http://127.0.0.1:3000), --database NAME
   (default tablecraft-studio), --name NAME, --color COLOR, --timeout MS.
 Project and component files are ZIP saves containing project.json and assets.
 Groups organise table pieces in the Pieces panel; IDS are comma-separated, pieces
-bring their whole stack, and empty groups are removed. Book pages and dice faces
+bring their whole stack, and empty groups are removed. lock/unlock act on pieces
+(with their whole stacks) and every piece in the given groups; locked pieces stay
+put and can be dragged and box-selected over. The chess, checkers, backgammon, go
+and tidewater templates are ready-to-play games with grouped, partly locked pieces. Book pages and dice faces
 step with {"type":"cycleVariant","ids":[...],"delta":1} in apply.
 For archives with multiple projects use --project PROJECT_ID. Offline mutations
 replace --file atomically after the full batch succeeds. Offline apply supports
@@ -113,8 +118,10 @@ async function main(args: string[]) {
   } else if (cmd === 'new') {
     allowed(o, ['out', 'template', 'name', 'force']);
     const kind = option(o, 'template', 'blank');
-    if (!['blank', 'wildwood'].includes(kind)) throw new Error('Unknown project template.');
-    const project = kind === 'blank' ? blankProject() : starterProject();
+    const game = GAME_PROJECTS.find(item => item.id === kind);
+    if (!['blank', 'wildwood'].includes(kind) && !game) throw new Error('Unknown project template.');
+    const project = game ? gameProject(game.id as GameProjectId, game.name, game.description, { name: 'Player 1', color: '#b7cc91' })
+      : kind === 'blank' ? blankProject() : starterProject();
     if (o.name) project.name = option(o, 'name');
     const archive = archiveSchema.parse({ format: 'tablecraft', version: 1, projects: [project] });
     validateProject(archive.projects[0]);
@@ -140,6 +147,7 @@ async function main(args: string[]) {
       apply: [...common, 'commands', 'actor'], spawn: [...common, 'component', 'count', 'row', 'x', 'y', 'actor'],
       export: [...common, 'out', 'component', 'force'],
       group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id'],
+      lock: [...common, 'pieces', 'groups', 'actor'], unlock: [...common, 'pieces', 'groups', 'actor'],
     };
     if (!(cmd in supported)) throw new Error(`Unknown command ${cmd}. Use --help.`);
     allowed(o, supported[cmd]);
@@ -193,6 +201,19 @@ async function main(args: string[]) {
         : { type: 'moveToGroup', parent: option(o, 'parent') === 'root' ? null : option(o, 'parent'), ids: list('pieces'), groups: list('groups') };
       ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), command));
       changed = true; result = { command, groups: project.groups ?? [] };
+    } else if (cmd === 'lock' || cmd === 'unlock') {
+      const list = (name: string) => typeof o[name] === 'string' ? option(o, name).split(',').map(value => value.trim()).filter(Boolean) : [];
+      const pieces = list('pieces'), groups = list('groups');
+      if (!pieces.length && !groups.length) throw new Error('Choose --pieces or --groups.');
+      for (const group of groups) if (!(project.groups ?? []).some(item => item.id === group)) throw new Error(`Group ${group} does not exist.`);
+      const chosen = new Set([...pieces, ...groups.flatMap(group => groupMembers(project, group))]);
+      for (const id of pieces) if (!project.instances.some(item => item.id === id)) throw new Error(`Piece ${id} does not exist.`);
+      const stacks = new Set(project.instances.filter(item => chosen.has(item.id) && item.stack).map(item => item.stack));
+      const lock = cmd === 'lock';
+      // Pieces already in the requested state are left as they are.
+      const ids = project.instances.filter(item => (chosen.has(item.id) || (item.stack && stacks.has(item.stack))) && item.locked !== lock).map(item => item.id);
+      if (ids.length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'move', ids, patch: { locked: lock } }, o.actor as string | undefined));
+      changed = ids.length > 0; result = { [lock ? 'locked' : 'unlocked']: ids };
     } else if (cmd === 'list') {
       const what = option(o, 'what', 'components');
       if (!['components', 'instances', 'players', 'groups'].includes(what)) throw new Error('Unknown list type.');
