@@ -76,8 +76,8 @@ test('scaled previews have no empty horizontal overflow and locked pieces have n
   await expect(preview).toBeVisible();
   const shortcuts = preview.getByRole('table', { name: 'Piece shortcuts' });
   await expect(shortcuts.getByRole('row')).toHaveCount(8);
-  await expect(shortcuts.getByRole('rowheader')).toHaveText(['Flip', 'Rotate −90° / +90°', 'Shuffle / roll', 'Stack selection', 'Draw cards', 'Lock / unlock', 'Hide preview', 'Fullscreen preview']);
-  await expect(shortcuts.getByRole('cell')).toHaveText(['F', 'Q / E', 'R', 'G', '1–0', 'L', 'Alt', 'Z']);
+  await expect(shortcuts.getByRole('rowheader')).toHaveText(['Flip', 'Rotate −90° / +90°', 'Shuffle / roll', 'Stack selection', 'Draw cards', 'Lock / unlock', 'Fullscreen preview', 'Hide this preview']);
+  await expect(shortcuts.getByRole('cell')).toHaveText(['F', 'Q / E', 'R', 'G', '1–0', 'L', 'Z', 'Alt']);
   const columns = await shortcuts.locator('tr').evaluateAll(rows => rows.map(row => [...row.querySelectorAll('th,td')].map(cell => cell.getBoundingClientRect().x)));
   expect(columns.every(([description, key]) => description === columns[0][0] && key === columns[0][1] && key > description)).toBe(true);
   await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
