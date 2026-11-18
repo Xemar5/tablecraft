@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { projectSchema, validateProject, type Project } from '../src/domain';
 import { GAME_PROJECTS, gameProject } from '../src/gameProjects';
+import { hasOpenFace } from '../src/ComponentView';
 import { groupMembers } from '../src/pieceGroups';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
@@ -82,5 +83,12 @@ describe('game projects', () => {
     expect(count(game, 'Tide card')).toBe(25);
     expect([count(game, 'Hut'), count(game, 'Lighthouse'), count(game, 'Boardwalk'), count(game, 'Harbor'), count(game, 'Squall')]).toEqual([20, 16, 60, 9, 1]);
     expect(game.components.find(component => component.name === 'Tidewater rules')!.rows.length).toBeGreaterThan(3);
+  });
+
+  it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {
+    for (const color of ['transparent', '', '#0000', '#12345600', 'rgba(1, 2, 3, 0)', 'hsla(0 0% 0% / 0)']) expect(hasOpenFace({ color })).toBe(true);
+    for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);
+    const tiles = gameProject('tidewater', 'Game', '', profile).components.find(component => component.name === 'Island tile')!;
+    expect(hasOpenFace(tiles)).toBe(true);
   });
 });

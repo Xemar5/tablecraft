@@ -1,7 +1,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
-import { ComponentThumbnail, ComponentView } from './ComponentView';
+import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
 import { canStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
@@ -856,7 +856,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             const badge = plan && isSelected ? plan.units.indexOf(item.stack ?? item.id) : -1;
             return <TablePiece key={item.id} item={item} component={comp} components={p.components} x={position.x} y={position.y} count={count}
               zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handDrop}
-              dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} pieceZoom={isSelected ? zoom * item.scale : undefined}
+              dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} pieceZoom={isSelected || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
         </div>
@@ -1231,7 +1231,8 @@ type PieceEvents = {
 type TablePieceProps = {
   item: Instance; component: Component; components: Component[]; x: number; y: number; zIndex: number; count: number;
   selected: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number;
-  /** Only set for selected pieces, whose order badge stays a constant screen size. */
+  /** The table zoom times the piece's scale; only set for selected and drop-target pieces, whose order badge and
+   * outline keep a constant screen size. */
   pieceZoom?: number;
   badgeIndex: number; badgeTotal: number; badgeError?: string; events: React.RefObject<PieceEvents>;
 };
@@ -1241,6 +1242,10 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
   const pages = comp.kind === 'book' ? Math.max(1, comp.rows.length) : 0;
   const element = useRef<HTMLDivElement>(null);
   const transform = `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})`;
+  const open = hasOpenFace(comp);
+  // The selection and stack-drop outlines trace the face's own shape (see ShapeRing).
+  const ring = dropTarget ? { color: '#7d9b60', width: 4, offset: 9 } : selected ? { color: '#89a969', width: 2, offset: 4 } : undefined;
+  const ringId = `piece-ring-${item.id.replace(/[^\w-]/g, '_')}`;
   // Dragging keeps the layout position and moves the piece on the compositor.
   useCompositedTransform(element, dragging ? `translate(${x - item.x}px, ${y - item.y}px) ${transform}` : undefined);
   const wasDragging = useRef(dragging);
@@ -1260,8 +1265,14 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     onFocus={() => events.current.focus(item.id)} onBlur={() => events.current.blur()} tabIndex={0} role="button" aria-label={`${comp.name}${count > 1 ? `, stack of ${count}` : ''}${pages ? `, page ${item.row + 1} of ${pages}` : ''}`}
     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); events.current.select(item, e.shiftKey); } }}
     onDoubleClick={e => { if (events.current.draw(item, comp)) e.stopPropagation(); }}>
-    {(count > 1 || pages > 1) && <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>}
-    <ComponentView component={comp} components={components} row={rollingRow ?? item.row} back={visibleBack(item)} />
+    {(count > 1 || pages > 1) && (open
+      // A shaped (transparent) face shows the pieces underneath as silhouettes of its own shape.
+      ? [2, 1].map(depth => <div key={depth} className={`stack-shadow stack-shadow-${depth} open-stack-shadow`}><ComponentView component={comp} components={components} row={item.row} back={visibleBack(item)} /></div>)
+      : <><div className="stack-shadow stack-shadow-2" /><div className="stack-shadow stack-shadow-1" /></>)}
+    {ring && pieceZoom !== undefined && <ShapeRing id={ringId} {...ring} scale={pieceZoom} boxWidth={comp.width} boxHeight={comp.height} />}
+    <div className="piece-face" style={ring && pieceZoom !== undefined ? { filter: `url(#${ringId})` } : undefined}>
+      <ComponentView component={comp} components={components} row={rollingRow ?? item.row} back={visibleBack(item)} />
+    </div>
     {count > 1 && <span className="stack-count"><Layers size={13} /> {count}</span>}
     {pages > 0 && <span className="stack-count book-page-count" data-testid="book-page"><BookOpen size={13} /> {item.row + 1} / {pages}</span>}
     {item.locked && <span className="piece-lock"><LockKeyhole size={15} /></span>}
@@ -1306,6 +1317,29 @@ function useCompositedTransform(ref: React.RefObject<HTMLElement | null>, transf
     }, settleAfter);
   }, [ref, transform, settleAfter]);
   useEffect(() => () => { window.clearTimeout(settle.current); animation.current?.cancel(); }, []);
+}
+
+/**
+ * An outline that follows the drawn shape of a piece's face, including transparent parts, rather than its box: the
+ * face's opaque pixels are grown by `offset` and by `offset + width`, and the band between them is filled with
+ * `color`. Sizes are screen pixels; `scale` is the table zoom times the piece's scale.
+ */
+function ShapeRing({ id, color, width, offset, scale, boxWidth, boxHeight }: {
+  id: string; color: string; width: number; offset: number; scale: number; boxWidth: number; boxHeight: number;
+}) {
+  const outer = (offset + width) / scale, inner = offset / scale, margin = outer + 2 / scale;
+  return <svg className="shape-ring-defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <filter id={id} filterUnits="userSpaceOnUse" x={-margin} y={-margin} width={boxWidth + margin * 2} height={boxHeight + margin * 2} colorInterpolationFilters="sRGB">
+      {/* Count faint pixels (soft shadows, antialiasing) as part of the shape only from about 10% opacity. */}
+      <feComponentTransfer in="SourceAlpha" result="solid"><feFuncA type="discrete" tableValues="0 1 1 1 1 1 1 1 1 1" /></feComponentTransfer>
+      <feMorphology in="solid" operator="dilate" radius={outer} result="outer" />
+      <feMorphology in="solid" operator="dilate" radius={inner} result="inner" />
+      <feComposite in="outer" in2="inner" operator="out" result="band" />
+      <feFlood floodColor={color} />
+      <feComposite in2="band" operator="in" result="ring" />
+      <feMerge><feMergeNode in="ring" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+  </svg>;
 }
 
 type DragOverlayProps = { item: Instance; component: Component; components: Component[]; left: number; top: number; dx: number; dy: number; rotation: number; scale: number };

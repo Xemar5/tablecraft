@@ -171,7 +171,7 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
   from { opacity: .4; transform: perspective(900px) rotateY(-16deg) scaleX(.85); }
   to { opacity: 1; transform: perspective(900px) rotateY(0) scaleX(1); }
 }
-.table-piece.rolling > .component-face { animation: die-roll 650ms cubic-bezier(.2, .7, .3, 1); }
+.table-piece.rolling > .piece-face > .component-face { animation: die-roll 650ms cubic-bezier(.2, .7, .3, 1); }
 .table-piece.rolling { filter: drop-shadow(0 10px 12px rgba(41, 61, 54, .28)); }
 @keyframes die-roll {
   0% { rotate: 0deg; scale: 1; }
@@ -205,3 +205,14 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hover-preview .component-thumbnail{justify-self:center}
 /* A settled table (see useCompositedTransform) is redrawn at its zoom instead of being stretched. */
 .table-world[data-settled]{will-change:auto}
+/* Pieces follow their face's drawn shape: a transparent face has no rounded box or edge line (ComponentView marks it
+   .open-face), the selection and drop outlines are ShapeRing filters on .piece-face, and a shaped stack shows the
+   pieces below as silhouettes. Only keyboard focus still uses the box ring. */
+.piece-face{width:100%;height:100%;pointer-events:none}
+.shape-ring-defs{position:absolute;width:0;height:0;overflow:hidden;pointer-events:none}
+.component-face.open-face,.table-piece>.piece-face>.component-face.open-face{box-shadow:none}
+.table-piece.selected,.table-piece.stack-drop-target{--ring-color:#0000}
+.stack-shadow.open-stack-shadow{background:none;border:0;border-radius:0;pointer-events:none}
+.stack-shadow.open-stack-shadow>.component-face{filter:brightness(0) invert(.91) sepia(.12) drop-shadow(0 0 .7px #8f927e)}
+.hand-selected{outline:none;filter:drop-shadow(2px 0 0 #6b8c4f) drop-shadow(-2px 0 0 #6b8c4f) drop-shadow(0 2px 0 #6b8c4f) drop-shadow(0 -2px 0 #6b8c4f)}
+:root[data-theme=dark] .stack-shadow.open-stack-shadow>.component-face{filter:brightness(0) invert(.24) drop-shadow(0 0 .7px #74786a)}

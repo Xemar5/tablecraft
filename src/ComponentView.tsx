@@ -135,14 +135,28 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
         : nodes.filter(n => n.parent === node.id).map(child => render(child, node, contextData))}
     </div>;
   };
-  return <div key={face} className={`component-face component-${c.kind}${reveal.changed ? ' face-flipped' : ''}`} style={{
+  // A transparent face takes its shape from its layers, so it isn't rounded to its kind's usual shape.
+  const open = hasOpenFace(c) && !(hidden && !nodes.length);
+  return <div key={face} className={`component-face component-${c.kind}${open ? ' open-face' : ''}${reveal.changed ? ' face-flipped' : ''}`} style={{
     width: c.width, height: c.height, background: hidden && !nodes.length ? '#365d46' : c.color,
-    borderRadius: c.kind === 'artwork' ? 0 : c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
+    borderRadius: c.kind === 'artwork' || open ? 0 : c.kind === 'token' ? '50%' : c.kind === 'board' ? 16 : 12,
     boxShadow: c.kind === 'artwork' ? 'none' : undefined,
   }}>{c.kind === 'texture' ? <img src={assetUrl(c)} alt={c.name} draggable={false} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
       : c.kind === 'font' ? <div style={{ fontFamily: `"${assetFontFamily(c)}"`, fontSize: 64, textAlign: 'center', paddingTop: 50 }}>Aa</div>
       : hidden && !nodes.length ? <div className="hidden-face" /> : nodes.filter(n => !n.parent).map(n => render(n))}</div>;
 });
+
+/** Whether a component's background is fully transparent, so its layers alone give it its shape. */
+export function hasOpenFace(component: Pick<Component, 'color'>): boolean {
+  const color = component.color.trim().toLowerCase();
+  if (!color || color === 'transparent') return true;
+  const hex = /^#(?:[0-9a-f]{3}([0-9a-f])|[0-9a-f]{6}([0-9a-f]{2}))$/.exec(color);
+  if (hex) return /^0+$/.test(hex[1] ?? hex[2]);
+  const functional = /^(?:rgba?|hsla?)\((.*)\)$/.exec(color);
+  if (!functional) return false;
+  const parts = functional[1].split(/[\s,/]+/).filter(Boolean);
+  return parts.length === 4 && parseFloat(parts[3]) === 0;
+}
 
 /** Typography for text layers: weight, style, decoration, case, spacing, outline and shadow. */
 function textStyle(node: DesignNode): CSSProperties {
