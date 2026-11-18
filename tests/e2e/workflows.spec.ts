@@ -285,7 +285,7 @@ test('designer supports hierarchy, front/back, CSV updates and component behavio
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
   await openDesigner(page);
-  await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
+  await page.getByRole('button', { name: 'Create group', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Card footer');
   await page.getByLabel('Child layout').selectOption('row');
   await page.getByRole('button', { name: 'Add text', exact: true }).click();

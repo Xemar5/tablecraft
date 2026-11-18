@@ -328,10 +328,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const toggleLayerVisibility = (item: DesignNode) => {
     void update({ [face]: nodes.map(candidate => candidate.id === item.id ? { ...candidate, visible: item.visible === false } : candidate) });
   };
-  const addNode = (type: DesignNode['type'], empty = false, shapeKind: DesignNode['shapeKind'] = 'rectangle') => {
+  const addNode = (type: DesignNode['type'], shapeKind: DesignNode['shapeKind'] = 'rectangle') => {
     const parentCandidate = selectedNodes.length === 1 ? selectedNodes[0] : undefined;
     const parent = parentCandidate && (parentCandidate.type === 'frame' || (type === 'shape' && parentCandidate.type === 'compound')) ? parentCandidate.id : null;
-    const next = makeNode(type, empty ? { name: 'Empty element', fill: 'transparent', width: 150, height: 100, parent } : {
+    const next = makeNode(type, {
       parent, ...(type === 'shape' ? { shapeKind, width: 100, height: 100,
         points: shapeKind === 'path' ? [{ x: 12, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
           { x: 88, y: 12, inX: 0, inY: 0, outX: 0, outY: 0 },
@@ -847,9 +847,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         <div className="tool-group">
           <button title="Add text" aria-label="Add text" onClick={() => addNode('text')}><Type size={19} /></button>
           <div className="designer-tool-menu"><button aria-label="Add shape" title="Add shape" aria-expanded={toolMenu === 'shape'} onClick={event => toggleToolMenu('shape', event.currentTarget)}><Square size={18} /><ChevronDown className="tool-indicator" size={9} /></button>
-            {toolMenu === 'shape' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{(['rectangle', 'ellipse', 'polygon', 'star'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', false, kind); setToolMenu(null); }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>, document.body)}</div>
+            {toolMenu === 'shape' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{(['rectangle', 'ellipse', 'polygon', 'star'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', kind); setToolMenu(null); }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>, document.body)}</div>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
-          <button title="Add empty element" aria-label="Add empty element" onClick={() => addNode('frame', true)}><Frame size={18} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
           <button title="Add linked artwork: shows another component; choose which in the Design panel" aria-label="Add linked artwork" onClick={addLinkedArtwork}><Link2 size={17} /></button>
         </div><span className="toolbar-divider" />

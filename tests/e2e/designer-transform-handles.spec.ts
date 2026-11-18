@@ -15,7 +15,7 @@ const value = (page: Page, label: string) => page.getByLabel(label, { exact: tru
 test('selected layers resize from edges and corners and rotate from the canvas handles', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
-  await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
+  await page.getByRole('button', { name: 'Create group', exact: true }).click();
   const zoom = Number((await page.locator('.canvas-bottom button').nth(1).textContent())!.replace('%', '')) / 100;
   const element = page.locator('.artboard .design-node').last();
   await expect(page.locator('.transform-box')).toBeVisible();

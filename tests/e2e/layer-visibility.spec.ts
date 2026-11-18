@@ -4,7 +4,7 @@ import { savedWorkspace } from './savedWorkspace';
 test('layer and group visibility controls preserve the design and support undo', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
-  await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
+  await page.getByRole('button', { name: 'Create group', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Visibility group');
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Visibility child');

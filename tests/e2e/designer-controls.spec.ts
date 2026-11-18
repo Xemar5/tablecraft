@@ -76,7 +76,8 @@ test('shape menu inserts directly, boolean controls are contextual and parenting
   await page.getByRole('menuitem', { name: 'Rectangle', exact: true }).click();
   await expect(union).toBeDisabled();
   const layers = page.locator('.layer-row');
-  await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Create group', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Container');
   const container = page.getByRole('button', { name: 'Container', exact: true });
   await layers.filter({ hasText: /^Shape$/ }).last().dragTo(container);

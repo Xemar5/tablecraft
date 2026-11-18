@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test';
 test('groups do not clip children that extend beyond their bounds', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
-  await page.getByRole('button', { name: 'Add empty element', exact: true }).click();
+  await page.getByRole('button', { name: 'Create group', exact: true }).click();
   await page.getByLabel('Layer name', { exact: true }).fill('Overflow group');
   await page.getByLabel('Width', { exact: true }).fill('60'); await page.getByLabel('Width', { exact: true }).press('Enter');
   await page.getByLabel('Height', { exact: true }).fill('40'); await page.getByLabel('Height', { exact: true }).press('Enter');
