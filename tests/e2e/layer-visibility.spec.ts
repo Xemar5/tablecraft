@@ -18,6 +18,8 @@ test('layer and group visibility controls preserve the design and support undo',
   };
   await expect(face).toContainText('Unique child text');
   await expect.poll(async () => (await stored()).length).toBe(2);
+  // Typing reaches the saved design after a short pause.
+  await expect.poll(async () => (await stored()).find(node => node.name === 'Visibility child')?.text).toBe('Unique child text');
   const before = await stored();
   await groupRow.hover();
   await groupRow.getByRole('button', { name: 'Hide Visibility group' }).click();

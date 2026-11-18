@@ -304,7 +304,9 @@ export default function App() {
     }
   }, [send, setDraft]);
   // Any other change lands after the pending designs, in the order they were made.
-  const dispatch = useCallback((command: Command) => { flushDesign(); return send(command); }, [flushDesign, send]);
+  // The designer holds rapid edits for a moment (see Designer); hand them over before anything else changes.
+  const designerFlush = useRef<(() => void) | undefined>(undefined);
+  const dispatch = useCallback((command: Command) => { designerFlush.current?.(); flushDesign(); return send(command); }, [flushDesign, send]);
   const editDesign = (component: Component, removedDataRow?: number): Promise<boolean> => {
     if (draftRef.current && draftRef.current.projectId !== committed.id) flushDesign();
     try {
@@ -667,7 +669,7 @@ export default function App() {
         activeComponent && isAsset(activeComponent) ? <AssetInspector key={activeComponent.id} component={activeComponent} components={project.components} notify={notify} onChange={component => dispatch({ type: 'component', component })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} /> :
-        activeComponent ? <Designer key={activeComponent.id} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={editDesign} onDelete={async () => {
+        activeComponent ? <Designer key={activeComponent.id} flushRef={designerFlush} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={editDesign} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>

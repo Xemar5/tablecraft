@@ -199,9 +199,11 @@ function transformBox(node: DesignNode, nodes: DesignNode[]) {
   return center && { ...center, angle: nodeAngle(node, nodes) + node.rotation * Math.PI / 180 };
 }
 
-export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels, layersVisible = true }: {
+export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels, layersVisible = true, flushRef }: {
   component: Component; components: Component[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
   tab: 'design' | 'behavior'; setTab: (tab: 'design' | 'behavior') => void; panels: ReturnType<typeof usePanelLayout>; layersVisible?: boolean;
+  /** Set to a function that hands any held edit to `onChange` at once (the app calls it before its own commands). */
+  flushRef?: { current: (() => void) | undefined };
 }) {
   const [component, setComponent] = useState(incoming);
   const pending = useRef(0);
@@ -281,7 +283,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   // Continuous edits from one control (typing, sliders, scrubbing, held nudges) share a single undo entry.
   const editSession = useRef<{ target: unknown; recorded: boolean } | null>(null);
   const beginEdit = (target: unknown) => { if (editSession.current?.target !== target) editSession.current = { target, recorded: false }; };
-  const endEdit = (target: unknown) => { if (editSession.current?.target === target) editSession.current = null; };
+  const endEdit = (target: unknown) => { if (editSession.current?.target === target) { editSession.current = null; flushLatest.current(); } };
   const isFormControl = (target: EventTarget) => target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
   useEffect(() => {
     const element = designer.current; if (!element) return;
@@ -299,20 +301,56 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
     else setSelectedPoint(-1);
   }, [node?.id, node?.type === 'shape' ? node.points.length : 0]);
-  const commit = async (next: Component, removedDataRow?: number) => {
-    pending.current++;
-    setComponent(next);
+  const send = async (next: Component, removedDataRow?: number) => {
     const success = await onChange(next, removedDataRow);
     pending.current--;
     if (!success && !pending.current) setComponent(latestIncoming.current);
     return success;
+  };
+  // Continuous edits (color pickers, scrubbing, sliders, typing, held nudges) show on the canvas at once but reach
+  // the app only after a short pause or when the edit ends, so the app doesn't re-check and re-render every tick.
+  const held = useRef<{ next: Component; done: ((success: boolean) => void)[] } | null>(null);
+  const heldTimer = useRef<number>(undefined);
+  const flushHeld = () => {
+    window.clearTimeout(heldTimer.current); heldTimer.current = undefined;
+    const item = held.current;
+    if (!item) return;
+    held.current = null;
+    void send(item.next).then(success => item.done.forEach(resolve => resolve(success)));
+  };
+  const flushLatest = useRef(flushHeld);
+  flushLatest.current = flushHeld;
+  useEffect(() => {
+    const flush = () => flushLatest.current();
+    const hidden = () => { if (document.visibilityState === 'hidden') flush(); };
+    if (flushRef) flushRef.current = flush;
+    window.addEventListener('pagehide', flush); document.addEventListener('visibilitychange', hidden);
+    return () => {
+      window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', hidden);
+      if (flushRef?.current === flush) flushRef.current = undefined;
+      flush();
+    };
+  }, [flushRef]);
+  const commit = (next: Component, removedDataRow?: number, defer = false): Promise<boolean> => {
+    setComponent(next);
+    if (defer && removedDataRow === undefined) {
+      if (held.current) held.current.next = next;
+      else { pending.current++; held.current = { next, done: [] }; }
+      window.clearTimeout(heldTimer.current);
+      heldTimer.current = window.setTimeout(() => flushLatest.current(), 200);
+      const item = held.current;
+      return new Promise(resolve => item.done.push(resolve));
+    }
+    flushHeld();
+    pending.current++;
+    return send(next, removedDataRow);
   };
   const update = (patch: Partial<Component>, removedDataRow?: number) => {
     const session = editSession.current?.target === 'nudge' || editSession.current?.target === document.activeElement ? editSession.current : null;
     if (!session?.recorded) setHistory(h => [...h.slice(-39), structuredClone(component)]);
     if (session) session.recorded = true;
     setFuture([]);
-    return commit({ ...component, ...patch }, removedDataRow);
+    return commit({ ...component, ...patch }, removedDataRow, !!session);
   };
   const updateNode = (patch: Partial<DesignNode>) => {
     try {
