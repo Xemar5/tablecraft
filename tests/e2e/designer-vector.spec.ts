@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { searchSelect } from './searchSelect';
 
 test('designer menus, the pen tool, curve editing, point deletion and undo work with real pointers', async ({ page }) => {
   await page.goto('/');
@@ -60,5 +61,5 @@ test('designer menus, the pen tool, curve editing, point deletion and undo work 
   await anchors.nth(2).click({ modifiers: ['Alt'] });
   await expect(anchors).toHaveCount(4);
   await page.getByRole('button', { name: /Data bindings/ }).click();
-  await expect(page.getByRole('dialog').getByLabel('Preview row')).toBeVisible();
+  await expect(searchSelect(page.getByRole('dialog'), 'Preview row')).toBeVisible();
 });

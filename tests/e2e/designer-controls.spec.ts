@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { savedWorkspace } from './savedWorkspace';
+import { optionTexts, choose, searchSelect } from './searchSelect';
 
 test('variant selectors show numbered first-column values rather than name or value fields', async ({ page }) => {
   await page.goto('/');
@@ -7,13 +8,15 @@ test('variant selectors show numbered first-column values rather than name or va
   await page.getByRole('button', { name: /Data bindings/ }).click();
   await page.getByLabel('CSV data', { exact: true }).fill('10,2,name,value\nAlpha,Other,Wrong,1\n,Other,Wrong,2\n"Beta, gamma",Other,Wrong,3');
   await page.getByRole('button', { name: 'Apply data & refresh instances', exact: true }).click();
-  const labels = ['1. Alpha', '2. ', '3. Beta, gamma'];
-  const toolbar = page.locator('.canvas-toolbar').getByLabel('Preview row', { exact: true });
-  await expect(toolbar.locator('option')).toHaveText(labels);
+  const labels = ['1. Alpha', '2.', '3. Beta, gamma'];
+  expect(await optionTexts(page, page.locator('.canvas-toolbar'), 'Preview row')).toEqual(labels);
   await page.getByRole('button', { name: 'Behavior', exact: true }).click();
-  await expect(page.getByLabel('Dice variant', { exact: true }).locator('option')).toHaveText(labels);
+  expect(await optionTexts(page, page, 'Dice variant')).toEqual(labels);
   await page.getByRole('button', { name: /Data bindings/ }).click();
-  await expect(page.getByRole('dialog').getByLabel('Preview row', { exact: true }).locator('option')).toHaveText(labels);
+  expect(await optionTexts(page, page.getByRole('dialog'), 'Preview row')).toEqual(labels);
+  // Each list can be searched.
+  await choose(page, page.getByRole('dialog'), 'Preview row', /^3\./, 'gamma');
+  await expect(searchSelect(page.getByRole('dialog'), 'Preview row')).toHaveAccessibleName('Preview row: 3. Beta, gamma');
 });
 
 test('designer toolbar scrolls with the wheel and shows edge shadows without clipping menus', async ({ page }) => {
@@ -30,7 +33,7 @@ test('designer toolbar scrolls with the wheel and shows edge shadows without cli
   await page.mouse.wheel(0, 1000);
   await expect(wrapper).toHaveClass(/overflow-left/);
   await expect(wrapper).not.toHaveClass(/overflow-right/);
-  await expect(toolbar.getByLabel('Preview row', { exact: true })).toBeInViewport();
+  await expect(searchSelect(toolbar, 'Preview row')).toBeInViewport();
   await page.mouse.wheel(0, -1000);
   await expect(wrapper).not.toHaveClass(/overflow-left/);
   await expect(wrapper).toHaveClass(/overflow-right/);
@@ -47,18 +50,18 @@ test('toolbar preview row switches artwork variants and stays synced with data b
   await page.locator('.library-filters').getByRole('button', { name: 'Artwork', exact: true }).click();
   const artwork = page.locator('.library-item').filter({ has: page.locator('.preview-variants') }).first();
   await artwork.getByRole('button', { name: /^Edit / }).click();
-  const toolbarRow = page.locator('.canvas-toolbar').getByLabel('Preview row', { exact: true });
+  const toolbarRow = searchSelect(page.locator('.canvas-toolbar'), 'Preview row');
   const face = page.locator('.artboard .component-face').first();
   await expect(toolbarRow).toBeVisible();
   const initial = await face.innerHTML();
-  await toolbarRow.selectOption('1');
+  await choose(page, page.locator('.canvas-toolbar'), 'Preview row', /^2\./);
   await expect.poll(() => face.innerHTML()).not.toBe(initial);
   await page.getByRole('button', { name: /Data bindings/ }).click();
   const dialog = page.getByRole('dialog');
-  await expect(dialog.getByLabel('Preview row', { exact: true })).toHaveValue('1');
-  await dialog.getByLabel('Preview row', { exact: true }).selectOption('0');
+  await expect(searchSelect(dialog, 'Preview row')).toHaveAccessibleName(/^Preview row: 2\./);
+  await choose(page, dialog, 'Preview row', /^1\./);
   await page.keyboard.press('Escape');
-  await expect(toolbarRow).toHaveValue('0');
+  await expect(toolbarRow).toHaveAccessibleName(/^Preview row: 1\./);
   await expect.poll(() => face.innerHTML()).toBe(initial);
   await page.getByRole('button', { name: 'Behavior', exact: true }).click();
   await expect(toolbarRow).toBeVisible();

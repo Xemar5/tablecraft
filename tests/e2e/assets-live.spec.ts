@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { fillServer, pickSeat } from './liveSeat';
+import { choose } from './searchSelect';
 
 test('imported assets and their references synchronize through authoritative live commands', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
@@ -25,7 +26,7 @@ test('imported assets and their references synchronize through authoritative liv
     await expect(guest.getByRole('button', { name: 'Edit Live texture', exact: true })).toBeVisible({ timeout: 20000 });
     await host.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
     await host.getByRole('button', { name: 'Add image', exact: true }).click();
-    await host.getByLabel('Imported texture', { exact: true }).selectOption({ label: 'Live texture' });
+    await choose(host, host, 'Imported texture', 'Live texture');
     await expect(guest.locator('.table-piece .node-image img').first()).toHaveAttribute('src', /^data:image\/png;base64,/, { timeout: 20000 });
     await host.getByRole('button', { name: 'Edit Live texture', exact: true }).click();
     await host.getByRole('button', { name: 'Delete asset', exact: true }).click();

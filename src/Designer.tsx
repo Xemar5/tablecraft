@@ -703,6 +703,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   };
   const variantFields = [...new Set(component.rows.flatMap(item => Object.keys(item)))];
   const rowLabels = useMemo(() => variantLabels(component.csv, component.rows), [component.csv, component.rows]);
+  const rowOptions = useMemo(() => rowLabels.map((label, index) => ({ value: String(index), label })), [rowLabels]);
   if (!variantFields.length) variantFields.push('value');
   const updateVariants = (rows: Component['rows'], removedDataRow?: number) => update({ rows, csv: Papa.unparse(rows) }, removedDataRow);
   const layers = (parent: string | null, depth = 0): ReactNode => nodes.filter(item => item.parent === parent).map(item => {
@@ -894,9 +895,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
         <div className="toolbar-preview-row">
-          <select aria-label="Preview row" value={component.rows.length ? row : ''} disabled={!component.rows.length} onChange={event => setRow(Number(event.target.value))}>
-            {component.rows.length ? rowLabels.map((label, index) => <option key={index} value={index}>{label}</option>) : <option value="">Default</option>}
-          </select>
+          <SearchSelect label="Preview row" hideLabel value={component.rows.length ? String(row) : ''} disabled={!component.rows.length}
+            options={component.rows.length ? rowOptions : [{ value: '', label: 'Default' }]} onChange={value => setRow(Number(value))} />
         </div>
       </div></div>
       <div ref={stage} className={`designer-stage${tool === 'pen' ? ' pen-active' : ''}`} tabIndex={-1}
@@ -1040,9 +1040,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               ? <>Each CSV row is one page, in order. On the table, Shift+Q and Shift+E turn the pages; pages can't be taken out of the book. Edit fields here, or use Data bindings to add columns.</>
               : <>Each CSV row is one equally likely roll result; Shift+Q and Shift+E step through them on the table. Edit its fields here, or use Data bindings to add columns. Bind text with {'{{value}}'} or another column name.</>}</p>
             {!!component.rows.length && <>
-              <Field label={component.kind === 'book' ? 'Page' : 'Dice variant'}><select value={row} onChange={event => setRow(Number(event.target.value))}>
-                {rowLabels.map((label, index) => <option key={index} value={index}>{label}</option>)}
-              </select></Field>
+              <SearchSelect label={component.kind === 'book' ? 'Page' : 'Dice variant'} value={String(row)} options={rowOptions} onChange={value => setRow(Number(value))} />
               {variantFields.map(field => <Field key={`${row}-${field}`} label={`${component.kind === 'book' ? 'Page' : 'Variant'} ${field}`}><input maxLength={10000} value={component.rows[row]?.[field] ?? ''} onChange={event => {
                 void updateVariants(component.rows.map((variant, index) => index === row ? { ...variant, [field]: event.target.value } : variant));
               }} /></Field>)}
@@ -1129,9 +1127,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             </div>
             <div className="inspector-section design-section typography-section">
               <SectionTitle title="Typography" hint="Pick a Google font, type an imported font's name, or bind a column such as {{font}}; values that match an imported font's name use it." />
-              <Field label="Imported font"><select value={node.fontId ?? ''} onChange={event => updateNode({ fontId: event.target.value || undefined })}>
-                <option value="">Use Google font or binding</option>{components.filter(item => item.kind === 'font').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select></Field>
+              <SearchSelect label="Imported font" value={node.fontId ?? ''} onChange={value => updateNode({ fontId: value || undefined })}
+                options={[{ value: '', label: 'Use Google font or binding' }, ...components.filter(item => item.kind === 'font').map(item => ({ value: item.id, label: item.name }))]} />
               <FontPicker key={node.id} label="Google font / binding" value={node.font} disabled={!!node.fontId} onChange={font => updateNode({ font })} />
               <div className="field-grid">
                 <NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
@@ -1161,9 +1158,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           </>}
           {selected.length === 1 && node.type === 'image' && <div className="inspector-section design-section">
             <SectionTitle title="Image" hint="Use an HTTPS URL, an imported texture's name, or a CSV binding such as {{art}}. Bound values that match a texture's name use that texture, and {{texture-name}} picks it directly." />
-            <Field label="Imported texture"><select value={node.textureId ?? ''} onChange={event => updateNode({ textureId: event.target.value || undefined })}>
-              <option value="">Use image URL / binding</option>{components.filter(item => item.kind === 'texture').map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select></Field>
+            <SearchSelect label="Imported texture" value={node.textureId ?? ''} onChange={value => updateNode({ textureId: value || undefined })}
+              options={[{ value: '', label: 'Use image URL / binding' }, ...components.filter(item => item.kind === 'texture').map(item => ({ value: item.id, label: item.name }))]} />
             <Field label="Image URL / binding"><textarea rows={2} disabled={!!node.textureId} value={node.text} onChange={event => updateNode({ text: event.target.value })} placeholder="https://..., a texture name or {{image}}" /></Field>
             <Field label="Picture fit"><select value={node.imageFit ?? 'cover'} onChange={event => updateNode({ imageFit: event.target.value as DesignNode['imageFit'] })}>
               {IMAGE_FITS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -1187,10 +1183,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <span className="subtle">{node.points.length} points</span>
             </SectionTitle>
             <Toggle label="Closed path" checked={node.pathClosed} onChange={pathClosed => updateNode({ pathClosed })} />
-            <Field label="Selected point"><select value={selectedPoint} onChange={event => setSelectedPoint(Number(event.target.value))}>
-              <option value={-1}>None</option>
-              {node.points.map((_, index) => <option key={index} value={index}>Point {index + 1}</option>)}
-            </select></Field>
+            <SearchSelect label="Selected point" value={String(selectedPoint)} onChange={value => setSelectedPoint(Number(value))}
+              options={[{ value: '-1', label: 'None' }, ...node.points.map((_, index) => ({ value: String(index), label: `Point ${index + 1}` }))]} />
             {node.points[selectedPoint] && <>
               <div className="field-grid"><NumberField label="X" value={node.points[selectedPoint].x} min={-4000} max={4000} step={.5} onChange={x => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, x } : point) })} />
                 <NumberField label="Y" value={node.points[selectedPoint].y} min={-4000} max={4000} step={.5} onChange={y => updateNode({ points: node.points.map((point, index) => index === selectedPoint ? { ...point, y } : point) })} />
@@ -1296,9 +1290,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
       <div className="data-dialog"><div className="data-toolbar"><span><FileSpreadsheet size={16} /> CSV data source</span><label className="button"><Upload size={14} /> Import CSV<input type="file" accept=".csv,text/csv" hidden onChange={async event => {
         try { const file = event.target.files?.[0]; if (file) setCsv(await file.text()); } catch (error) { notify(String(error), true); }
       }} /></label></div>
-        {!!component.rows.length && <Field label="Preview row"><select value={row} onChange={event => setRow(Number(event.target.value))}>
-          {rowLabels.map((label, index) => <option key={index} value={index}>{label}</option>)}
-        </select></Field>}
+        {!!component.rows.length && <SearchSelect label="Preview row" value={String(row)} options={rowOptions} onChange={value => setRow(Number(value))} />}
         <textarea className="csv-editor" aria-label="CSV data" value={csv} onChange={event => setCsv(event.target.value)} spellCheck={false} />
         <p className="help-text">Include a header row. Quoted cells, commas and multiline text are supported. Updating data refreshes existing pieces by row index.</p>
         <div className="modal-actions"><button className="button" onClick={() => setDataOpen(false)}>Cancel</button><button className="button primary" onClick={saveCsv}><Database size={15} /> Apply data & refresh instances</button></div>

@@ -3,6 +3,7 @@ import { ComponentThumbnail } from './ComponentView';
 import type { Component } from './domain';
 import { componentZip, downloadZip } from './portable';
 import { variantLabels } from './csv';
+import { SearchSelect } from './SearchSelect';
 
 export function LinkedComponent({ component, components, available, onCopy, onRemove, notify }: {
   component: Component; components: Component[]; available: boolean; onCopy: () => void; onRemove: () => void;
@@ -20,9 +21,8 @@ export function LinkedComponent({ component, components, available, onCopy, onRe
         catch (error) { notify(`Export failed: ${String(error)}`, true); }
       }}>Export component</button>
       <button className="button" onClick={onRemove}>Remove link</button></div>
-    {!!component.rows.length && <label className="field"><span>Preview row</span><select aria-label="Preview row" value={Math.min(row, component.rows.length - 1)} onChange={event => setRow(Number(event.target.value))}>
-      {labels.map((label, index) => <option key={index} value={index}>{label}</option>)}
-    </select></label>}
+    {!!component.rows.length && <SearchSelect label="Preview row" value={String(Math.min(row, component.rows.length - 1))}
+      options={labels.map((label, index) => ({ value: String(index), label }))} onChange={value => setRow(Number(value))} />}
     <div className="linked-component-art"><ComponentThumbnail component={component} components={components} row={Math.min(row, Math.max(0, component.rows.length - 1))} width={Math.min(360, component.width)} /></div>
   </section>;
 }

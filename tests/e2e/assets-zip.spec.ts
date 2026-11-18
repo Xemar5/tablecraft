@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readPortableZip } from '../../src/portable';
+import { choose } from './searchSelect';
 
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
 const font = readFileSync('node_modules/playwright-core/lib/vite/traceViewer/codicon.DCmgc-ay.ttf');
@@ -28,11 +29,10 @@ test('imported textures and fonts render, travel in ZIP saves and are deleted wi
 
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
   await page.getByRole('button', { name: 'Add image', exact: true }).click();
-  const textureSelect = page.getByLabel('Imported texture', { exact: true });
-  await textureSelect.selectOption({ label: 'Custom texture' });
+  await choose(page, page, 'Imported texture', 'Custom texture', 'custom');
   await expect(page.locator('.designer-canvas .node-image img').last()).toHaveAttribute('src', /^data:image\/png;base64,/);
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
-  await page.getByLabel('Imported font', { exact: true }).selectOption({ label: 'Custom font' });
+  await choose(page, page, 'Imported font', 'Custom font');
   await expect(page.getByLabel('Google font / binding', { exact: true })).toBeDisabled();
   const before = await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!));
   const current = before.projects[0], importedFont = current.components.find((component: { kind: string }) => component.kind === 'font');
