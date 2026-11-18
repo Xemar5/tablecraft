@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { projectSchema, validateProject, type Project } from '../src/domain';
 import { GAME_PROJECTS, gameProject } from '../src/gameProjects';
 import { hasOpenFace } from '../src/ComponentView';
+import { snapToGrid } from '../src/playgroundPreview';
 import { groupMembers } from '../src/pieceGroups';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
@@ -90,5 +91,29 @@ describe('game projects', () => {
     for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);
     const tiles = gameProject('tidewater', 'Game', '', profile).components.find(component => component.name === 'Island tile')!;
     expect(hasOpenFace(tiles)).toBe(true);
+  });
+
+  it('turns on a snapping grid lined up with the squares or crossings of square boards only', () => {
+    for (const [id, piece, size] of [['chess', 'Chess pieces', 60], ['checkers', 'Checker', 60], ['go', 'Go stone', 30]] as const) {
+      const game = build(id);
+      expect(game.settings).toMatchObject({ grid: true, snap: true, gridSize: size });
+      const { gridOffsetX = 0, gridOffsetY = 0 } = game.settings;
+      const board = game.instances.find(instance => game.components.find(component => component.id === instance.componentId)?.kind === 'board')!;
+      // Every square centre (or line crossing) on the board is a snap point, and the starting pieces sit on them.
+      for (const step of [0, 1, 7]) {
+        const x = board.x - (id === 'go' ? 270 : 210) + step * size, y = board.y - (id === 'go' ? 270 : 210) + step * size;
+        expect([snapToGrid(x, size, gridOffsetX), snapToGrid(y, size, gridOffsetY)]).toEqual([x, y]);
+      }
+      const placed = game.instances.filter(instance => !instance.stack && game.components.find(component => component.id === instance.componentId)?.name === piece);
+      for (const instance of placed) expect([snapToGrid(instance.x, size, gridOffsetX), snapToGrid(instance.y, size, gridOffsetY)]).toEqual([instance.x, instance.y]);
+    }
+    for (const id of ['backgammon', 'tidewater'] as const) expect(build(id).settings).toMatchObject({ grid: false, snap: false });
+  });
+
+  it('snaps to grid points at the offset plus whole cells', () => {
+    expect(snapToGrid(77, 60, 50)).toBe(50);
+    expect(snapToGrid(81, 60, 50)).toBe(110);
+    expect(snapToGrid(-31, 60, 50)).toBe(-10);
+    expect(snapToGrid(13, 25)).toBe(25);
   });
 });

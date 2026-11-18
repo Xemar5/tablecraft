@@ -15,10 +15,12 @@ export function previewOnLeft(clientX: number, left: number, width: number, prev
   return clientX >= Math.min(left + width * 2 / 3, Math.max(left + width / 2, left + width - 16 - Math.min(previewWidth, width / 2 - 28) - 24));
 }
 
-export function snappedPositions(positions: Record<string, { x: number; y: number }>, delta: { x: number; y: number }, grid: number) {
+/** The nearest grid point to `value` on a grid of `size` whose points sit at offset + n × size. */
+export const snapToGrid = (value: number, size: number, offset = 0) => offset + Math.round((value - offset) / size) * size;
+export function snappedPositions(positions: Record<string, { x: number; y: number }>, delta: { x: number; y: number }, grid: number, offset = { x: 0, y: 0 }) {
   return Object.entries(positions).map(([id, point]) => ({
     id,
-    x: Math.round((point.x + delta.x) / grid) * grid,
-    y: Math.round((point.y + delta.y) / grid) * grid,
+    x: snapToGrid(point.x + delta.x, grid, offset.x),
+    y: snapToGrid(point.y + delta.y, grid, offset.y),
   }));
 }

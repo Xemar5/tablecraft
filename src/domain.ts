@@ -179,6 +179,8 @@ export const projectSchema = z.object({
   groups: z.array(pieceGroupSchema).max(2000).optional(),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
+    /** Where the grid's points sit: snap points are offset + n × gridSize on each axis (0 when absent). */
+    gridOffsetX: num.min(-2000).max(2000).optional(), gridOffsetY: num.min(-2000).max(2000).optional(),
     hands: z.boolean(), allowOtherHands: z.boolean().optional(),
     allowHandInsert: z.boolean().optional(), allowHandTake: z.boolean().optional(),
     turns: z.boolean(), turn: z.number().int().min(0),

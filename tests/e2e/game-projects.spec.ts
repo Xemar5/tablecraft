@@ -31,3 +31,29 @@ test('New project can start from a ready-to-play game, which fills in its name a
   await page.getByRole('link', { name: 'Tablecraft home' }).click();
   await expect(page.locator('.home-project').filter({ hasText: 'Friday chess' })).toContainText('2 components · 33 pieces · 2 players');
 });
+
+test('chess snaps pieces to square centres on a grid lined up with the board', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Tablecraft home' }).click();
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page.getByRole('radio', { name: /^Chess/ }).check();
+  await page.getByRole('button', { name: 'Create project', exact: true }).click();
+  await expect(page.locator('.table-status')).toContainText('Snapping to 60px');
+  // Grid dots sit on the snap points: tiles start half a cell before them.
+  await expect(page.locator('.table-world')).toHaveCSS('background-position', '20px 10px');
+  const pieces = page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ });
+  const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects.find((project: { name: string }) => project.name === 'Chess'));
+  const before = await saved();
+  // A white pawn (row 5) on e2.
+  const pawn = before.instances.find((item: { row: number; x: number }) => item.row === 5 && item.x === 1010);
+  const piece = page.locator(`.table-piece[data-piece-id="${pawn.id}"]`);
+  const box = (await piece.boundingBox())!, zoom = box.width / 56;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  // Two squares up, plus a little off-centre.
+  await page.mouse.move(box.x + box.width / 2 + 13 * zoom, box.y + box.height / 2 - 133 * zoom, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await saved()).instances.find((item: { id: string }) => item.id === pawn.id)).toMatchObject({ x: pawn.x, y: pawn.y - 120 });
+  await expect(pieces).toHaveCount(32);
+});
+

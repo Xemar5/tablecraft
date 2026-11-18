@@ -28,6 +28,7 @@ Usage: npm --silent run cli -- <command> [options]
   group ungroup --file FILE --group GROUP_IDS
   group move --file FILE [--pieces IDS] [--groups IDS] --parent GROUP_ID|root
   lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--actor PLAYER_ID]
+  grid --file FILE [--show on|off] [--snap on|off] [--size N] [--offset-x N] [--offset-y N]
   validate --file FILE
   export --file FILE --out FILE [--component ID] [--force]
   live host --file FILE --code CODE [live options]
@@ -41,7 +42,8 @@ Project and component files are ZIP saves containing project.json and assets.
 Groups organise table pieces in the Pieces panel; IDS are comma-separated, pieces
 bring their whole stack, and empty groups are removed. lock/unlock act on pieces
 (with their whole stacks) and every piece in the given groups; locked pieces stay
-put and can be dragged and box-selected over. The chess, checkers, backgammon, go
+put and can be dragged and box-selected over. grid prints the table grid settings and changes
+the ones given: snap points sit at offset + n × size (size 5–200 px). The chess, checkers, backgammon, go
 and tidewater templates are ready-to-play games with grouped, partly locked pieces. Book pages and dice faces
 step with {"type":"cycleVariant","ids":[...],"delta":1} in apply.
 For archives with multiple projects use --project PROJECT_ID. Offline mutations
@@ -148,6 +150,7 @@ async function main(args: string[]) {
       export: [...common, 'out', 'component', 'force'],
       group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id'],
       lock: [...common, 'pieces', 'groups', 'actor'], unlock: [...common, 'pieces', 'groups', 'actor'],
+      grid: [...common, 'show', 'snap', 'size', 'offset-x', 'offset-y'],
     };
     if (!(cmd in supported)) throw new Error(`Unknown command ${cmd}. Use --help.`);
     allowed(o, supported[cmd]);
@@ -214,6 +217,23 @@ async function main(args: string[]) {
       const ids = project.instances.filter(item => (chosen.has(item.id) || (item.stack && stacks.has(item.stack))) && item.locked !== lock).map(item => item.id);
       if (ids.length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'move', ids, patch: { locked: lock } }, o.actor as string | undefined));
       changed = ids.length > 0; result = { [lock ? 'locked' : 'unlocked']: ids };
+    } else if (cmd === 'grid') {
+      const toggle = (name: string) => {
+        if (o[name] === undefined) return undefined;
+        if (o[name] !== 'on' && o[name] !== 'off') throw new Error(`--${name} must be on or off.`);
+        return o[name] === 'on';
+      };
+      const patch: Partial<Project['settings']> = {};
+      const show = toggle('show'), snap = toggle('snap');
+      if (show !== undefined) patch.grid = show;
+      if (snap !== undefined) patch.snap = snap;
+      if (o.size !== undefined) patch.gridSize = numberOption(o, 'size', 25, 5, 200);
+      if (o['offset-x'] !== undefined) patch.gridOffsetX = numberOption(o, 'offset-x', 0, -2000, 2000);
+      if (o['offset-y'] !== undefined) patch.gridOffsetY = numberOption(o, 'offset-y', 0, -2000, 2000);
+      if (Object.keys(patch).length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'settings', patch }));
+      changed = Object.keys(patch).length > 0;
+      const { grid, snap: snapping, gridSize, gridOffsetX = 0, gridOffsetY = 0 } = project.settings;
+      result = { grid, snap: snapping, gridSize, gridOffsetX, gridOffsetY };
     } else if (cmd === 'list') {
       const what = option(o, 'what', 'components');
       if (!['components', 'instances', 'players', 'groups'].includes(what)) throw new Error('Unknown list type.');

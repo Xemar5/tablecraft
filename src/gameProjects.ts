@@ -62,9 +62,13 @@ function grouping() {
   return { groups, add, into };
 }
 const locked = (items: Instance[]) => items.map(item => ({ ...item, locked: true }));
-function project(name: string, description: string, components: Component[], instances: Instance[], players: Player[], groups: PieceGroup[], hands = false): Project {
+/** A shown, snapping grid of `size` with a point at `at` (a square's centre or a line crossing on the board). */
+const boardGrid = (size: number, at: { x: number; y: number }): Partial<Project['settings']> =>
+  ({ grid: true, snap: true, gridSize: size, gridOffsetX: ((at.x % size) + size) % size, gridOffsetY: ((at.y % size) + size) % size });
+function project(name: string, description: string, components: Component[], instances: Instance[], players: Player[], groups: PieceGroup[], hands = false,
+  grid: Partial<Project['settings']> = {}): Project {
   return { id: uid('project'), name, description, components, instances, players, groups,
-    settings: { grid: false, snap: false, gridSize: 25, hands, turns: true, turn: 0 } };
+    settings: { grid: false, snap: false, gridSize: 25, hands, turns: true, turn: 0, ...grid } };
 }
 
 /** A die showing pips. */
@@ -126,7 +130,7 @@ export function chessProject(name: string, description: string, profile: Profile
     place(board, 0, CENTER.x, CENTER.y, { locked: true }),
     ...into(add('White pieces'), army(0, 0, 1)), ...into(add('Black pieces'), army(6, 7, 6)),
   ];
-  return project(name, description, [board, pieces], instances, seats(profile, ['#f1ead8', '#3a3029']), groups);
+  return project(name, description, [board, pieces], instances, seats(profile, ['#f1ead8', '#3a3029']), groups, false, boardGrid(60, square(0, 0)));
 }
 
 /** A round checker, with an optional king's star. */
@@ -152,7 +156,7 @@ export function checkersProject(name: string, description: string, profile: Prof
     place(board, 0, CENTER.x, CENTER.y, { locked: true }),
     ...into(add('Light checkers'), side(0, [0, 1, 2])), ...into(add('Dark checkers'), side(1, [5, 6, 7])),
   ];
-  return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']), groups);
+  return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']), groups, false, boardGrid(60, square(0, 0)));
 }
 
 // Backgammon points are numbered from the light player's side: 1–6 bottom right (light's home), 7–12 bottom left,
@@ -230,7 +234,9 @@ export function goProject(name: string, description: string, profile: Profile): 
     ...into(add('Black stones'), stones(0, 181, CENTER.x - 390, CENTER.y + 200)),
     ...into(add('White stones'), stones(1, 180, CENTER.x + 390, CENTER.y - 200)),
   ];
-  return project(name, description, [board, stone, bowl], instances, seats(profile, ['#1d1d1f', '#f4f2ec']), groups);
+  // Stones snap onto the line crossings.
+  return project(name, description, [board, stone, bowl], instances, seats(profile, ['#1d1d1f', '#f4f2ec']), groups, false,
+    boardGrid(spacing, { x: CENTER.x - 300 + first, y: CENTER.y - 300 + first }));
 }
 
 // Tidewater Isles: an original game of settling tidal islands. Pointy-top hex tiles 97 wide and 112 tall tile at

@@ -11,7 +11,7 @@ import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
 import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
-import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft, snappedPositions } from './playgroundPreview';
+import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft, snappedPositions, snapToGrid } from './playgroundPreview';
 import { cssPx } from './uiScale';
 
 type Props = {
@@ -57,6 +57,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
   const [removingSeat, setRemovingSeat] = useState<Player>();
   const [playerDrag, setPlayerDrag] = useState<string>();
   const [playerDrop, setPlayerDrop] = useState<{ id: string; position: 'before' | 'after' }>();
+  const gridOffset = { x: p.settings.gridOffsetX ?? 0, y: p.settings.gridOffsetY ?? 0 };
   const turnPlayer = p.players.length ? p.players[p.settings.turn % p.players.length] : undefined;
   const nextTurnPlayer = p.players.length ? p.players[(p.settings.turn + 1) % p.players.length] : undefined;
   const endTurn = () => { void dispatch({ type: 'endTurn' }); };
@@ -669,7 +670,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
       if (moving.length) {
         // One atomic command, including all stack members; each piece snaps from its own final position.
         const command = p.settings.snap
-          ? { type: 'transform' as const, ids: moving.map(i => i.id), positions: snappedPositions(g.positions, delta, p.settings.gridSize) }
+          ? { type: 'transform' as const, ids: moving.map(i => i.id), positions: snappedPositions(g.positions, delta, p.settings.gridSize, gridOffset) }
           : { type: 'transform' as const, ids: moving.map(i => i.id), dx: delta.x, dy: delta.y };
         void dispatch(command);
       }
@@ -751,7 +752,9 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         onPointerUp={endGesture}
         onPointerCancel={() => { gesture.current = null; setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
         <div ref={world} className={`table-world ${p.settings.grid ? 'show-grid' : ''}`} style={{
+          // Each grid dot is centred in its background tile, so the tiles start half a cell before the snap points.
           backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`, '--table-zoom': zoom,
+          backgroundPosition: `${gridOffset.x - p.settings.gridSize / 2}px ${gridOffset.y - p.settings.gridSize / 2}px`,
         } as React.CSSProperties}>
           <div className="table-watermark" aria-hidden="true"><span><Layers size={34} strokeWidth={1.4} /></span><p>TABLECRAFT</p><small>MAKE SOMETHING WORTH PLAYING</small></div>
           {p.settings.hands && p.players.map(player => {
@@ -959,7 +962,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               const rect = viewport.current?.getBoundingClientRect();
               if (!rect || e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
               let { x, y } = worldPoint(e.clientX, e.clientY);
-              if (p.settings.snap) { x = Math.round(x / p.settings.gridSize) * p.settings.gridSize; y = Math.round(y / p.settings.gridSize) * p.settings.gridSize; }
+              if (p.settings.snap) { x = snapToGrid(x, p.settings.gridSize, gridOffset.x); y = snapToGrid(y, p.settings.gridSize, gridOffset.y); }
               const target = targetAt(e.clientX, e.clientY, []);
               if (!e.altKey && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
               else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y });
@@ -1112,7 +1115,13 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         <fieldset className="inspector-section table-settings" disabled={viewer}><div className="section-title"><h3>Table settings</h3><Settings2 size={14} /></div>
           <Toggle label="Show grid" checked={p.settings.grid} onChange={grid => dispatch({ type: 'settings', patch: { grid } })} />
           <Toggle label="Snap to grid" checked={p.settings.snap} onChange={snap => dispatch({ type: 'settings', patch: { snap } })} />
-          {p.settings.snap && <NumberField deferred label="Grid size (px)" value={p.settings.gridSize} min={5} max={200} onChange={gridSize => dispatch({ type: 'settings', patch: { gridSize } })} />}
+          {(p.settings.snap || p.settings.grid) && <>
+            <NumberField deferred label="Grid size (px)" value={p.settings.gridSize} min={5} max={200} onChange={gridSize => dispatch({ type: 'settings', patch: { gridSize } })} />
+            <div className="field-grid">
+              <NumberField deferred label="Grid offset X (px)" hint="Moves the grid's points, for example onto a board's squares." value={gridOffset.x} min={-2000} max={2000} onChange={gridOffsetX => dispatch({ type: 'settings', patch: { gridOffsetX } })} />
+              <NumberField deferred label="Grid offset Y (px)" value={gridOffset.y} min={-2000} max={2000} onChange={gridOffsetY => dispatch({ type: 'settings', patch: { gridOffsetY } })} />
+            </div>
+          </>}
           <Toggle label="Player hands" description="Keep a little mystery" checked={p.settings.hands} onChange={hands => dispatch({ type: 'settings', patch: { hands } })} />
           <Toggle label="Turn tracker" checked={p.settings.turns} onChange={turns => dispatch({ type: 'settings', patch: { turns } })} />
           {p.settings.turns && <div className="turn-tracker"><span>UP NEXT</span><strong>{turnPlayer?.name ?? 'Add a player'}</strong><button className="button full primary" onClick={endTurn}>End turn <ChevronRight size={15} /></button></div>}
