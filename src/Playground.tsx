@@ -1275,7 +1275,6 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     </div>
     {count > 1 && <span className="stack-count"><Layers size={13} /> {count}</span>}
     {pages > 0 && <span className="stack-count book-page-count" data-testid="book-page"><BookOpen size={13} /> {item.row + 1} / {pages}</span>}
-    {item.locked && <span className="piece-lock"><LockKeyhole size={15} /></span>}
     {slot && <span className={`stack-order-badge ${badgeError ? 'blocked' : ''}`} data-testid="stack-order" data-slot={slot}
       title={badgeError ? `Can't stack: ${badgeError}` : `Stacked ${slot === 'bottom' ? 'at the bottom' : slot === 'top' ? 'on top' : 'in the middle'} (${badgeIndex + 1} of ${badgeTotal})`}>
       <b>{badgeIndex + 1}</b><StackSlotIcon slot={slot} blocked={!!badgeError} />
