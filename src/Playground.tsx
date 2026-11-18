@@ -889,8 +889,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
               <tr><th scope="row">Stack selection</th><td><kbd>G</kbd></td></tr>
               <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>
               <tr><th scope="row">Lock / unlock</th><td><kbd>L</kbd></td></tr>
-              <tr><th scope="row">Hide preview</th><td><kbd>Alt</kbd></td></tr>
               <tr><th scope="row">Fullscreen preview</th><td><kbd>Z</kbd></td></tr>
+              <tr><th scope="row">Hide this preview</th><td><kbd>Alt</kbd></td></tr>
             </tbody></table></div> : null;
         })()}
       </div>
