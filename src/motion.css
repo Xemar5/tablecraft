@@ -184,3 +184,6 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+/* Scroll edge shades: a dark shade disappears on dark panels, so night mode uses a light one. */
+:root[data-theme=dark] .horizontal-scroll::before,:root[data-theme=dark] .designer-toolbar-scroll::before,:root[data-theme=dark] .library-filter-scroll::before{background:linear-gradient(to right,#e4ecd833,#e4ecd816 25%,#e4ecd808 50%,#e4ecd802 75%,transparent)}
+:root[data-theme=dark] .horizontal-scroll::after,:root[data-theme=dark] .designer-toolbar-scroll::after,:root[data-theme=dark] .library-filter-scroll::after{background:linear-gradient(to left,#e4ecd833,#e4ecd816 25%,#e4ecd808 50%,#e4ecd802 75%,transparent)}

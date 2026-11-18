@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Dices, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, LayoutGrid, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
@@ -23,7 +23,8 @@ import { startLibraryDrag } from './libraryDrag';
 import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, saveSettings, validName, watchTheme, type UserSettings } from './settings';
 
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
-  : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} /> : <Square size={size} />;
+  : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} />
+  : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : <Square size={size} />;
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
 function boot(): { archive: Archive; error: string | null; lastProjectId: string | null; draftNotice?: string; draftStored: boolean } {
   const draft = loadDesignDraft();
@@ -52,10 +53,6 @@ const hasVariants = (component: Component) => !hasPages(component) && component.
 
 export default function App() {
   const [initial] = useState(boot);
-  const templatePreviews = useMemo(() => ({
-    card: templateBundle('card'), token: templateBundle('token'),
-    board: templateBundle('board'), dice: templateBundle('dice'), book: templateBundle('book'), artwork: templateBundle('artwork'),
-  }), []);
   const [workspace, setWorkspace] = useState<{ archive: Archive; histories: Record<string, PlaygroundHistory> }>({ archive: initial.archive, histories: {} });
   const { archive } = workspace;
   // Whole-workspace imports/snapshots and live subscriptions start a fresh offline history.
@@ -729,9 +726,9 @@ export default function App() {
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
         ['board', 'Boards', 'Build a world to play in.'], ['dice', 'Dice', 'Leave a little to chance.'],
         ['book', 'Books', 'Rules, journals and lore. Turn pages with Shift+Q/E.'], ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
-      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kind === 'artwork' ? <Palette size={48} /> : <ComponentThumbnail component={templatePreviews[kind].root} components={templatePreviews[kind].components} width={kind === 'board' ? 140 : kind === 'card' ? 78 : kind === 'book' ? 84 : 64} />}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
+      ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kindIcon(kind, 48)}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
         <button className="template-card template-texture" onClick={() => textureInput.current?.click()}><div className="template-art"><ImageIcon size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Textures<ArrowRight size={15} /></strong><small>Import PNG, JPEG, WebP or GIF images. Embedded in your ZIP save.</small></button>
-        <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><span className="template-font-sample" aria-hidden="true">Aa</span><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>
+        <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><Type size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>
       </div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
     </Modal>}
