@@ -91,7 +91,7 @@ function pipDie(name: string, body: string, pip: string, size = 48): Component {
   });
 }
 
-/** An 8×8 board with file and rank labels. a1 is a dark square at the bottom left. */
+/** An 8×8 board with file and rank labels. a1 is a dark square at the bottom left, so it turns in half turns. */
 function squareBoard(name: string, colors: { light: string; dark: string; frame: string; ink: string }): Component {
   const size = 60, margin = 40, side = size * 8;
   const front: DesignNode[] = [
@@ -106,7 +106,7 @@ function squareBoard(name: string, colors: { light: string; dark: string; frame:
     front.push(label(`Rank ${index + 1}`, { x: 6, y: margin + (7 - index) * size, width: 28, height: size, text: String(index + 1), fontSize: 14, color: colors.ink }));
   }
   front.push(shape('Edge', { x: margin - 2, y: margin - 2, width: side + 4, height: side + 4, fill: 'transparent', stroke: colors.ink, strokeWidth: 2 }));
-  return component(name, 'board', side + margin * 2, side + margin * 2, { color: colors.frame, front });
+  return component(name, 'board', side + margin * 2, side + margin * 2, { color: colors.frame, front, rotationStep: 180 });
 }
 /** Centre of a board square, with the board centred on the table. */
 const square = (file: number, rank: number) => ({ x: CENTER.x - 280 + 70 + file * 60, y: CENTER.y - 280 + 70 + (7 - rank) * 60 });
@@ -119,6 +119,7 @@ export function chessProject(name: string, description: string, profile: Profile
     textShadow: '#00000055', textShadowY: 2, textShadowBlur: 2, ...when('side', side.toLowerCase()), ...values,
   });
   const pieces = component('Chess pieces', 'token', 56, 56, {
+    rotationStep: 180,
     rows: ['White', 'Black'].flatMap(side => kinds.map(([kind, symbol]) => ({ name: `${side} ${kind.toLowerCase()}`, side: side.toLowerCase(), glyph: `${symbol}︎` }))),
     front: [
       glyph('White', { color: '#f7f1e3', textStroke: '#3b2c1e', textStrokeWidth: 1.2 }),
@@ -186,13 +187,13 @@ export function backgammonProject(name: string, description: string, profile: Pr
       fill: point % 2 ? '#9b3b2e' : '#2e5450', points: outline(top ? [[0, 0], [50, 0], [25, 200]] : [[0, 200], [50, 200], [25, 0]]) }));
     front.push(label(`Point ${point} number`, { x, y: top ? 8 : 534, width: POINT_WIDTH, height: 18, text: String(point), fontSize: 10, color: '#d9c39a' }));
   }
-  const board = component('Backgammon board', 'board', 760, 560, { color: '#5c3a24', front });
+  const board = component('Backgammon board', 'board', 760, 560, { color: '#5c3a24', front, rotationStep: 180 });
   const checker = component('Backgammon checker', 'token', 40, 40, {
     rows: [{ name: 'Light checker', side: 'light' }, { name: 'Dark checker', side: 'dark' }],
     front: checkerFaces(40, [{ side: 'light', fill: '#f2e8d0', edge: '#9d8a5f' }, { side: 'dark', fill: '#2d2a28', edge: '#8e8576' }], false),
   });
   const die = pipDie('Die', '#f4efe2', '#2b2622');
-  const cube = component('Doubling cube', 'dice', 48, 48, { color: '#efe7d2',
+  const cube = component('Doubling cube', 'dice', 48, 48, { color: '#efe7d2', rotationStep: 180,
     rows: ['64', '2', '4', '8', '16', '32'].map(value => ({ value })),
     front: [label('Value', { x: 0, y: 0, width: 48, height: 48, text: '{{value}}', fontSize: 20, font: 'Lora', color: '#3b2a1c' })] });
   const left = CENTER.x - 380, top = CENTER.y - 280;
@@ -318,7 +319,7 @@ const RULES = [
 export function tidewaterProject(name: string, description: string, profile: Profile): Project {
   const terrainRows = TERRAINS.map(({ terrain, name, resource }) => ({ name, terrain, resource }));
   const tile = component('Island tile', 'card', HEX.width, HEX.height, {
-    flippable: true, stackable: true, shufflable: true, previewWhenLocked: true, rows: terrainRows,
+    flippable: true, stackable: true, shufflable: true, previewWhenLocked: true, rotationStep: 60, rows: terrainRows,
     front: [
       ...TERRAINS.map(({ terrain, name, fill }) => shape(name, { shapeKind: 'path', x: 0, y: 0, ...HEX, points: HEX_OUTLINE, fill, stroke: '#1f2b2633', strokeWidth: 1.5, ...when('terrain', terrain) })),
       // The art and resource name fill the upper half, leaving the number slot free below them.
@@ -357,7 +358,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // post on each of the two corners it serves. It is rotated to face out from its edge.
   const wood = { fill: '#b98a52', stroke: '#5e4128', strokeWidth: 1 };
   const harbor = component('Harbor', 'card', HARBOR.width, HARBOR.height, {
-    previewWhenLocked: true, rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
+    previewWhenLocked: true, rotationStep: 60, rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
     front: [
       shape('Left gangway', { shapeKind: 'path', x: 4, y: 8, width: 22, height: 21, points: outline([[1, 0], [8, 0], [22, 17], [16, 21]]), ...wood }),
       shape('Right gangway', { shapeKind: 'path', x: 38, y: 8, width: 22, height: 21, points: outline([[21, 0], [14, 0], [0, 17], [6, 21]]), ...wood }),
@@ -371,15 +372,16 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   const colorRows = PLAYER_COLORS.map(({ color, name }) => ({ name, color }));
   const colored = (part: string, values: (fill: string, edge: string) => Partial<DesignNode>) =>
     PLAYER_COLORS.map(({ color, name, fill, edge }) => shape(`${name} ${part}`, { ...values(fill, edge), ...when('color', color) }));
-  const hut = component('Hut', 'card', 26, 26, { stackable: true, rows: colorRows,
+  const hut = component('Hut', 'card', 26, 26, { stackable: true, rotationStep: 30, rows: colorRows,
     front: colored('hut', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 26, points: outline([[13, 1], [25, 11], [25, 25], [1, 25], [1, 11]]), fill, stroke: edge, strokeWidth: 1.5 })) });
-  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, rows: colorRows,
+  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, rotationStep: 30, rows: colorRows,
     front: [
       shape('Lamp', { x: 8, y: 1, width: 10, height: 9, radius: 2, fill: '#f6dc84', stroke: '#6d5a1f', strokeWidth: 1 }),
       ...colored('tower', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 38, points: outline([[6, 10], [20, 10], [24, 37], [2, 37]]), fill, stroke: edge, strokeWidth: 1.5 })),
       shape('Band', { x: 5, y: 22, width: 16, height: 3, fill: '#00000033' }),
     ] });
-  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, rows: colorRows,
+  // Boardwalks lie along tile edges (at 30, 90 or 150 degrees), so they turn in sixths from an edge angle.
+  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, rotationStep: 60, rows: colorRows,
     front: [
       ...colored('boardwalk', (fill, edge) => ({ x: 0, y: 5, width: 44, height: 10, radius: 2, fill, stroke: edge, strokeWidth: 1.2 })),
       ...[11, 22, 33].map((x, index) => shape(`Plank gap ${index + 1}`, { x, y: 6, width: 1.2, height: 8, fill: '#00000040' })),
@@ -499,7 +501,8 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     instances.push(...into(add(`${PLAYER_COLORS[index].name} pieces`), [
       ...pile(hut, Array<number>(5).fill(index), spot[0].x, spot[0].y, { rotation: seat.rotation }),
       ...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }),
-      ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: seat.rotation + 90 }),
+      // Across the seat, turned to the nearest tile-edge angle.
+      ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: (30 + 60 * Math.floor((seat.rotation + 60) / 60) + 360) % 360 }),
       // The building costs card is a reference, so it is locked in front of its player (it still shows its preview).
       place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true }),
     ]));

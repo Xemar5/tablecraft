@@ -170,6 +170,22 @@ describe('game projects', () => {
     for (let sector = 0; sector < 6; sector++) expect(sectors.filter(item => item === sector).length).toBeGreaterThanOrEqual(1);
   });
 
+  it('turns pieces in steps that suit each game', () => {
+    const steps = (project: Project) => Object.fromEntries(project.components.filter(component => component.rotationStep).map(component => [component.name, component.rotationStep]));
+    expect(steps(build('chess'))).toEqual({ 'Chess board': 180, 'Chess pieces': 180 });
+    expect(steps(build('checkers'))).toEqual({ 'Checkers board': 180 });
+    expect(steps(build('backgammon'))).toEqual({ 'Backgammon board': 180, 'Doubling cube': 180 });
+    expect(steps(build('go'))).toEqual({});
+    const game = build('tidewater');
+    expect(steps(game)).toEqual({ 'Island tile': 60, Harbor: 60, Hut: 30, Lighthouse: 30, Boardwalk: 60 });
+    // Hex pieces start on angles their steps keep on the grid: tiles upright, harbors and boardwalks along tile edges.
+    const angle = (value: number) => ((value % 360) + 360) % 360;
+    expect(piecesOf(game, 'Island tile').every(item => angle(item.rotation) % 60 === 0)).toBe(true);
+    for (const name of ['Harbor', 'Boardwalk']) expect(piecesOf(game, name).every(item => angle(item.rotation) % 60 === 30), name).toBe(true);
+    // Huts and lighthouses face their seat, which a 30 degree step reaches from any angle.
+    for (const name of ['Hut', 'Lighthouse']) expect(piecesOf(game, name).every(item => angle(item.rotation) % 30 === 0), name).toBe(true);
+  });
+
   it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {
     for (const color of ['transparent', '', '#0000', '#12345600', 'rgba(1, 2, 3, 0)', 'hsla(0 0% 0% / 0)']) expect(hasOpenFace({ color })).toBe(true);
     for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);
