@@ -1077,6 +1077,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <Toggle label="Hide front in hand" description="Only the holder sees the front" checked={component.hideInHand} onChange={hideInHand => update({ hideInHand })} disabled={!component.hand} />
             <Toggle label="Can be stacked" checked={component.stackable} onChange={stackable => update({ stackable })} />
             <Toggle label="Shufflable" checked={component.shufflable} onChange={shufflable => update({ shufflable })} disabled={!component.stackable} />
+            <Toggle label="Preview when locked" description="Show the hover preview even while a piece is locked" checked={!!component.previewWhenLocked} onChange={previewWhenLocked => update({ previewWhenLocked })} />
             {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>

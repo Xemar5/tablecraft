@@ -892,7 +892,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         </div>}
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><ZoomPresets levels={[.25, .5, .75, 1, 1.5, 2, 3]} zoom={zoom} onSelect={level => changeZoom(level)}><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} /><ZoomPercent zoom={zoom} /></button></ZoomPresets><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
         {activePreviewId && !altDown && !fullscreenItem && (() => {
-          const item = p.instances.find(i => i.id === activePreviewId && !i.locked && (!i.holder || i.holder === actor));
+          const item = p.instances.find(i => i.id === activePreviewId && (!i.locked || !!p.components.find(c => c.id === i.componentId)?.previewWhenLocked) && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
           const count = item && !item.holder ? stackMembers(p, item).length : 1;
           return item && comp ? <div className="hover-preview" style={{ width: hoverPreviewWidth(previewScale), ...(previewOnLeft ? { left: 16, right: 'auto' } : {}) }} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}

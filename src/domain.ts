@@ -80,6 +80,8 @@ export const componentSchema = z.object({
   rows: z.array(z.record(z.string(), z.string())).max(10000),
   flippable: z.boolean(), hand: z.boolean(), hideInHand: z.boolean(),
   stackable: z.boolean(), shufflable: z.boolean(), stackTag: z.string().max(100),
+  /** Show the corner preview when hovering its pieces even while they are locked (locked pieces have none otherwise). */
+  previewWhenLocked: z.boolean().optional(),
   source: z.object({ projectId: id, componentId: id, projectName: z.string().min(1).max(100) }).optional(),
   asset: assetSchema.optional(),
 });
