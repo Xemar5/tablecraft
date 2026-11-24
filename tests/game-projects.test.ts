@@ -67,7 +67,7 @@ describe('game projects', () => {
     expect(named(tidewater, 'Island').filter(item => !playing.instances.find(other => other.id === item.id)!.locked)
       .map(item => tidewater.components.find(component => component.id === item.componentId)!.name)).toEqual(['Squall']);
     // The locked island parts players read during play still show their hover preview.
-    expect(tidewater.components.filter(component => component.previewWhenLocked).map(component => component.name)).toEqual(['Island tile', 'Tide marker', 'Harbor']);
+    expect(tidewater.components.filter(component => component.previewWhenLocked).map(component => component.name)).toEqual(['Island tile', 'Tide marker', 'Harbor', 'Building costs']);
     expect(named(tidewater, 'Supply').some(item => item.locked)).toBe(false);
     for (const { name } of [{ name: 'Crimson' }, { name: 'Azure' }, { name: 'Ivory' }, { name: 'Amber' }]) {
       const pieces = named(tidewater, `${name} pieces`);

@@ -420,7 +420,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ],
   });
   const costs = component('Building costs', 'card', 130, 86, {
-    color: '#f4ecd8',
+    color: '#f4ecd8', previewWhenLocked: true,
     front: [
       label('Title', { x: 0, y: 4, width: 130, height: 16, text: 'BUILDING COSTS', fontSize: 7.5, letterSpacing: 1.5, color: '#2d6f86' }),
       label('Costs', { x: 8, y: 22, width: 114, height: 58, align: 'start', verticalAlign: 'start', fontSize: 7, lineHeight: 1.55, color: '#33403a',
@@ -500,7 +500,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
       ...pile(hut, Array<number>(5).fill(index), spot[0].x, spot[0].y, { rotation: seat.rotation }),
       ...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }),
       ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: seat.rotation + 90 }),
-      // The building costs card is a reference, so it is locked in front of its player.
+      // The building costs card is a reference, so it is locked in front of its player (it still shows its preview).
       place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true }),
     ]));
   });
