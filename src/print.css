@@ -1,0 +1,17 @@
+/* Printing a project (PrintProject.tsx). On screen the pages are hidden; when printing, only they are shown, at real
+   size and in their own colours in both themes ([data-theme-fixed] and the dark selector keep these rules unmirrored). */
+.print-root[data-theme-fixed] { display: none; }
+.print-root[data-theme-fixed] .print-page { position: relative; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }
+.print-root[data-theme-fixed] .print-page:last-child { break-after: auto; page-break-after: auto; }
+.print-root[data-theme-fixed] .print-item { position: absolute; overflow: hidden; }
+.print-root[data-theme-fixed] .print-item.cut-line { outline: .2mm dashed #a3a3a3; }
+@media print {
+  body > *:not(.print-root) { display: none !important; }
+  :root[data-theme=dark], :root, body { background: #fff !important; height: auto !important; overflow: visible !important; zoom: 1 !important; }
+  .print-root[data-theme-fixed] { display: block; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+.print-dialog { display: grid; gap: 12px; padding: 22px 26px 24px; }
+.print-dialog .field-grid { gap: 0 12px; }
+.print-summary { margin: 4px 0 0; font-size: 12px; color: #365d46; }
+.print-dialog .help-text { margin: 0; }
+.print-dialog .modal-actions { margin-top: 8px; }
