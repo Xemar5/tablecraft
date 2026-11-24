@@ -102,6 +102,15 @@ describe('game projects', () => {
     expect(count(game, 'Tide card')).toBe(25);
     expect([count(game, 'Hut'), count(game, 'Lighthouse'), count(game, 'Boardwalk'), count(game, 'Harbor'), count(game, 'Squall')]).toEqual([20, 16, 60, 9, 1]);
     expect(game.components.find(component => component.name === 'Tidewater rules')!.rows.length).toBeGreaterThan(3);
+    // The top and bottom seats sit further out, so the cards fanned above their table hands (up to about 95 px
+    // towards the table) stay clear of the pieces in front of them.
+    expect(game.players.map(seat => [seat.x, seat.y])).toEqual([[980, 1060], [980, 40], [220, 550], [1740, 550]]);
+    for (const [index, seat] of game.players.slice(0, 2).entries()) {
+      const group = (game.groups ?? []).find(item => item.name === `${['Crimson', 'Azure'][index]} pieces`)!;
+      const pieces = game.instances.filter(item => item.group === group.id);
+      // Huts, lighthouses, boardwalks and the costs card reach at most 44 px from their centres towards the seat.
+      expect(Math.min(...pieces.map(item => Math.abs(item.y - seat.y))) - 44).toBeGreaterThan(115);
+    }
   });
 
   it('holds the laid-out island in place until its group is unlocked', () => {

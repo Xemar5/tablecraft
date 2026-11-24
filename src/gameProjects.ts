@@ -507,6 +507,9 @@ export function tidewaterProject(name: string, description: string, profile: Pro
       place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true }),
     ]));
   });
+  // The top and bottom seats sit a little further out than the default ring, so the cards fanned out above their
+  // table hands stay clear of the pieces laid out in front of them.
+  for (const seat of players) if (Math.abs(seat.rotation) % 180 === 0) seat.y += Math.sign(seat.y - CENTER.y) * 60;
   return project(name, description, [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book], instances, players, groups, true);
 }
 
