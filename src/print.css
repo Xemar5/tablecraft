@@ -1,10 +1,13 @@
 /* Printing a project (PrintProject.tsx). On screen the pages are hidden; when printing, only they are shown, at real
    size and in their own colours in both themes ([data-theme-fixed] and the dark selector keep these rules unmirrored). */
 .print-root[data-theme-fixed] { display: none; }
-.print-root[data-theme-fixed] .print-page { position: relative; overflow: hidden; background: #fff; break-after: page; page-break-after: always; }
+.print-root[data-theme-fixed] .print-page { position: relative; overflow: hidden; contain: paint; clip-path: inset(0); background: #fff; break-after: page; page-break-after: always; }
 .print-root[data-theme-fixed] .print-page:last-child { break-after: auto; page-break-after: auto; }
-.print-root[data-theme-fixed] .print-item { position: absolute; overflow: hidden; }
-.print-root[data-theme-fixed] .print-item.cut-line { outline: .2mm dashed #a3a3a3; }
+/* Chrome's print output can skip `overflow: hidden` for transformed or SVG content (a rotated shape on a split
+   board drew past its part), so each piece is also clipped by `clip-path` and paint containment. */
+.print-root[data-theme-fixed] .print-item { position: absolute; overflow: hidden; contain: paint; clip-path: inset(0); }
+/* Drawn just inside the edge, where the clip keeps it. */
+.print-root[data-theme-fixed] .print-item.cut-line::after { content: ''; position: absolute; inset: 0; z-index: 2; border: .2mm dashed #a3a3a3; pointer-events: none; }
 @media print {
   body > *:not(.print-root) { display: none !important; }
   :root[data-theme=dark], :root, body { background: #fff !important; height: auto !important; overflow: visible !important; zoom: 1 !important; }
