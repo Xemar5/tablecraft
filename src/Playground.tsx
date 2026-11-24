@@ -38,6 +38,7 @@ type Props = {
 };
 const ROLL_MS = 650;
 const SHUFFLE_MS = 700;
+const DRAW_MS = 480;
 const MAX_ZOOM = 3;
 const VIEWER_NOTICE = 'You are watching as a viewer. Take a seat in Players to play.';
 const CLEARED = 'Undo history cleared because ';
@@ -160,6 +161,32 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       }, SHUFFLE_MS));
     }
   }, [p.instances]);
+  // Pieces going from the table into a hand (here or by another player) fly from where they were to that player's seat,
+  // looking as they did on the table, so every player sees who drew what without seeing hidden fronts.
+  const [flights, setFlights] = useState<DrawFlightData[]>([]);
+  const seenPlaces = useRef<Map<string, Instance>>(null);
+  // Pieces this player just dragged into a hand: they watched them travel already, so they don't fly again here.
+  const droppedIntoHand = useRef(new Set<string>());
+  const markDroppedIntoHand = (ids: string[]) => {
+    ids.forEach(id => droppedIntoHand.current.add(id));
+    // A drop the table rejects must not hide a later draw's flight.
+    window.setTimeout(() => ids.forEach(id => droppedIntoHand.current.delete(id)), 2000);
+  };
+  useEffect(() => {
+    const first = !seenPlaces.current;
+    const seen = seenPlaces.current ??= new Map();
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const started: DrawFlightData[] = [];
+    for (const item of p.instances) {
+      const previous = seen.get(item.id);
+      seen.set(item.id, item);
+      if (first || still || !previous || previous.holder || !item.holder) continue;
+      if (droppedIntoHand.current.delete(item.id)) continue;
+      const seat = p.players.find(player => player.id === item.holder);
+      if (seat) started.push({ key: `${item.id}:${item.order}:${performance.now()}`, from: previous, to: seat, delay: started.length * 70 });
+    }
+    if (started.length) setFlights(current => [...current, ...started]);
+  }, [p.instances, p.players]);
   const seatMoved = useRef(false);
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
@@ -512,6 +539,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const insertIntoTableHand = (x: number, y: number, moving: Instance[], alt: boolean) => {
     const drop = tableHandInsertion(x, y, moving, alt);
     if (!drop || drop.blocked) return false;
+    markDroppedIntoHand(drop.ids);
     void dispatch({ type: 'transferToHand', ids: drop.ids, playerId: drop.playerId, index: drop.index });
     return true;
   };
@@ -759,6 +787,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       // Over a hand they can't go into, the pieces drop as if the hand weren't there (stacking included).
       const bypass = e.altKey;
       if (inside(tray) && moving.length) {
+        markDroppedIntoHand(moving.map(i => i.id));
         dispatch({ type: 'drawSelection', ids: moving.map(i => i.id), playerId: actor });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
@@ -978,6 +1007,11 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               {handDrop?.blocked && handDrop.playerId === player.id && <span className="mini-hand-blocked" aria-hidden="true"><Ban size={18} /></span>}
             </div>
           </button>; })}
+          {flights.map(flight => {
+            const comp = table.components.get(flight.from.componentId);
+            return comp ? <DrawFlight key={flight.key} flight={flight} component={comp} components={p.components}
+              onDone={() => setFlights(current => current.filter(item => item.key !== flight.key))} /> : null;
+          })}
           {emptySlots.map(record => {
             const comp = p.components.find(c => c.id === record.componentId);
             const at = slotPreview?.id === record.id ? slotPreview : record;
@@ -1541,6 +1575,32 @@ function useCompositedTransform(ref: React.RefObject<HTMLElement | null>, transf
  * Places the selection order badge upright at the piece corner that is top-left on screen, just outside it (overlapping
  * by 10 screen pixels) and at a fixed screen size. `angle` is the piece's rotation on screen, camera included.
  */
+type DrawFlightData = { key: string; from: Instance; to: Pick<Player, 'x' | 'y' | 'rotation'>; delay: number };
+/**
+ * A copy of a drawn piece flying from its old table place to the seat of the player who took it, shrinking to the size
+ * of a table-hand card. It shows the face that was showing on the table.
+ */
+function DrawFlight({ flight, component, components, onDone }: { flight: DrawFlightData; component: Component; components: Component[]; onDone: () => void }) {
+  const element = useRef<HTMLDivElement>(null);
+  const done = useRef(onDone);
+  done.current = onDone;
+  useLayoutEffect(() => {
+    const { from, to } = flight;
+    const place = (x: number, y: number, rotation: number, scale: number) => `translate(${x}px, ${y}px) translate(-50%, -50%) rotate(${rotation}deg) scale(${scale})`;
+    const animation = element.current?.animate([
+      { transform: place(from.x, from.y, from.rotation, from.scale), opacity: 1 },
+      { transform: place(from.x + (to.x - from.x) * .25, from.y + (to.y - from.y) * .25 - 40, from.rotation, from.scale * 1.08), opacity: 1, offset: .25 },
+      { transform: place(to.x, to.y, to.rotation, 44 / component.width), opacity: .2 },
+    ], { duration: DRAW_MS, delay: flight.delay, easing: 'cubic-bezier(.4, 0, .2, 1)', fill: 'both' });
+    if (!animation) { done.current(); return; }
+    animation.onfinish = () => done.current();
+    return () => animation.cancel();
+  }, [flight, component.width]);
+  return <div ref={element} className="draw-flight" aria-hidden="true" style={{ width: component.width, height: component.height }}>
+    <ComponentView component={component} components={components} row={flight.from.row} back={visibleBack(flight.from)} />
+  </div>;
+}
+
 /** A persistent stack's tag: which pieces may join it (see fitsPersistentStack). Saved when the field loses focus. */
 function StackTagField({ record, tags, disabled, onChange }: { record: PersistentStack; tags: string[]; disabled: boolean; onChange: (tag: string) => Promise<boolean> }) {
   const [value, setValue] = useState(record.tag);

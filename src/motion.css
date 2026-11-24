@@ -260,3 +260,5 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .stack-slot.selected{border-style:solid;border-color:#6b8c4f;background:#e3ecd8cc}
 .stack-slot.drop-target{border-color:#4f7a3a;background:#d6e6c5cc}
 .stack-count.persistent{background:#4f6b3a}
+/* A drawn piece flying from the table to the drawing player's seat (DrawFlight). */
+.draw-flight{position:absolute;left:0;top:0;z-index:9000;pointer-events:none;filter:drop-shadow(0 12px 14px #29433140)}
