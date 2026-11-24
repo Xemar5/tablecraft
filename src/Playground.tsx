@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
-import { canStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, type Command, type Component, type Instance, type Player, type Project } from './domain';
+import { canStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ZoomPresets } from './ZoomPresets';
@@ -40,7 +40,11 @@ const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo his
 const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: p, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, notice, onDismissNotice }: Props) {
+export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, notice, onDismissNotice }: Props) {
+  // Play works from the project with group locks applied, so pieces in a locked group behave as locked everywhere;
+  // a piece's own lock (the Lock button and L) still toggles its own flag.
+  const p = useMemo(() => withGroupLocks(source), [source]);
+  const ownLock = (id: string) => source.instances.find(item => item.id === id)?.locked ?? false;
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -569,7 +573,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         const count = e.key === '0' ? 10 : Number(e.key);
         dispatch(count === 1 ? { type: 'draw', id: shortcutPiece.id, playerId: actor } : { type: 'drawMany', id: shortcutPiece.id, playerId: actor, count });
       }
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'l' && shortcutPiece) { e.preventDefault(); dispatch({ type: 'move', ids: shortcutIds, patch: { locked: !shortcutPiece.locked } }); }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'l' && shortcutPiece) { e.preventDefault(); dispatch({ type: 'move', ids: shortcutIds, patch: { locked: !ownLock(shortcutPiece.id) } }); }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); dispatch({ type: 'delete', ids: shortcutIds }); setSelected([]); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); clone(shortcutIds); }
       // Ctrl/Cmd+] and [ step pieces forward or backward past the next piece they overlap; with Shift, to the front or back.
@@ -612,7 +616,8 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
     const ids = extracting ? group : extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
     setSelected(ids);
     if (viewer || !ids.includes(item.id)) return;
-    if (item.locked) { void dispatch({ type: 'front', ids: group }); return; }
+    // Selecting a locked piece (or one in a locked group) leaves it where it is in the table order.
+    if (item.locked) return;
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
     const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), positions, front: group };
     gesture.current = active;
@@ -684,7 +689,7 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
         <button className="icon-button" title="Group selected pieces (G while pointing at this panel)" aria-label="Group selected pieces" disabled={viewer || !canGroup} onClick={groupSelected}><FolderPlus size={14} /></button>
         <button className="icon-button" title="Ungroup selected groups (Shift+G while pointing at this panel)" aria-label="Ungroup selected groups" disabled={viewer || !fullGroups.length} onClick={ungroupSelected}><Ungroup size={14} /></button>
         <span className="subtle">{topPieces.length}</span></span></div>
-      <PlaygroundPieces project={p} selected={selected} dispatch={dispatch} readOnly={viewer} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
+      <PlaygroundPieces project={source} selected={selected} dispatch={dispatch} readOnly={viewer} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
     </aside>
     <PanelSeparator label="Resize pieces panel" controls="playground-pieces-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
     <section className="table-section" onPointerMoveCapture={e => {
@@ -1092,9 +1097,10 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
             <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'forward' })} disabled={selectedPieces.every(i => i.holder)} title="Bring forward (Ctrl/Cmd+]; with Shift, to the front)"><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
             <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'backward' })} disabled={selectedPieces.every(i => i.holder)} title="Send backward (Ctrl/Cmd+[; with Shift, to the back)"><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
-            <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !piece.locked } })}>{piece.locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{piece.locked ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
+            <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !ownLock(piece.id) } })}>{ownLock(piece.id) ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{ownLock(piece.id) ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
+          {piece.locked && !ownLock(piece.id) && <p className="help-text">Held in place by its locked group. Unlock the group in the Pieces panel to move it.</p>}
           <div className="field-grid">
             <NumberField deferred label="Rotation" value={piece.rotation} mixed={selectedPieces.some(i => i.rotation !== piece.rotation)}
               onChange={rotation => dispatch({ type: 'move', ids: selectedPieces.map(i => i.id), patch: { rotation: ((rotation % 360) + 360) % 360 } })} />

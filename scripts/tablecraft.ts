@@ -27,6 +27,7 @@ Usage: npm --silent run cli -- <command> [options]
   group rename --file FILE --group GROUP_ID --name NAME
   group ungroup --file FILE --group GROUP_IDS
   group move --file FILE [--pieces IDS] [--groups IDS] --parent GROUP_ID|root
+  group lock|unlock --file FILE --group GROUP_IDS
   lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--actor PLAYER_ID]
   grid --file FILE [--show on|off] [--snap on|off] [--size N] [--offset-x N] [--offset-y N]
   validate --file FILE
@@ -40,8 +41,9 @@ Live options: --uri URL (default http://127.0.0.1:3000), --database NAME
   (default tablecraft-studio), --name NAME, --color COLOR, --timeout MS.
 Project and component files are ZIP saves containing project.json and assets.
 Groups organise table pieces in the Pieces panel; IDS are comma-separated, pieces
-bring their whole stack, and empty groups are removed. lock/unlock act on pieces
-(with their whole stacks) and every piece in the given groups; locked pieces stay
+bring their whole stack, and empty groups are removed. group lock/unlock lock the
+groups themselves: their pieces (and subgroups) stay put while each piece keeps its
+own lock. lock/unlock act on pieces (with their whole stacks) and every piece in the given groups; locked pieces stay
 put and can be dragged and box-selected over. grid prints the table grid settings and changes
 the ones given: snap points sit at offset + n × size (size 5–200 px). The chess, checkers, backgammon, go
 and tidewater templates are ready-to-play games with grouped, partly locked pieces. Book pages and dice faces
@@ -194,13 +196,14 @@ async function main(args: string[]) {
       }
       changed = true; result = { commandsApplied: batch.length, project };
     } else if (cmd === 'group') {
-      if (!['create', 'rename', 'ungroup', 'move'].includes(sub)) throw new Error('Choose group create, rename, ungroup or move.');
+      if (!['create', 'rename', 'ungroup', 'move', 'lock', 'unlock'].includes(sub)) throw new Error('Choose group create, rename, ungroup, move, lock or unlock.');
       const list = (name: string) => typeof o[name] === 'string' ? option(o, name).split(',').map(value => value.trim()).filter(Boolean) : [];
       const command: Command = sub === 'create'
         ? { type: 'createGroup', id: typeof o.id === 'string' ? option(o, 'id') : uid('group'), name: typeof o.name === 'string' ? option(o, 'name') : nextGroupName(project),
           parent: typeof o.parent === 'string' ? option(o, 'parent') : null, ids: list('pieces'), groups: list('groups') }
         : sub === 'rename' ? { type: 'renameGroup', id: option(o, 'group'), name: option(o, 'name') }
         : sub === 'ungroup' ? { type: 'ungroup', ids: list('group') }
+        : sub === 'lock' || sub === 'unlock' ? { type: 'lockGroups', ids: list('group'), locked: sub === 'lock' }
         : { type: 'moveToGroup', parent: option(o, 'parent') === 'root' ? null : option(o, 'parent'), ids: list('pieces'), groups: list('groups') };
       ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), command));
       changed = true; result = { command, groups: project.groups ?? [] };

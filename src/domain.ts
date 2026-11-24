@@ -160,7 +160,8 @@ export const instanceSchema = z.object({
   /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
   group: id.optional(),
 });
-export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable() });
+/** A locked group holds its pieces in place (with its subgroups), whatever each piece's own lock says. */
+export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(), locked: z.boolean().optional() });
 export type PieceGroup = z.infer<typeof pieceGroupSchema>;
 export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
@@ -215,6 +216,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createGroup'), id, name: pieceGroupSchema.shape.name, parent: id.nullable().default(null),
     ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
   z.object({ type: z.literal('renameGroup'), id, name: pieceGroupSchema.shape.name }),
+  z.object({ type: z.literal('lockGroups'), ids: z.array(id).min(1).max(2000), locked: z.boolean() }),
   /** Removes groups, moving their pieces and subgroups up to each group's parent. */
   z.object({ type: z.literal('ungroup'), ids: z.array(id).min(1).max(2000) }),
   /** Moves table pieces (with their whole stacks) and groups into `parent`, or to the top level when it is null. */
@@ -410,6 +412,22 @@ export function groupAncestors(groups: PieceGroup[], id: string | null | undefin
   return chain;
 }
 
+/**
+ * The project as play sees it: pieces in a locked group (or in a group inside one) count as locked, while their own
+ * `locked` flags stay as they are in the saved project. Returns `p` itself when no group is locked.
+ */
+export function withGroupLocks(p: Project): Project {
+  const groups = p.groups ?? [], locked = new Set(groups.filter(group => group.locked).map(group => group.id));
+  if (!locked.size) return p;
+  let changed = false;
+  const instances = p.instances.map(item => {
+    if (item.locked || !item.group || !groupAncestors(groups, item.group).some(id => locked.has(id))) return item;
+    changed = true;
+    return { ...item, locked: true };
+  });
+  return changed ? { ...p, instances } : p;
+}
+
 /** Keeps piece groups consistent after a tabletop change: held pieces leave groups, stacks share their bottom piece's group, empty groups disappear. */
 function normalizeGroups(p: Project) {
   const groups = p.groups ?? [];
@@ -512,6 +530,9 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
   const editable = (i: Instance) => {
     if (i.holder && i.holder !== actor) throw new Error("Switch to this player's seat to edit their hand.");
   };
+  // A piece is held in place by its own lock or by a locked group around it.
+  const lockedByGroup = (i: Instance) => !!i.group && groupAncestors(p.groups ?? [], i.group).some(id => p.groups?.find(group => group.id === id)?.locked);
+  const isLocked = (i: Instance) => i.locked || lockedByGroup(i);
   const component = (i: Instance) => {
     const c = p.components.find(c => c.id === i.componentId);
     if (!c) throw new Error('Component no longer exists.');
@@ -660,7 +681,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     case 'paste':
       for (const item of command.instances) {
         if (p.instances.some(i => i.id === item.id)) throw new Error('Instance identifier already exists.');
-        if (item.holder || item.locked) throw new Error('Pasted components must be unlocked and on the table.');
+        if (item.holder || isLocked(item)) throw new Error('Pasted components must be unlocked and on the table.');
         if (item.stack && source.instances.some(existing => existing.stack === item.stack)) throw new Error('Stack identifier already exists.');
         component(item);
         p.instances.push(item);
@@ -714,7 +735,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     case 'extractMove': {
       const item = get(command.id);
       editable(item);
-      if (item.holder || item.locked) throw new Error('Only unlocked tabletop components can be moved.');
+      if (item.holder || isLocked(item)) throw new Error('Only unlocked tabletop components can be moved.');
       if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
       Object.assign(item, { stack: null, stackReversed: false, x: command.x, y: command.y });
       break;
@@ -724,7 +745,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       for (const key of new Set(command.ids)) {
         const item = get(key), c = component(item);
         editable(item);
-        if (item.locked || c.kind !== 'dice') throw new Error('Only unlocked dice can be rolled.');
+        if (isLocked(item) || c.kind !== 'dice') throw new Error('Only unlocked dice can be rolled.');
         seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
         item.row = seed % Math.max(c.rows.length, 1);
         item.rolls = (item.rolls ?? 0) + 1;
@@ -736,7 +757,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const item = get(key), c = component(item);
         editable(item);
         if (!hasPages(c)) throw new Error('Only books and dice have pages or faces to turn.');
-        if (c.kind === 'dice' && item.locked) throw new Error('Unlock this die first.');
+        if (c.kind === 'dice' && isLocked(item)) throw new Error('Unlock this die first.');
         const count = Math.max(c.rows.length, 1);
         item.row = c.kind === 'dice' ? ((item.row + command.delta) % count + count) % count : Math.max(0, Math.min(count - 1, item.row + command.delta));
       }
@@ -752,6 +773,9 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     }
     case 'renameGroup': existingGroups([command.id])[0].name = command.name; break;
+    case 'lockGroups':
+      for (const group of existingGroups(command.ids)) { if (command.locked) group.locked = true; else delete group.locked; }
+      break;
     case 'ungroup':
       for (const group of existingGroups(command.ids)) {
         p.instances.forEach(item => { if (item.group === group.id) { if (group.parent) item.group = group.parent; else delete item.group; } });
@@ -787,7 +811,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       const items = [...new Set(command.ids)].map(get);
       items.forEach(item => {
         editable(item);
-        if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
+        if (!item.holder || isLocked(item)) throw new Error('Only unlocked held components can be released.');
       });
       items.forEach((item, index) => Object.assign(item, { holder: null, x: command.x + index * 24, y: command.y + index * 24 }));
       break;
@@ -797,10 +821,10 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (new Set(command.ids).size !== items.length) throw new Error('Choose each held component once.');
       items.forEach(item => {
         editable(item);
-        if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
+        if (!item.holder || isLocked(item)) throw new Error('Only unlocked held components can be released.');
       });
       const targetItems = stackMembers(p, target);
-      if (targetItems.some(i => i.holder || i.locked) || !canStack([...targetItems, ...items].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+      if (targetItems.some(i => i.holder || isLocked(i)) || !canStack([...targetItems, ...items].map(component))) throw new Error('Select compatible unlocked tabletop components.');
       if (p.instances.some(i => i.stack === command.stackId && !targetItems.includes(i))) throw new Error('Stack identifier already exists.');
       materialize(targetItems);
       [...stackMembers(p, target), ...items].forEach((item, order) => Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
@@ -814,7 +838,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (items.some(i => i.holder && i.holder !== actor && !handPermissions(p, i.holder).take)) throw new Error('Taking from this player’s hand is disabled.');
       if (new Set(command.ids).size !== items.length) throw new Error('Choose each component once.');
       items.forEach(item => {
-        if (item.locked || !component(item).hand) throw new Error('Only unlocked components that support hands can be transferred.');
+        if (isLocked(item) || !component(item).hand) throw new Error('Only unlocked components that support hands can be transferred.');
       });
       const remaining = p.instances.filter(i => i.holder === command.playerId && !items.includes(i)).sort((a, b) => a.order - b.order);
       const index = command.index ?? remaining.length;
@@ -834,10 +858,10 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (!actor || !p.players.some(player => player.id === actor)) throw new Error('Choose a valid active player.');
       const item = get(command.id);
       if (item.holder && item.holder !== actor && !handPermissions(p, item.holder).take) throw new Error('Taking from this player’s hand is disabled.');
-      if (!item.holder || item.locked) throw new Error('Only unlocked held components can be released.');
+      if (!item.holder || isLocked(item)) throw new Error('Only unlocked held components can be released.');
       if (command.targetId) {
         const target = get(command.targetId), members = stackMembers(p, target);
-        if (!command.stackId || members.some(i => i.holder || i.locked) || !canStack([...members, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+        if (!command.stackId || members.some(i => i.holder || isLocked(i)) || !canStack([...members, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
         if (p.instances.some(i => i.stack === command.stackId && !members.includes(i))) throw new Error('Stack identifier already exists.');
         materialize(members);
         stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
@@ -850,6 +874,8 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const item = get(key);
         editable(item);
         if (item.locked && command.patch.locked !== false) throw new Error('Unlock this component first.');
+        // A piece in a locked group can only change its own lock.
+        if (lockedByGroup(item) && Object.keys(command.patch).some(key => key !== 'locked')) throw new Error('Unlock its group first.');
         if (command.patch.flipped !== undefined && !component(item).flippable) throw new Error('This component is not flippable.');
         Object.assign(item, command.patch);
       }
@@ -880,7 +906,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       for (const key of new Set(command.ids)) {
         const item = get(key);
         editable(item);
-        if (item.locked) throw new Error('Unlock this component first.');
+        if (isLocked(item)) throw new Error('Unlock this component first.');
         item.x = positions?.get(key)?.x ?? item.x + (command.dx ?? 0);
         item.y = positions?.get(key)?.y ?? item.y + (command.dy ?? 0);
         item.rotation = (item.rotation + (command.rotation ?? 0)) % 360;
@@ -897,7 +923,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     case 'stack': {
       const items = command.ids.map(get);
-      items.forEach(i => { editable(i); if (i.locked || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
+      items.forEach(i => { editable(i); if (isLocked(i) || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
       if (items.length < 2 || new Set(command.ids).size !== items.length || !canStack(items.map(component))) throw new Error('Select at least two compatible stackable components.');
       if (items.some(i => i.stack && p.instances.some(other => other.stack === i.stack && !command.ids.includes(other.id)))) throw new Error('Select the entire stack.');
       if (p.instances.some(i => i.stack === command.stackId && !items.includes(i))) throw new Error('Stack identifier already exists.');
@@ -920,7 +946,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (new Set(command.ids).size !== items.length || items.some(i => targetItems.includes(i))) throw new Error('Choose a different stack.');
       if (items.some(i => i.stack && stackMembers(p, i).some(other => !command.ids.includes(other.id)))) throw new Error('Select the entire stack.');
       const combined = [...targetItems, ...items];
-      combined.forEach(i => { editable(i); if (i.locked || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
+      combined.forEach(i => { editable(i); if (isLocked(i) || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
       if (!canStack(combined.map(component))) throw new Error('Select compatible stackable components.');
       if (p.instances.some(i => i.stack === command.stackId && !combined.includes(i))) throw new Error('Stack identifier already exists.');
       const priorStacks = new Set(combined.flatMap(i => i.stack ? [i.stack] : []));
@@ -939,7 +965,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     case 'unstack': {
       const items = stackMembers(p, get(command.id));
       materialize(items);
-      items.forEach((i, n) => { editable(i); if (i.locked) throw new Error('Unlock the stack first.'); Object.assign(i, { stack: null, x: i.x + n * 36, y: i.y + n * 12 }); });
+      items.forEach((i, n) => { editable(i); if (isLocked(i)) throw new Error('Unlock the stack first.'); Object.assign(i, { stack: null, x: i.x + n * 36, y: i.y + n * 12 }); });
       break;
     }
     case 'shuffle': {
@@ -969,7 +995,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       const items = visibleStackMembers(p, get(command.id));
       if (items.some(i => i.holder)) throw new Error('Draw from the table.');
       const drawn = items.slice(-Math.min(command.type === 'drawMany' ? command.count : 1, items.length)).reverse();
-      drawn.forEach(item => { editable(item); if (item.locked || !component(item).hand) throw new Error('This component cannot be put in hand.'); });
+      drawn.forEach(item => { editable(item); if (isLocked(item) || !component(item).hand) throw new Error('This component cannot be put in hand.'); });
       let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId).map(i => i.order));
       drawn.forEach(item => {
         if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
@@ -986,7 +1012,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       let order = Math.max(-1, ...p.instances.filter(i => i.holder === command.playerId).map(i => i.order));
       for (const item of items) {
         editable(item);
-        if (item.holder || item.locked || !component(item).hand) throw new Error('Only unlocked tabletop components that support hands can be drawn.');
+        if (item.holder || isLocked(item) || !component(item).hand) throw new Error('Only unlocked tabletop components that support hands can be drawn.');
         if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
         if (command.faceUp !== false) item.flipped = false;
         Object.assign(item, { holder: command.playerId, stack: null, stackReversed: false, order: ++order });
@@ -998,11 +1024,11 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       const item = get(command.id);
       editable(item);
       if (!item.holder) throw new Error('This component is not in a hand.');
-      if (item.locked) throw new Error('Unlock this component first.');
+      if (isLocked(item)) throw new Error('Unlock this component first.');
       if (command.type === 'dropFromHand') {
         const target = get(command.targetId);
         const items = stackMembers(p, target);
-        if (!command.stackId || items.some(i => i.holder || i.locked) || !canStack([...items, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+        if (!command.stackId || items.some(i => i.holder || isLocked(i)) || !canStack([...items, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
         if (p.instances.some(i => i.stack === command.stackId && !items.includes(i))) throw new Error('Stack identifier already exists.');
         materialize(items);
         stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));

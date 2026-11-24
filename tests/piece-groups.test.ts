@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyCommand, makeInstance, validateProject, type Project } from '../src/domain';
+import { applyCommand, makeInstance, validateProject, withGroupLocks, type Command, type Project } from '../src/domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { createGroupCommand, groupMembers, groupSelection, nextGroupName, pieceTree, selectedGroups } from '../src/pieceGroups';
 import { starterProject } from '../src/templates';
@@ -172,6 +172,40 @@ describe('piece groups', () => {
     expect(rows.filter(key => order.includes(key))).toEqual([...order].reverse().filter(key => rows.includes(key)));
     // Ungrouped tables keep their order untouched.
     expect(applyCommand(p, { type: 'front', ids: [tokens[0]] }).instances.map(i => i.id).slice(0, -1)).toEqual(p.instances.filter(i => i.id !== tokens[0]).map(i => i.id));
+  });
+
+  it('locks a group separately from its pieces: the group holds them in place and unlocking it restores their own locks', () => {
+    const p = starterProject(), { cards, tokens } = ids(p);
+    let next = group(p, 'outer', 'Outer', [tokens[0], tokens[1]]);
+    next = group(next, 'inner', 'Inner', [tokens[1]], [], 'outer');
+    next = applyCommand(next, { type: 'move', ids: [tokens[1]], patch: { locked: true } });
+    next = applyCommand(next, { type: 'lockGroups', ids: ['outer'], locked: true });
+    expect(next.groups!.find(item => item.id === 'outer')!.locked).toBe(true);
+    // Pieces keep their own flags; play sees every piece in the locked group (and its subgroups) as locked.
+    expect(next.instances.find(item => item.id === tokens[0])!.locked).toBe(false);
+    const played = withGroupLocks(next);
+    expect([tokens[0], tokens[1]].map(id => played.instances.find(item => item.id === id)!.locked)).toEqual([true, true]);
+    expect(played.instances.find(item => item.id === cards[0])!.locked).toBe(false);
+    const blocked: Command[] = [
+      { type: 'transform', ids: [tokens[0]], dx: 10, dy: 0 },
+      { type: 'move', ids: [tokens[0]], patch: { rotation: 90 } },
+      { type: 'draw', id: tokens[0], playerId: p.players[0].id },
+    ];
+    for (const command of blocked) expect(() => applyCommand(next, command)).toThrow();
+    // A piece's own lock can still be changed while its group is locked.
+    next = applyCommand(next, { type: 'move', ids: [tokens[1]], patch: { locked: false } });
+    next = applyCommand(next, { type: 'move', ids: [tokens[1]], patch: { locked: true } });
+    next = applyCommand(next, { type: 'lockGroups', ids: ['outer'], locked: false });
+    expect(next.groups!.find(item => item.id === 'outer')!.locked).toBeUndefined();
+    expect(() => applyCommand(next, { type: 'transform', ids: [tokens[0]], dx: 10, dy: 0 })).not.toThrow();
+    expect(() => applyCommand(next, { type: 'transform', ids: [tokens[1]], dx: 10, dy: 0 })).toThrow('Unlock');
+    expect(withGroupLocks(next)).toBe(next);
+    // Undo restores the group lock.
+    let history = emptyPlaygroundHistory(), state = next;
+    ({ project: state, history } = applyPlaygroundCommand(state, history, { type: 'lockGroups', ids: ['inner'], locked: true }));
+    expect(state.groups!.find(item => item.id === 'inner')!.locked).toBe(true);
+    ({ project: state } = undoPlayground(state, history));
+    expect(state.groups!.find(item => item.id === 'inner')!.locked).toBeUndefined();
   });
 });
 

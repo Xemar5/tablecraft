@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
-import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, Palette, Square } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, Palette, Square, UnlockKeyhole } from 'lucide-react';
 import { groupAncestors, type Command, type Component, type Project } from './domain';
 import { variantLabels } from './csv';
 import { groupSelection, pieceTree, type PieceTreeRow } from './pieceGroups';
@@ -128,12 +128,18 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
             setRenaming(undefined);
             if (next && next !== name) void dispatch({ type: 'renameGroup', id: row.group.id, name: next });
           }} /> : <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={`${name} · Double-click to rename`}
-            aria-label={`Group ${name}, ${row.count} piece${row.count === 1 ? '' : 's'}`} {...dragProps}
+            aria-label={`Group ${name}, ${row.count} piece${row.count === 1 ? '' : 's'}${row.group.locked ? ', locked' : ''}`} {...dragProps}
             onClick={event => select(row, event)} onDoubleClick={() => { if (!readOnly) setRenaming(row.group.id); }}
             data-row-key={row.key} onKeyDown={event => { if (event.key === 'F2' && !readOnly) { event.preventDefault(); setRenaming(row.group.id); } else keyDown(event, row); }}>
             {row.expanded ? <FolderOpen size={14} /> : <Folder size={14} />}<span>{name}</span>
             <small className="playground-piece-count">{row.count}</small>
           </button>}
+          {/* The group's own lock holds all its pieces in place without changing each piece's lock. */}
+          <button className={`group-lock${row.group.locked ? ' is-locked' : ''}`} aria-pressed={!!row.group.locked} disabled={readOnly}
+            aria-label={`${row.group.locked ? 'Unlock' : 'Lock'} group ${name}`} title={row.group.locked ? 'Unlock group: its pieces can move again (pieces locked on their own stay locked)' : 'Lock group: hold all its pieces in place'}
+            onClick={() => void dispatch({ type: 'lockGroups', ids: [row.group.id], locked: !row.group.locked })}>
+            {row.group.locked ? <LockKeyhole size={13} /> : <UnlockKeyhole size={13} />}
+          </button>
         </div>;
       }
       const component = components.get(row.item.componentId);
