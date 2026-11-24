@@ -324,7 +324,7 @@ function validateComponents(components: Component[]) {
         if (node.type === 'shape' && node.shapeKind === 'path' && node.points.length < (node.pathClosed ? 3 : 2)) {
           throw new Error(`Path “${node.name}” needs at least ${node.pathClosed ? 3 : 2} points.`);
         }
-        // A linked artwork layer may not have chosen its component yet; it renders a placeholder.
+        // A linked component layer may not have chosen its component yet; it renders a placeholder.
         if (node.type === 'component' && node.componentId !== undefined) {
           if (!componentIds.has(node.componentId)) throw new Error(`Nested component “${node.name}” references a missing component.`);
           const nested = components.find(item => item.id === node.componentId)!;

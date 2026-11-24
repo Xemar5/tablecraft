@@ -26,15 +26,25 @@ test('players can be reordered and End turn passes the turn down the list', asyn
   await expect(pill.locator('.you-tag')).toBeVisible();
   const end = pill.getByRole('button', { name: /End turn/ });
   await expect(end).toHaveAttribute('title', 'Pass the turn to Player 3');
+  // At a shared screen, ending the turn passes the screen to the next player first; backing out keeps the turn.
+  const curtain = page.locator('.privacy-curtain');
   await end.click();
-  await expect(pill).toContainText("Player 3's turn");
-  await expect(pill.locator('.you-tag')).toHaveCount(0);
-  await end.click();
-  await expect(pill).toContainText("Player 2's turn");
-  await end.click();
+  await expect(curtain).toContainText("It's Player 3's turn");
+  await curtain.getByRole('button', { name: /Back to the current player/ }).click();
+  await expect(curtain).toHaveCount(0);
   await expect(pill).toContainText("Player 1's turn");
+  const pass = async (name: string) => {
+    await end.click();
+    await curtain.getByRole('button', { name: `I'm ${name}. Let's play.` }).click();
+    await expect(pill).toContainText(`${name}'s turn`);
+    // The seat switched with the turn.
+    await expect(pill.locator('.you-tag')).toBeVisible();
+  };
+  await pass('Player 3');
+  await pass('Player 2');
+  await pass('Player 1');
 
-  await end.click();
+  await pass('Player 3');
   await page.getByRole('button', { name: /^Players/ }).click();
   await expect(page.locator('[data-player-row]').nth(1)).toContainText('Current turn');
   await page.getByRole('button', { name: 'Reorder Player 3', exact: true }).press('ArrowUp');

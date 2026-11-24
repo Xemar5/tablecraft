@@ -82,12 +82,12 @@ describe('design precision and new layer settings', () => {
     expect(resizeNode(node, 1, 0, 0.3, 0, 0, false)).toMatchObject({ width: 100 });
   });
 
-  it('accepts typography settings, justified text and linked artwork without a chosen component', () => {
+  it('accepts typography settings, justified text and a linked component without a chosen component', () => {
     const card: Component = { id: 'card', name: 'Card', kind: 'card', width: 100, height: 140, color: '#fff', back: [], csv: '', rows: [],
       flippable: false, hand: true, hideInHand: false, stackable: true, shufflable: true, stackTag: '',
       front: [makeNode('text', { align: 'justify', fontWeight: 700, italic: true, textDecoration: 'underline', textTransform: 'uppercase',
         letterSpacing: 1.5, lineHeight: 1.4, verticalAlign: 'end', textStroke: '#000', textStrokeWidth: 2, textShadow: '#0008', textShadowY: 2 }),
-      makeNode('component', { name: 'Linked artwork' })] };
+      makeNode('component', { name: 'Linked component' })] };
     expect(() => validateComponentEdit([], card)).not.toThrow();
     expect(applyCommand({ ...blankProject(), components: [card] }, { type: 'component', component: card }).components[0].front[0]).toMatchObject({ fontWeight: 700, align: 'justify' });
     expect(() => validateComponentEdit([], { ...card, front: [makeNode('component', { componentId: 'missing' })] })).toThrow('missing component');

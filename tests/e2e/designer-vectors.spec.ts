@@ -49,7 +49,7 @@ test('creates editable paths, live boolean compounds and linked component data',
   await page.getByRole('button', { name: 'Uncombine source shapes', exact: true }).click();
   await expect(layers).toHaveCount(initial + 2);
 
-  await page.getByRole('button', { name: 'Add linked artwork' }).click();
+  await page.getByRole('button', { name: 'Add linked component' }).click();
   await expect(page.locator('.artboard .nested-component-empty')).toBeVisible();
   await page.getByRole('button', { name: /^Linked component:/ }).click();
   await page.getByRole('combobox', { name: 'Search linked component' }).fill('die');

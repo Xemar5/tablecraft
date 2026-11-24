@@ -4,6 +4,7 @@ import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyC
 import Papa from 'papaparse';
 import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
 import { hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
+import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees, reorderLayers, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import type { OrderMove } from './zOrder';
 import { componentZip, downloadZip } from './portable';
@@ -212,7 +213,6 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   latestIncoming.current = incoming;
   useEffect(() => { if (!pending.current) setComponent(incoming); }, [incoming]);
   const [face, setFace] = useState<Face>('front');
-  useEffect(() => { if (!component.flippable) setFace('front'); }, [component.flippable]);
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedPoint, setSelectedPoint] = useState(-1);
   const [toolMenu, setToolMenu] = useState<'shape' | null>(null);
@@ -273,6 +273,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const artboard = useRef<HTMLDivElement>(null);
   const dragging = useRef<LayerDrag>(null);
   const handleDragging = useRef<HandleDrag>(null);
+  const [hoverLayer, setHoverLayer] = useState<{ id: string; left: number; top: number; width: number; height: number }>();
+  useEffect(() => setHoverLayer(undefined), [zoom, pan]);
   const [handlePreview, setHandlePreview] = useState<{ id: string; patch: Partial<DesignNode> }>();
   // Double-clicking an image layer edits where its picture sits inside the layer's frame.
   const [imageEdit, setImageEdit] = useState<string>();
@@ -380,10 +382,10 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     update({ [face]: [...nodes, next] });
     setSelected([next.id]);
   };
-  // Linked artwork starts empty; the component it shows is chosen in the Design panel.
-  const addLinkedArtwork = () => {
+  // A linked component starts empty; the component it shows is chosen in the Design panel.
+  const addLinkedComponent = () => {
     const parent = selectedNodes.length === 1 && selectedNodes[0].type === 'frame' ? selectedNodes[0].id : null;
-    const nested = makeNode('component', { name: 'Linked artwork', width: 150, height: 150, fill: 'transparent', parent, dataSource: 'inherit' });
+    const nested = makeNode('component', { name: 'Linked component', width: 150, height: 150, fill: 'transparent', parent, dataSource: 'inherit' });
     update({ [face]: [...nodes, nested] }); setSelected([nested.id]); setTab('design');
   };
   const convertSelection = () => {
@@ -842,7 +844,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
   const editedImage = imageEdit && selected.length === 1 && selected[0] === imageEdit ? shownNodes.find(item => item.id === imageEdit && item.type === 'image') : undefined;
   useEffect(() => { if (imageEdit && !editedImage) setImageEdit(undefined); }, [imageEdit, editedImage]);
   const catalog = useMemo(() => new Map(components.map(item => [item.id, item])), [components]);
-  // Components this one can show as linked artwork: never itself, an asset, or one that already shows this one.
+  // Components this one can show as a linked component: never itself, an asset, or one that already shows this one.
   const linkable = useMemo(() => {
     const reaches = (id: string, seen: Set<string>): boolean => {
       if (id === component.id) return true;
@@ -853,6 +855,28 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     };
     return components.filter(item => item.id !== component.id && !isAsset(item) && !reaches(item.id, new Set()));
   }, [components, component.id, catalog]);
+  // Components dragged in from the library become layers where they're dropped: a texture an image layer, a font a text
+  // layer in it, anything else a linked component (unless it already shows this one, which would loop).
+  const addFromLibrary = (componentId: string, clientX: number, clientY: number) => {
+    const source = catalog.get(componentId), board = artboard.current?.getBoundingClientRect();
+    if (!source || !board) return;
+    if (nodes.length >= 300) { notify('A face cannot contain more than 300 layers.', true); return; }
+    const x = cssPx(clientX - board.left) / zoom, y = cssPx(clientY - board.top) / zoom;
+    const fit = (width: number, height: number) => { const scale = Math.min(1, component.width * .8 / width, component.height * .8 / height); return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }; };
+    let next: DesignNode;
+    if (source.kind === 'texture') {
+      const size = fit(source.width, source.height);
+      next = makeNode('image', { name: source.name, textureId: source.id, text: '', fill: 'transparent', ...size, x: Math.round(x - size.width / 2), y: Math.round(y - size.height / 2) });
+    } else if (source.kind === 'font') {
+      next = makeNode('text', { name: source.name, fontId: source.id, text: 'Your text', x: Math.round(x - 75), y: Math.round(y - 20) });
+    } else {
+      if (source.id === component.id) { notify('A component can’t contain itself.', true); return; }
+      if (!linkable.some(item => item.id === source.id)) { notify(`${source.name} already shows this component, so linking it here would loop.`, true); return; }
+      const size = fit(source.width, source.height);
+      next = makeNode('component', { name: source.name, componentId: source.id, fill: 'transparent', dataSource: 'inherit', ...size, x: Math.round(x - size.width / 2), y: Math.round(y - size.height / 2) });
+    }
+    update({ [face]: [...nodes, next] }); setSelected([next.id]); setTab('design');
+  };
   const editedSource = editedImage ? resolveImage(editedImage, component.rows[row] ?? {}, catalog) : undefined;
   const editedNatural = useNaturalSize(editedSource);
   const editedBox = editedImage && transformBox(editedImage, shownNodes);
@@ -912,7 +936,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     <aside id="designer-layers-panel" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }} hidden={!layersVisible}>
       <div className="panel-heading"><span><Layers size={15} /> Layers</span><span className="subtle">{nodes.length}</span></div>
       <HorizontalScroll contentClassName="face-tabs" label="Component faces"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
-        <button disabled={!component.flippable} className={face === 'back' ? 'active' : ''} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></HorizontalScroll>
+        <button className={face === 'back' ? 'active' : ''} title={component.flippable ? undefined : 'This component can’t be flipped: its back is only used when printing'} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></HorizontalScroll>
       <div className="layer-list">
         {layers(null)}{!nodes.length && <p className="empty-note">A blank canvas.<br />Add your first layer above.</p>}
       </div>
@@ -934,7 +958,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             {toolMenu === 'shape' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{(['rectangle', 'ellipse', 'polygon', 'star'] as const).map(kind => <button role="menuitem" key={kind} onClick={() => { addNode('shape', kind); setToolMenu(null); }}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>, document.body)}</div>
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
-          <button title="Add linked artwork: shows another component; choose which in the Design panel" aria-label="Add linked artwork" onClick={addLinkedArtwork}><Link2 size={17} /></button>
+          <button title="Add linked component: shows another component; choose which in the Design panel" aria-label="Add linked component" onClick={addLinkedComponent}><Link2 size={17} /></button>
         </div><span className="toolbar-divider" />
         <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
@@ -969,7 +993,23 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         onPointerDown={event => { if (event.button === 0) { setSelected([]); setImageEdit(undefined); } }}>
         <div className="designer-stage-content" style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
         <span className="artboard-label">{component.name} / {face} <span>{component.width} x {component.height}</span></span>
+        {face === 'back' && !component.flippable && <span className="artboard-note" role="note">This component can’t be flipped, so this back is only used when printing.</span>}
         <div ref={artboard} className="artboard" style={{ width: component.width * zoom, height: component.height * zoom }}
+          onPointerOver={event => {
+            // The hover outline marks the innermost of this face's layers under the pointer, drawn above all layers.
+            let element = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-node-id]') : null;
+            while (element && !nodes.some(item => item.id === element!.dataset.nodeId)) element = element.parentElement?.closest<HTMLElement>('[data-node-id]') ?? null;
+            const board = artboard.current?.getBoundingClientRect(), rect = element?.getBoundingClientRect();
+            setHoverLayer(element && board && rect ? { id: element.dataset.nodeId!, left: cssPx(rect.left - board.left), top: cssPx(rect.top - board.top), width: cssPx(rect.width), height: cssPx(rect.height) } : undefined);
+          }}
+          onPointerLeave={() => setHoverLayer(undefined)}
+          onDragOver={event => { if (Array.from(event.dataTransfer.types).includes(LIBRARY_DRAG_TYPE)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; } }}
+          onDrop={event => {
+            if (!Array.from(event.dataTransfer.types).includes(LIBRARY_DRAG_TYPE)) return;
+            event.preventDefault();
+            const data = readLibraryDrag(event.dataTransfer);
+            if (data) addFromLibrary(data.componentId, event.clientX, event.clientY);
+          }}
           onPointerMove={event => {
             const pointDrag = pointDragging.current;
             if (pointDrag && pointDrag.pointer === event.pointerId) {
@@ -1015,7 +1055,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
           }}
           onPointerCancel={() => { dragging.current = null; pointDragging.current = null; setDragPreview(undefined); setPointPreview(undefined); }}>
           <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', '--designer-zoom': zoom } as React.CSSProperties}>
-            <ComponentView component={{ ...component, [face]: shownNodes }} components={components}
+            <ComponentView component={{ ...component, [face]: shownNodes, ...(face === 'back' ? { flippable: true } : {}) }} components={components}
               row={row} back={face === 'back'} selectedNodes={selected} onNode={(id, event) => { if (imageEdit && id !== imageEdit) setImageEdit(undefined); beginCanvasDrag(id, event); }}
               onNodeDoubleClick={startImageEdit} zoom={zoom} />
           </div>
@@ -1039,6 +1079,12 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               </div>
               <span className="image-edit-hint">Editing picture · Enter or Esc to finish</span>
             </div>;
+          })()}
+          {hoverLayer && !selected.includes(hoverLayer.id) && !dragPreview && !handlePreview && (() => {
+            // Layers with a fixed size get a rotated outline like the selection box; others outline their on-screen box.
+            const target = shownNodes.find(item => item.id === hoverLayer.id), at = target && transformBox(target, shownNodes);
+            return <div className="hover-box" aria-hidden="true" style={target && at ? { left: at.x * zoom, top: at.y * zoom, width: target.width * zoom, height: target.height * zoom,
+              transform: `translate(-50%, -50%) rotate(${at.angle}rad)` } : { left: hoverLayer.left, top: hoverLayer.top, width: hoverLayer.width, height: hoverLayer.height }} />;
           })()}
           {box && transformTarget && !editedImage && <div className="transform-box" style={{ left: box.x * zoom, top: box.y * zoom,
             width: transformTarget.width * zoom, height: transformTarget.height * zoom, transform: `translate(-50%, -50%) rotate(${box.angle}rad)` }}>
@@ -1072,7 +1118,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="book">Book</option><option value="artwork">Artwork</option>
             </select></Field>
             <p className="help-text">Changing type preserves artwork, dimensions, data and behavior settings.</p>
-            <Toggle label="Flippable" description="Design a front and a back" checked={component.flippable} onChange={flippable => { if (!flippable) setFace('front'); update({ flippable }); }} />
+            <Toggle label="Flippable" description="Pieces can be turned over on the table (the back is printed either way)" checked={component.flippable} onChange={flippable => update({ flippable })} />
             <Toggle label="Can be put in hand" checked={component.hand} onChange={hand => update({ hand })} />
             <Toggle label="Hide front in hand" description="Only the holder sees the front" checked={component.hideInHand} onChange={hideInHand => update({ hideInHand })} disabled={!component.hand} />
             <Toggle label="Can be stacked" checked={component.stackable} onChange={stackable => update({ stackable })} />
@@ -1272,7 +1318,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
               <button className="button" onClick={convertSelection}><Spline size={14} /> Convert to path</button></div>
           </div>}
           {selected.length === 1 && node.type === 'component' && <div className="inspector-section design-section">
-            <SectionTitle title="Linked artwork" hint="Shows another component, kept in sync with its design. Components that already show this one are left out to avoid loops." />
+            <SectionTitle title="Linked component" hint="Shows another component, kept in sync with its design. Components that already show this one are left out to avoid loops." />
             <SearchSelect label="Linked component" value={node.componentId} placeholder="Choose a component…"
               options={linkable.map(item => ({ value: item.id, label: item.name, detail: item.kind }))}
               onChange={id => {

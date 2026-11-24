@@ -74,7 +74,8 @@ export default function App() {
   const [layersVisible, setLayersVisible] = useState(true);
   const [handVisible, setHandVisible] = useState(true);
   const [actor, setActor] = useState(initialProject.players[0]?.id ?? '');
-  const [curtain, setCurtain] = useState<Player>();
+  // Hotseat seat switches show a privacy curtain first; `endsTurn` when ending the turn passes the screen on.
+  const [curtain, setCurtain] = useState<Player & { endsTurn?: boolean }>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
   const [libraryDrag, setLibraryDrag] = useState<string>();
@@ -420,6 +421,12 @@ export default function App() {
     }
     if (player.id !== actor) { setCurtain(player); setSelected([]); }
   };
+  // Ending a turn at a shared screen passes it to the next player in turn order through the usual curtain; the turn only
+  // ends when they confirm. Live rooms (and a next player who is already here) just end the turn.
+  const endTurn = (next: Player | undefined) => {
+    if (session || !next || next.id === actor) { void dispatch({ type: 'endTurn' }); return; }
+    setCurtain({ ...next, endsTurn: true }); setSelected([]);
+  };
   const watch = () => { void takeSeat('').then(ok => { if (ok) { setSelected([]); notify('You left your seat and are now watching.'); } }); };
   const newSeat = () => { void takeSeat(uid('player')).then(ok => { if (ok) { setSelected([]); notify('You took a new seat at the table.'); } }); };
   const spawn = (component: Component, rows: number[] = [0], point = { x: 820, y: 450 }, stacked = false) => {
@@ -625,7 +632,7 @@ export default function App() {
             setLibraryDrag(undefined); setLibraryDrop(undefined);
           }}>
           <div className="library-preview-wrap">
-          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'playground' && !isAsset(comp)}
+          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'designer' || !isAsset(comp)}
             onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, hasVariants(comp) ? comp.rows.map((_, i) => i) : [0], hasVariants(comp))}
             onClick={() => mode === 'designer' || isAsset(comp) ? edit(comp.id) : spawn(comp)} aria-label={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
@@ -665,7 +672,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} onEndTurn={endTurn} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components} notify={notify}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
@@ -836,7 +843,7 @@ export default function App() {
       <div className="keyboard-shortcuts"><span><kbd>Z</kbd> Fullscreen preview</span><span><kbd>F</kbd> Flip</span><span><kbd>Q/E</kbd> Rotate</span><span><kbd>Shift Q/E</kbd> Turn page / die face</span><span><kbd>G</kbd> Group (over Pieces)</span><span><kbd>R</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>L</kbd> Lock</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>
       <div className="help-footer"><Leaf size={18} /><p>Your work stays in this browser. Export ZIP to back it up or move it to another device. Imported textures and fonts travel with your save; external texture URLs and Google Fonts need internet access.</p></div>
     </Modal>}
-    {curtain && <div className="privacy-curtain"><span className="brand-mark"><Layers size={32} /></span><p>PASS THE SCREEN TO</p><h1>{curtain.name}</h1><span className="curtain-avatar" style={{ background: curtain.color }}>{curtain.name[0]}</span><p className="curtain-description">A little privacy for your next big move.</p><button className="button primary" onClick={() => { setActor(curtain.id); setCurtain(undefined); }}>I'm {curtain.name}. Let's play. <ArrowRight size={17} /></button><button className="text-button" onClick={() => setCurtain(undefined)}>Back to the current player</button></div>}
+    {curtain && <div className="privacy-curtain"><span className="brand-mark"><Layers size={32} /></span><p>PASS THE SCREEN TO</p><h1>{curtain.name}</h1><span className="curtain-avatar" style={{ background: curtain.color }}>{curtain.name[0]}</span><p className="curtain-description">{curtain.endsTurn ? `It's ${curtain.name}'s turn. A little privacy for the next big move.` : 'A little privacy for your next big move.'}</p><button className="button primary" onClick={() => { setActor(curtain.id); if (curtain.endsTurn) void dispatch({ type: 'endTurn' }); setCurtain(undefined); }}>I'm {curtain.name}. Let's play. <ArrowRight size={17} /></button><button className="text-button" onClick={() => setCurtain(undefined)}>{curtain.endsTurn ? 'Back to the current player (keep the turn)' : 'Back to the current player'}</button></div>}
   </div>;
 }
 function CopyIcon() { return <Square size={14} />; }

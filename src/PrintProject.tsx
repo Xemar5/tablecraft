@@ -78,7 +78,7 @@ function PrintPages({ pages, paper, components, cutLines, onDone }: {
         style={{ left: `${item.x}mm`, top: `${item.y}mm`, width: `${item.width}mm`, height: `${item.height}mm` }}>
         <div style={{ width: item.component.width, height: item.component.height, transformOrigin: 'top left',
           transform: `scale(${item.width / MM_PER_PX / item.component.width})` }}>
-          <ComponentView component={item.component} components={components} row={item.row} back={item.back} />
+          <ComponentView component={item.back ? { ...item.component, flippable: true } : item.component} components={components} row={item.row} back={item.back} />
         </div>
       </div>)}
     </section>)}

@@ -19,6 +19,8 @@ type Props = {
   dispatch: (command: Command) => Promise<boolean>; onEdit: (id: string) => void;
   onSpawn: (component: Component, rows: number[], point: { x: number; y: number }, stacked?: boolean) => void;
   onSwitch: (player: Player) => void; notify: (message: string, error?: boolean) => void;
+  /** Ends the turn, given the next player in turn order (a shared screen is passed to them first). */
+  onEndTurn?: (next: Player | undefined) => void;
   /** Online without a seat: the table is read-only, but pieces can still be selected and inspected. */
   viewer?: boolean;
   /** Online seat actions: leave your seat to watch, or take a brand-new seat. */
@@ -46,7 +48,7 @@ const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo his
 const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, notice, onDismissNotice }: Props) {
+export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, onEndTurn, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, notice, onDismissNotice }: Props) {
   // Play works from the project with group locks applied, so pieces in a locked group behave as locked everywhere;
   // a piece's own lock (the Lock button and L) still toggles its own flag.
   const p = useMemo(() => withGroupLocks(source), [source]);
@@ -70,7 +72,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const gridOffset = { x: p.settings.gridOffsetX ?? 0, y: p.settings.gridOffsetY ?? 0 };
   const turnPlayer = p.players.length ? p.players[p.settings.turn % p.players.length] : undefined;
   const nextTurnPlayer = p.players.length ? p.players[(p.settings.turn + 1) % p.players.length] : undefined;
-  const endTurn = () => { void dispatch({ type: 'endTurn' }); };
+  const endTurn = () => { if (onEndTurn) onEndTurn(nextTurnPlayer); else void dispatch({ type: 'endTurn' }); };
   const movePlayer = (id: string, targetId: string, position: 'before' | 'after') => {
     if (id === targetId) return;
     const ids = p.players.map(player => player.id).filter(other => other !== id);

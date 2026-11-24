@@ -262,3 +262,9 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .stack-count.persistent{background:#4f6b3a}
 /* A drawn piece flying from the table to the drawing player's seat (DrawFlight). */
 .draw-flight{position:absolute;left:0;top:0;z-index:9000;pointer-events:none;filter:drop-shadow(0 12px 14px #29433140)}
+/* The Playground / Component designer switch keeps its size: both buttons share one weight, so the active one only
+   differs by background and colour. */
+.mode-switch button,.mode-switch button.active{font-weight:600}
+.artboard-note{display:block;margin:-2px 0 8px;font-size:11px;color:#8a6a3a}
+/* The designer's hover outline: drawn in screen space above every layer, like the selection box. */
+.hover-box{position:absolute;pointer-events:none;box-shadow:0 0 0 1px #a9c787;z-index:4}

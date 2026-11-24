@@ -298,7 +298,10 @@ test('designer supports hierarchy, front/back, CSV updates and component behavio
   await expect(page.locator('.artboard')).toContainText('W I L D W O O D');
   await page.getByRole('button', { name: 'Behavior', exact: true }).click();
   await page.getByLabel('Flippable', { exact: false }).uncheck();
-  await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeDisabled();
+  // A component that can't be flipped keeps its back for printing.
+  await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  await expect(page.locator('.artboard-note')).toContainText('only used when printing');
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(page.locator('.table-piece')).toHaveCount(11);
   await expect(page.locator('.table-piece .node-text').filter({ hasText: 'Updated guardian' }).first()).toBeVisible();

@@ -107,7 +107,7 @@ test('shape menu inserts directly, boolean controls are contextual and parenting
 test('nested fitting renders stretch, contain and cover and offers Artwork type', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
-  await page.getByRole('button', { name: 'Add linked artwork', exact: true }).click();
+  await page.getByRole('button', { name: 'Add linked component', exact: true }).click();
   await page.getByRole('button', { name: /^Linked component:/ }).click();
   await page.getByRole('option', { name: /^Spirit die/ }).click();
   await page.getByLabel('Width', { exact: true }).fill('200');

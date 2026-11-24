@@ -63,4 +63,14 @@ describe('print layout', () => {
     expect(large.length).toBeGreaterThan(fronts.length);
     expect(large.flatMap(page => page.items).some(item => item.shrunk)).toBe(true);
   });
+
+  it('prints the designed back of a component that can’t be flipped', () => {
+    const project = starterProject();
+    const token = project.components.find(component => component.kind === 'token')!;
+    const withBack = { ...project, components: project.components.map(component => component.id === token.id ? { ...component, back: [...token.front] } : component) };
+    const backs = printLayout(withBack, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'back').flatMap(page => page.items);
+    expect(backs.some(item => item.component.id === token.id)).toBe(true);
+    expect(printLayout(project, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'back').flatMap(page => page.items).some(item => item.component.id === token.id)).toBe(false);
+  });
 });
+

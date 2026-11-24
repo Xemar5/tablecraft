@@ -49,13 +49,17 @@ test('hover outlines keep their on-screen width: a shape outline on the table, a
   await expect(board.locator('.piece-face')).not.toHaveAttribute('style', /filter/);
 
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  // The designer's hover outline is drawn above every layer, one screen pixel wide at any zoom.
   const node = page.locator('.artboard .design-node').nth(1);
-  const spread = async () => {
+  const outline = page.locator('.artboard .hover-box');
+  const width = async () => {
     await node.hover({ force: true });
-    const [shadow, zoomLevel] = await node.evaluate(element => [getComputedStyle(element).boxShadow, Number(getComputedStyle(element).getPropertyValue('--designer-zoom'))]);
-    return Number(/0px 0px 0px ([\d.]+)px inset/.exec(String(shadow))![1]) * Number(zoomLevel);
+    await expect(outline).toBeVisible();
+    return Number(/0px 0px 0px ([\d.]+)px/.exec(await outline.evaluate(element => getComputedStyle(element).boxShadow))![1]);
   };
-  expect(await spread()).toBeCloseTo(1, 2);
+  expect(await width()).toBe(1);
   for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
-  expect(await spread()).toBeCloseTo(1, 2);
+  expect(await width()).toBe(1);
+  // It sits in the overlay above the layers, not inside them.
+  expect(await outline.evaluate(element => element.closest('.design-node') === null)).toBe(true);
 });
