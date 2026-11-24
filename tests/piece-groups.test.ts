@@ -37,10 +37,11 @@ describe('piece groups', () => {
     // The panel lists the group's rows topmost first.
     const rows = pieceTree(next, new Set(), new Set()).filter(row => row.kind === 'piece' && row.item.group === 'amber').map(row => row.key);
     expect(rows.indexOf(cards[0])).toBe(rows.indexOf(tokens[0]) - 1);
-    // A board target (always underneath) only changes the grouping.
+    // A board target (always underneath) only changes the grouping; the card leaves the group's block, just below it.
     const regrouped = applyCommand(next, { type: 'arrangePieces', parent: null, ids: [cards[0]], groups: [], target: [board.id], position: 'above' });
-    expect(units(regrouped)).toEqual(units(next));
     expect(regrouped.instances.find(i => i.id === cards[0])!.group).toBeUndefined();
+    order = units(regrouped);
+    expect(order.slice(order.indexOf(cards[0]) + 1, order.indexOf(cards[0]) + 3).sort()).toEqual(tokens.slice(0, 2).sort());
     expect(() => applyCommand(next, { type: 'arrangePieces', parent: null, ids: [cards[0]], groups: [], target: ['missing'], position: 'above' })).toThrow('no longer exists');
     expect(() => applyCommand(next, { type: 'arrangePieces', parent: 'amber', ids: [], groups: ['amber'], target: [], position: 'above' })).toThrow('into itself');
     expect(() => validateProject(next)).not.toThrow();
@@ -144,4 +145,33 @@ describe('piece groups', () => {
     const extra = applyCommand(next, { type: 'spawn', instances: [makeInstance(p.components.find(c => c.kind === 'token')!.id)] });
     expect(pieceTree(extra, new Set(), new Set())[0]).toMatchObject({ kind: 'piece', depth: 0 });
   });
+
+  it('keeps every group together in table order, so raising a grouped piece raises its whole group', () => {
+    const p = starterProject(), { cards, tokens } = ids(p);
+    const units = (project: Project) => [...new Set(project.instances
+      .filter(i => !i.holder && project.components.find(c => c.id === i.componentId)!.kind !== 'board').map(i => i.stack ?? i.id))];
+    // Scattered pieces gather at the topmost one when grouped.
+    let next = group(p, 'outer', 'Outer', [tokens[0], cards[2]]);
+    next = group(next, 'inner', 'Inner', [tokens[4]]);
+    next = applyCommand(next, { type: 'moveToGroup', parent: 'outer', ids: [], groups: ['inner'] });
+    const block = (project: Project) => { const order = units(project); return [tokens[0], cards[2], tokens[4]].map(id => order.indexOf(id)).sort((a, b) => a - b); };
+    const [low, , high] = block(next);
+    expect(high - low).toBe(2);
+    // Clicking a grouped piece brings the whole outer group to the front, with the clicked piece on top inside it.
+    next = applyCommand(next, { type: 'front', ids: [tokens[0]] });
+    let order = units(next);
+    expect(order.slice(-3).sort()).toEqual([tokens[0], cards[2], tokens[4]].sort());
+    expect(order.at(-1)).toBe(tokens[0]);
+    // A nested group rises inside its parent first, so the parent stays together.
+    next = applyCommand(next, { type: 'front', ids: [tokens[4]] });
+    order = units(next);
+    expect(order.at(-1)).toBe(tokens[4]);
+    expect(order.slice(-3).sort()).toEqual([tokens[0], cards[2], tokens[4]].sort());
+    // The Pieces panel lists the same order, topmost first.
+    const rows = pieceTree(next, new Set(), new Set()).filter(row => row.kind === 'piece').map(row => row.key);
+    expect(rows.filter(key => order.includes(key))).toEqual([...order].reverse().filter(key => rows.includes(key)));
+    // Ungrouped tables keep their order untouched.
+    expect(applyCommand(p, { type: 'front', ids: [tokens[0]] }).instances.map(i => i.id).slice(0, -1)).toEqual(p.instances.filter(i => i.id !== tokens[0]).map(i => i.id));
+  });
 });
+

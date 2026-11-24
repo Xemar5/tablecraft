@@ -434,6 +434,41 @@ function normalizeGroups(p: Project) {
   if (remaining.length) p.groups = remaining; else delete p.groups;
 }
 
+/**
+ * Table order in which every group's pieces sit next to each other, the way the Pieces panel lists them: each group
+ * (and each loose stack or piece) takes the place of its topmost piece, and so does every subgroup inside its parent.
+ * Boards and held pieces keep their places first; they don't take part in table order.
+ */
+export function gatherGroups(p: Project): Instance[] {
+  const groups = p.groups ?? [];
+  if (!groups.length) return p.instances;
+  const kinds = new Map(p.components.map(component => [component.id, component.kind]));
+  const position = new Map(p.instances.map((item, index) => [item, index]));
+  const rest: Instance[] = [], units = new Map<string, Instance[]>();
+  for (const item of p.instances) {
+    if (item.holder || kinds.get(item.componentId) === 'board') { rest.push(item); continue; }
+    const key = item.stack ?? item.id;
+    units.set(key, [...units.get(key) ?? [], item]);
+  }
+  const known = new Set(groups.map(group => group.id));
+  const loose = new Map<string | null, Instance[][]>(), children = new Map<string | null, PieceGroup[]>();
+  for (const unit of units.values()) {
+    const group = unit[0].group && known.has(unit[0].group) ? unit[0].group : null;
+    loose.set(group, [...loose.get(group) ?? [], unit]);
+  }
+  for (const group of groups) children.set(group.parent, [...children.get(group.parent) ?? [], group]);
+  type Entry = { top: number; items: Instance[] };
+  const level = (parent: string | null, seen: Set<string>): Entry[] => [
+    ...(children.get(parent) ?? []).filter(group => !seen.has(group.id)).map(group => {
+      const inner = level(group.id, new Set([...seen, group.id]));
+      return { top: Math.max(-1, ...inner.map(entry => entry.top)), items: inner.flatMap(entry => entry.items) };
+    }),
+    ...(loose.get(parent) ?? []).map(unit => ({ top: Math.max(...unit.map(item => position.get(item)!)), items: unit })),
+  ].sort((a, b) => a.top - b.top);
+  const ordered = [...rest, ...level(null, new Set()).flatMap(entry => entry.items)];
+  return ordered.every((item, index) => item === p.instances[index]) ? p.instances : ordered;
+}
+
 /** Reuses previous component objects whose content is unchanged (and the previous array when nothing changed). */
 export function shareComponents(previous: Component[], next: Component[]): Component[] {
   const known = new Map(previous.map(component => [component.id, component]));
@@ -1049,6 +1084,9 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
     }
   });
   normalizeGroups(p);
+  // Commands that change table order or grouping keep each group's pieces together (see gatherGroups), so raising a
+  // grouped piece raises its whole group and the Pieces panel always lists pieces in table order.
+  if (['front', 'zOrder', 'arrangePieces', 'createGroup', 'moveToGroup', 'ungroup', 'duplicate', 'paste', 'spawn'].includes(command.type)) p.instances = gatherGroups(p);
   return validateProject(p);
 }
 
