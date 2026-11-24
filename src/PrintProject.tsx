@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Printer } from 'lucide-react';
 import { ComponentView } from './ComponentView';
 import type { Component, Project } from './domain';
-import { DEFAULT_PRINT_OPTIONS, MM_PER_PX, PAPER_SIZES, printLayout, type PaperSize, type PrintOptions, type PrintPage } from './printLayout';
+import { DEFAULT_PRINT_OPTIONS, MM_PER_PX, oversizedPieces, PAPER_SIZES, printLayout, type PaperSize, type PrintOptions, type PrintPage } from './printLayout';
 import { Field, Modal, NumberField, Toggle } from './ui';
 import './print.css';
 
@@ -18,8 +18,9 @@ export function PrintDialog({ project, onClose }: { project: Project; onClose: (
   const set = (patch: Partial<PrintOptions>) => setOptions(current => ({ ...current, ...patch }));
   const pages = useMemo(() => printLayout(project, options), [project, options]);
   const fronts = pages.filter(page => page.side === 'front');
-  const copies = fronts.reduce((total, page) => total + page.items.length, 0);
-  const shrunk = fronts.some(page => page.items.some(item => item.shrunk));
+  // A split piece counts once, by its first part.
+  const copies = fronts.reduce((total, page) => total + page.items.filter(item => !item.part || item.part.index === 1).length, 0);
+  const oversized = useMemo(() => oversizedPieces(pages, options.scale), [pages, options.scale]);
   return <>
     <Modal title="Print to PDF" subtitle="Every piece in this project, at print size: table pieces, stacks, hands, book pages and dice faces." onClose={onClose}>
       <div className="print-dialog">
@@ -36,10 +37,13 @@ export function PrintDialog({ project, onClose }: { project: Project; onClose: (
         <Toggle label="Double-sided backs" description="Each page of fronts is followed by the backs of its pieces (just the background colour where a component has no back design), mirrored to line up when printed on both sides (flip on the long edge)"
           checked={options.backs} onChange={backs => set({ backs })} />
         <Toggle label="Components not on the table" description="Also print one copy of each variant of components with no pieces" checked={options.unplaced} onChange={unplaced => set({ unplaced })} />
+        <Toggle label="Split large pieces" description="Print pieces too big for one page at full size in several parts, with glue wings to stick them together; when off, they shrink to fit"
+          checked={options.split} onChange={split => set({ split })} />
         <p className="print-summary" role="status">
           {copies ? `${copies} ${copies === 1 ? 'copy' : 'copies'} on ${fronts.length} ${fronts.length === 1 ? 'page' : 'pages'}${options.backs ? `, plus ${fronts.length} ${fronts.length === 1 ? 'page' : 'pages'} of backs` : ''}.` : 'Nothing to print yet: place some pieces, or include components not on the table.'}
-          {shrunk && ' Pieces larger than the page are shrunk to fit.'}
         </p>
+        {oversized.length > 0 && <div className="print-oversized" role="note"><strong>Too big for one page</strong>
+          <ul>{oversized.map(item => <li key={item.name}>{item.name}: {item.parts ? `printed in ${item.parts} parts with glue wings` : `shrunk to ${item.shrunkTo}%`}</li>)}</ul></div>}
         <p className="help-text">In the print dialog, choose <strong>Save as PDF</strong> to get a PDF, and print it at actual size (100%).</p>
         <div className="modal-actions"><button className="button" onClick={onClose}>Cancel</button>
           <button className="button primary" disabled={!copies || printing} onClick={() => setPrinting(true)}><Printer size={15} /> Print or save as PDF</button></div>
@@ -76,10 +80,16 @@ function PrintPages({ pages, paper, components, cutLines, onDone }: {
     {pages.map((page, index) => <section key={index} className={`print-page print-${page.side}`} data-page={index + 1} style={{ width: `${size.width}mm`, height: `${size.height}mm` }}>
       {page.items.map((item, at) => <div key={at} className={`print-item${cutLines && !item.back ? ' cut-line' : ''}`} data-component={item.component.name}
         style={{ left: `${item.x}mm`, top: `${item.y}mm`, width: `${item.width}mm`, height: `${item.height}mm` }}>
-        <div style={{ width: item.component.width, height: item.component.height, transformOrigin: 'top left',
-          transform: `scale(${item.width / MM_PER_PX / item.component.width})` }}>
+        {/* A split part shows its region of the whole piece. */}
+        <div style={{ position: 'absolute', left: `${-(item.crop?.x ?? 0)}mm`, top: `${-(item.crop?.y ?? 0)}mm`, width: item.component.width, height: item.component.height, transformOrigin: 'top left',
+          transform: `scale(${item.pieceWidth / MM_PER_PX / item.component.width})` }}>
           <ComponentView component={item.back ? { ...item.component, flippable: true } : item.component} components={components} row={item.row} back={item.back} />
         </div>
+        {item.part && !item.back && <>
+          {item.wing?.right ? <div className="print-wing print-wing-right" style={{ width: `${item.wing.right}mm`, bottom: item.wing.bottom ? `${item.wing.bottom}mm` : 0 }}><span>Glue part {item.part.index + 1} here</span></div> : null}
+          {item.wing?.bottom ? <div className="print-wing print-wing-bottom" style={{ height: `${item.wing.bottom}mm` }}><span>Glue part {item.part.index + item.part.columns} here</span></div> : null}
+          <span className="print-part-label">{item.component.name} · part {item.part.index} of {item.part.total}</span>
+        </>}
       </div>)}
     </section>)}
   </div>, document.body);

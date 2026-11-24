@@ -22,12 +22,26 @@ export type PrintOptions = {
   backs: boolean;
   /** Add one copy of each variant of components that have no pieces in the project. */
   unplaced: boolean;
+  /** Print pieces larger than the page at full size in several parts with glue wings, instead of shrinking them. */
+  split: boolean;
 };
-export const DEFAULT_PRINT_OPTIONS: PrintOptions = { paper: 'a4', scale: 1, gap: 2, margin: 10, backs: true, unplaced: false };
+export const DEFAULT_PRINT_OPTIONS: PrintOptions = { paper: 'a4', scale: 1, gap: 2, margin: 10, backs: true, unplaced: false, split: true };
+/** Width of the strip a split piece's part overlaps onto its neighbour, for glueing, in millimetres. */
+export const GLUE_WING = 10;
 export const MM_PER_PX = 25.4 / 96;
 
 export type PrintCopy = { component: Component; row: number };
-export type PrintItem = PrintCopy & { x: number; y: number; width: number; height: number; back: boolean; shrunk: boolean };
+export type PrintItem = PrintCopy & {
+  x: number; y: number; width: number; height: number; back: boolean; shrunk: boolean;
+  /** The whole piece's printed size; a split part (`part`) shows the `crop` of it, in millimetres. */
+  pieceWidth: number; pieceHeight: number;
+  crop?: { x: number; y: number; width: number; height: number };
+  /** Glue strips on a part's right and bottom edges, which the next parts are stuck onto. */
+  wing?: { right: number; bottom: number };
+  part?: { index: number; total: number; row: number; column: number; rows: number; columns: number };
+};
+/** Pieces too big for one page: split into parts, or shrunk to the given scale. */
+export type Oversized = { name: string; parts?: number; shrunkTo?: number };
 export type PrintPage = { side: 'front' | 'back'; items: PrintItem[] };
 
 /** Components that are printed as physical pieces (not artwork, textures or fonts). */
@@ -64,6 +78,16 @@ export function printCopies(project: Project, unplaced = false): PrintCopy[] {
   return copies;
 }
 
+/** The pieces too big for one page, once each: how many parts they're split into, or how far they're shrunk. */
+export function oversizedPieces(pages: PrintPage[], scale = 1): Oversized[] {
+  const found = new Map<string, Oversized>();
+  for (const item of pages.filter(page => page.side === 'front').flatMap(page => page.items)) {
+    if (item.part) found.set(item.component.id, { name: item.component.name, parts: item.part.total });
+    else if (item.shrunk) found.set(item.component.id, { name: item.component.name, shrunkTo: Math.round(item.width / (item.component.width * MM_PER_PX * scale) * 100) });
+  }
+  return [...found.values()];
+}
+
 /**
  * Packs copies onto pages in rows (largest first, copies of one component together). With backs, every front page is
  * followed by its back page, mirrored left to right so each back lands behind its front; pieces without a printed back
@@ -73,12 +97,27 @@ export function printLayout(project: Project, options: PrintOptions): PrintPage[
   const paper = PAPER_SIZES[options.paper];
   const areaWidth = paper.width - options.margin * 2, areaHeight = paper.height - options.margin * 2;
   const order = new Map(project.components.map((component, index) => [component.id, index]));
-  const sized = printCopies(project, options.unplaced).map(copy => {
-    let width = copy.component.width * MM_PER_PX * options.scale, height = copy.component.height * MM_PER_PX * options.scale;
-    // Pieces larger than the printable area shrink to fit it.
-    const fit = Math.min(1, areaWidth / width, areaHeight / height);
-    width *= fit; height *= fit;
-    return { ...copy, width, height, shrunk: fit < 1 };
+  const sized = printCopies(project, options.unplaced).flatMap(copy => {
+    const full = { width: copy.component.width * MM_PER_PX * options.scale, height: copy.component.height * MM_PER_PX * options.scale };
+    if (full.width <= areaWidth + 1e-6 && full.height <= areaHeight + 1e-6) return [{ ...copy, ...full, shrunk: false, pieceWidth: full.width, pieceHeight: full.height }];
+    if (!options.split) {
+      // Pieces larger than the printable area shrink to fit it.
+      const fit = Math.min(areaWidth / full.width, areaHeight / full.height), width = full.width * fit, height = full.height * fit;
+      return [{ ...copy, width, height, shrunk: true, pieceWidth: width, pieceHeight: height }];
+    }
+    // Split into parts that fill the printable area: every part but the last in its row and column carries a glue wing
+    // overlapping the next part's first millimetres.
+    const step = { x: areaWidth - GLUE_WING, y: areaHeight - GLUE_WING };
+    const columns = 1 + Math.max(0, Math.ceil((full.width - areaWidth) / step.x - 1e-9));
+    const rows = 1 + Math.max(0, Math.ceil((full.height - areaHeight) / step.y - 1e-9));
+    return Array.from({ length: rows * columns }, (_, index) => {
+      const row = Math.floor(index / columns), column = index % columns;
+      const x = column * step.x, y = row * step.y;
+      const right = column < columns - 1 ? GLUE_WING : 0, bottom = row < rows - 1 ? GLUE_WING : 0;
+      const width = column < columns - 1 ? step.x + right : full.width - x, height = row < rows - 1 ? step.y + bottom : full.height - y;
+      return { ...copy, width, height, shrunk: false, pieceWidth: full.width, pieceHeight: full.height, crop: { x, y, width, height }, wing: { right, bottom },
+        part: { index: index + 1, total: rows * columns, row: row + 1, column: column + 1, rows, columns } };
+    });
   }).sort((a, b) => b.height - a.height || order.get(a.component.id)! - order.get(b.component.id)! || a.row - b.row);
   const fronts: PrintItem[][] = [];
   let page: PrintItem[] = [], x = 0, y = 0, rowHeight = 0;
@@ -92,7 +131,9 @@ export function printLayout(project: Project, options: PrintOptions): PrintPage[
   return fronts.flatMap(items => {
     const front: PrintPage = { side: 'front', items };
     if (!options.backs) return [front];
-    const backs = items.filter(item => hasPrintedBack(item.component)).map(item => ({ ...item, back: true, x: paper.width - item.x - item.width }));
+    // A part's back is the matching, mirrored region of the piece's back (without glue wings).
+    const backs = items.filter(item => hasPrintedBack(item.component)).map(item => ({ ...item, back: true, x: paper.width - item.x - item.width,
+      ...(item.crop ? { crop: { ...item.crop, x: item.pieceWidth - item.crop.x - item.crop.width }, wing: { right: 0, bottom: 0 } } : {}) }));
     return [front, { side: 'back' as const, items: backs }];
   });
 }

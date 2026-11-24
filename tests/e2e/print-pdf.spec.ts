@@ -38,3 +38,25 @@ test('Print to PDF lays out every piece at print size and prints them with their
   await page.evaluate(() => window.dispatchEvent(new Event('afterprint')));
   await expect(page.locator('.print-root')).toHaveCount(0);
 });
+
+test('pieces too big for a page are listed, and print in parts with glue wings or shrink to fit', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => { window.print = () => undefined; });
+  await page.getByRole('button', { name: 'Print to PDF', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Print to PDF' });
+  const scale = dialog.getByLabel('Scale (%)', { exact: true });
+  await scale.fill('250');
+  await scale.press('Enter');
+  const note = dialog.locator('.print-oversized');
+  await expect(note).toContainText('Forest clearing: printed in 6 parts with glue wings');
+  await dialog.getByRole('checkbox', { name: /^Split large pieces/ }).uncheck();
+  await expect(note).toContainText(/Forest clearing: shrunk to \d+%/);
+  await dialog.getByRole('checkbox', { name: /^Split large pieces/ }).check();
+  await dialog.getByRole('button', { name: 'Print or save as PDF' }).click();
+  await expect(page.locator('.print-root .print-part-label')).toHaveCount(6);
+  // Glue wings on the parts with a neighbour to the right (4) or below (3).
+  await expect(page.locator('.print-root .print-front .print-wing-right')).toHaveCount(4);
+  await expect(page.locator('.print-root .print-front .print-wing-bottom')).toHaveCount(3);
+  await expect(page.locator('.print-root .print-front .print-wing-right').first()).toContainText('Glue part 2 here');
+});
+

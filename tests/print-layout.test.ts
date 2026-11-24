@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gameProject } from '../src/gameProjects';
-import { DEFAULT_PRINT_OPTIONS, MM_PER_PX, PAPER_SIZES, printCopies, printLayout } from '../src/printLayout';
+import { DEFAULT_PRINT_OPTIONS, GLUE_WING, MM_PER_PX, oversizedPieces, PAPER_SIZES, printCopies, printLayout } from '../src/printLayout';
 import { starterProject } from '../src/templates';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
@@ -59,7 +59,7 @@ describe('print layout', () => {
     expect(back.items.some(item => item.component.kind === 'dice')).toBe(false);
     // Without backs only fronts are printed; a bigger scale needs more pages, and oversized pieces shrink to fit.
     expect(printLayout(project, { ...options, backs: false }).every(page => page.side === 'front')).toBe(true);
-    const large = printLayout(project, { ...options, backs: false, scale: 4 });
+    const large = printLayout(project, { ...options, backs: false, scale: 4, split: false });
     expect(large.length).toBeGreaterThan(fronts.length);
     expect(large.flatMap(page => page.items).some(item => item.shrunk)).toBe(true);
   });
@@ -73,6 +73,42 @@ describe('print layout', () => {
     const token = project.components.find(component => component.kind === 'token')!;
     expect(token.flippable || token.back.length).toBeFalsy();
     expect(backs.filter(item => item.component.id === token.id)).toHaveLength(5);
+  });
+
+  it('splits pieces too big for a page into parts with glue wings that cover the whole piece', () => {
+    const project = starterProject();
+    const options = { ...DEFAULT_PRINT_OPTIONS, scale: 4 };
+    const pages = printLayout(project, options);
+    const board = project.components.find(component => component.kind === 'board')!;
+    const parts = pages.filter(page => page.side === 'front').flatMap(page => page.items).filter(item => item.component.id === board.id);
+    const width = board.width * MM_PER_PX * 4, height = board.height * MM_PER_PX * 4;
+    const area = { width: PAPER_SIZES.a4.width - options.margin * 2, height: PAPER_SIZES.a4.height - options.margin * 2 };
+    const { rows, columns, total } = parts[0].part!;
+    expect(total).toBe(rows * columns);
+    expect(parts).toHaveLength(total);
+    expect(total).toBeGreaterThan(1);
+    for (const part of parts) {
+      expect(part.width).toBeLessThanOrEqual(area.width + 1e-6);
+      expect(part.height).toBeLessThanOrEqual(area.height + 1e-6);
+      expect(part).toMatchObject({ pieceWidth: width, pieceHeight: height, shrunk: false });
+      // Every part but the last in its row and column carries a glue wing, overlapping its neighbour.
+      expect(part.wing!.right).toBe(part.part!.column < columns ? GLUE_WING : 0);
+      expect(part.wing!.bottom).toBe(part.part!.row < rows ? GLUE_WING : 0);
+      const right = parts.find(other => other.part!.row === part.part!.row && other.part!.column === part.part!.column + 1);
+      if (right) expect(right.crop!.x).toBeCloseTo(part.crop!.x + part.crop!.width - GLUE_WING, 6);
+    }
+    // Together the parts reach every edge of the piece.
+    expect(Math.max(...parts.map(part => part.crop!.x + part.crop!.width))).toBeCloseTo(width, 6);
+    expect(Math.max(...parts.map(part => part.crop!.y + part.crop!.height))).toBeCloseTo(height, 6);
+    // A part's back shows the mirrored region of the piece's back.
+    const first = parts.find(part => part.part!.index === 1)!;
+    const back = pages[pages.findIndex(page => page.items.includes(first)) + 1].items.find(item => item.component.id === board.id && item.part!.index === 1)!;
+    expect(back.crop!.x).toBeCloseTo(width - first.crop!.width, 6);
+    expect(oversizedPieces(pages, 4)).toContainEqual({ name: board.name, parts: total });
+    // With splitting off, the piece shrinks to fit instead.
+    const shrunk = oversizedPieces(printLayout(project, { ...options, split: false }), 4).find(item => item.name === board.name)!;
+    expect(shrunk.shrunkTo).toBeGreaterThan(0);
+    expect(shrunk.shrunkTo).toBeLessThan(100);
   });
 });
 
