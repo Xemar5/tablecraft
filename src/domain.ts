@@ -167,6 +167,15 @@ export const instanceSchema = z.object({
   group: id.optional(),
 });
 /** A locked group holds its pieces in place (with its subgroups), whatever each piece's own lock says. */
+/**
+ * A persistent stack stays on the table with one piece or none (an empty slot players can drop pieces into). Its pieces
+ * still carry its id in `stack`; this record keeps where the stack is, the stack tag pieces must have to join (empty:
+ * the same component as its pieces, or any stackable piece while it's empty), and the component it last held.
+ */
+export const persistentStackSchema = z.object({
+  id, tag: z.string().max(100), x: num, y: num, rotation: num, scale: num.min(0.1).max(5).optional(), componentId: id.optional(),
+});
+export type PersistentStack = z.infer<typeof persistentStackSchema>;
 export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(), locked: z.boolean().optional() });
 export type PieceGroup = z.infer<typeof pieceGroupSchema>;
 export type Instance = z.infer<typeof instanceSchema>;
@@ -184,6 +193,8 @@ export const projectSchema = z.object({
   players: z.array(playerSchema),
   /** Named, nestable groups of table pieces shown in the Pieces panel. */
   groups: z.array(pieceGroupSchema).max(2000).optional(),
+  /** Stacks that stay on the table when they're down to one piece or none. */
+  stacks: z.array(persistentStackSchema).max(2000).optional(),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
     /** Where the grid's points sit: snap points are offset + n × gridSize on each axis (0 when absent). */
@@ -223,6 +234,15 @@ export const commandSchema = z.discriminatedUnion('type', [
     ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
   z.object({ type: z.literal('renameGroup'), id, name: pieceGroupSchema.shape.name }),
   z.object({ type: z.literal('lockGroups'), ids: z.array(id).min(1).max(2000), locked: z.boolean() }),
+  /** Makes the stack of `ids` persistent, stacking the pieces first (as `stackId`) when they aren't one stack yet. */
+  z.object({ type: z.literal('persistStack'), ids: z.array(id).min(1).max(10000), stackId: id }),
+  /** Makes a persistent stack ordinary again (an empty one disappears; a single piece is no longer a stack). */
+  z.object({ type: z.literal('unpersistStack'), stackId: id }),
+  z.object({ type: z.literal('setStackTag'), stackId: id, tag: z.string().trim().max(100) }),
+  /** Moves an empty persistent stack (stacks with pieces move with their pieces). */
+  z.object({ type: z.literal('moveStack'), stackId: id, x: num, y: num }),
+  /** Puts table pieces (whole stacks) or your own held pieces on top of a persistent stack, including an empty one. */
+  z.object({ type: z.literal('dropIntoStack'), ids: z.array(id).min(1).max(10000), stackId: id }),
   /** Removes groups, moving their pieces and subgroups up to each group's parent. */
   z.object({ type: z.literal('ungroup'), ids: z.array(id).min(1).max(2000) }),
   /** Moves table pieces (with their whole stacks) and groups into `parent`, or to the top level when it is null. */
@@ -379,14 +399,57 @@ export function validateProject(project: Project): Project {
   }
   const groups = new Map<string, Instance[]>();
   for (const i of project.instances) if (i.stack) groups.set(i.stack, [...(groups.get(i.stack) ?? []), i]);
-  for (const group of groups.values()) {
-    if (!canStack(group.map(i => project.components.find(c => c.id === i.componentId)!))) throw new Error('Incompatible components in stack.');
+  const persistent = new Map((project.stacks ?? []).map(record => [record.id, record]));
+  if (persistent.size !== (project.stacks ?? []).length) throw new Error('Duplicate persistent stack identifiers.');
+  for (const [stack, group] of groups) {
+    const record = persistent.get(stack);
+    const members = group.map(i => project.components.find(c => c.id === i.componentId)!);
+    if (record ? !fitsPersistentStack(record, members) : !canStack(members)) throw new Error('Incompatible components in stack.');
     if (group.some(i => !!i.stackReversed !== !!group[0].stackReversed)) throw new Error('Inconsistent stack orientation.');
   }
   if (project.instances.some(i => !i.stack && i.stackReversed)) throw new Error('Only stacks can have a stack orientation.');
   validateGroups(project);
   validatedComponents.add(project.components);
   return project;
+}
+
+/** Whether pieces of these components may form (or join) a persistent stack, by its stack tag. */
+export function fitsPersistentStack(record: Pick<PersistentStack, 'tag'>, components: Component[]): boolean {
+  if (!components.every(c => c.stackable)) return false;
+  return record.tag ? components.every(c => c.stackTag === record.tag) : components.length <= 1 || canStack(components);
+}
+
+/**
+ * Merging stacks gives the merged stack a new id. When the pieces of a persistent stack end up together in such a stack,
+ * it takes the persistent stack's id, so the stack stays persistent; where two persistent stacks merged, the one at the
+ * bottom keeps the pieces and the other stays behind, empty.
+ */
+function keepPersistentStacks(source: Project, p: Project) {
+  const records = p.stacks ?? [];
+  if (!records.length) return;
+  const before = new Map(source.instances.map(i => [i.id, i.stack]));
+  const ids = new Set(records.map(record => record.id));
+  // Persistent stacks that still have pieces under their own id keep them.
+  const taken = new Set(p.instances.flatMap(i => i.stack && ids.has(i.stack) ? [i.stack] : []));
+  const merged = new Map<string, Instance[]>();
+  for (const i of p.instances) if (i.stack && !ids.has(i.stack)) merged.set(i.stack, [...merged.get(i.stack) ?? [], i]);
+  for (const members of merged.values()) {
+    const bottom = [...members].sort((a, b) => a.order - b.order)[0];
+    const owner = records.find(record => !taken.has(record.id) && before.get(bottom.id) === record.id)
+      ?? records.find(record => !taken.has(record.id) && members.some(i => before.get(i.id) === record.id));
+    if (!owner) continue;
+    members.forEach(i => { i.stack = owner.id; });
+    taken.add(owner.id);
+  }
+}
+
+/** Persistent stacks with pieces follow their bottom piece; empty ones keep their place. */
+function syncPersistentStacks(p: Project) {
+  if (!p.stacks?.length) { delete p.stacks; return; }
+  for (const record of p.stacks) {
+    const bottom = p.instances.filter(i => i.stack === record.id).sort((a, b) => a.order - b.order)[0];
+    if (bottom) Object.assign(record, { x: bottom.x, y: bottom.y, rotation: bottom.rotation, scale: bottom.scale, componentId: bottom.componentId });
+  }
 }
 
 function validateGroups(project: Project) {
@@ -784,6 +847,81 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     }
     case 'renameGroup': existingGroups([command.id])[0].name = command.name; break;
+    case 'persistStack': {
+      const records = p.stacks ??= [];
+      const items = [...new Set(command.ids)].map(get);
+      items.forEach(i => { editable(i); if (isLocked(i) || i.holder) throw new Error('Only unlocked tabletop pieces can form a persistent stack.'); });
+      if (!items.every(i => component(i).stackable)) throw new Error('These pieces can\'t be stacked.');
+      const stacks = new Set(items.map(i => i.stack));
+      let stackId: string;
+      if (stacks.size === 1 && items[0].stack && stackMembers(p, items[0]).every(i => items.includes(i))) stackId = items[0].stack;
+      else {
+        // Stack the pieces first: whole stacks keep their order, the first selected piece goes on the bottom.
+        if (items.some(i => i.stack && stackMembers(p, i).some(other => !items.includes(other)))) throw new Error('Select the entire stack.');
+        if (!canStack(items.map(component))) throw new Error('Select compatible stackable pieces.');
+        if (p.instances.some(i => i.stack === command.stackId) || records.some(record => record.id === command.stackId)) throw new Error('Stack identifier already exists.');
+        stacks.forEach(stack => { if (stack) materialize(stackMembers(p, items.find(i => i.stack === stack)!)); });
+        const seen = new Set<string>();
+        const ordered = items.flatMap(item => {
+          if (!item.stack) return [item];
+          if (seen.has(item.stack)) return [];
+          seen.add(item.stack);
+          return items.filter(other => other.stack === item.stack).sort((a, b) => a.order - b.order);
+        });
+        ordered.forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: items[0].x, y: items[0].y }));
+        stackId = command.stackId;
+      }
+      if (records.some(record => record.id === stackId)) throw new Error('This stack is already persistent.');
+      const bottom = p.instances.filter(i => i.stack === stackId).sort((a, b) => a.order - b.order)[0];
+      records.push({ id: stackId, tag: component(bottom).stackTag, x: bottom.x, y: bottom.y, rotation: bottom.rotation, scale: bottom.scale, componentId: bottom.componentId });
+      break;
+    }
+    case 'unpersistStack':
+      if (!(p.stacks ?? []).some(record => record.id === command.stackId)) throw new Error('This stack isn\'t persistent.');
+      p.stacks = p.stacks!.filter(record => record.id !== command.stackId);
+      break;
+    case 'setStackTag': {
+      const record = (p.stacks ?? []).find(item => item.id === command.stackId);
+      if (!record) throw new Error('This stack isn\'t persistent.');
+      const members = p.instances.filter(i => i.stack === record.id);
+      if (command.tag && members.some(i => component(i).stackTag !== command.tag)) throw new Error('The pieces in this stack don\'t have that stack tag.');
+      record.tag = command.tag;
+      break;
+    }
+    case 'moveStack': {
+      const record = (p.stacks ?? []).find(item => item.id === command.stackId);
+      if (!record) throw new Error('This stack isn\'t persistent.');
+      if (p.instances.some(i => i.stack === record.id)) throw new Error('Move the stack by its pieces.');
+      Object.assign(record, { x: command.x, y: command.y });
+      break;
+    }
+    case 'dropIntoStack': {
+      const record = (p.stacks ?? []).find(item => item.id === command.stackId);
+      if (!record) throw new Error('This stack no longer exists.');
+      const members = p.instances.filter(i => i.stack === record.id).sort((a, b) => a.order - b.order);
+      const items = [...new Set(command.ids)].map(get);
+      if (items.some(i => members.includes(i))) throw new Error('Choose a different stack.');
+      items.forEach(i => {
+        editable(i);
+        if (isLocked(i)) throw new Error('Unlock these pieces first.');
+        if (i.holder && i.holder !== actor) throw new Error("Switch to this player's seat to play from their hand.");
+      });
+      if (items.some(i => i.stack && stackMembers(p, i).some(other => !items.includes(other)))) throw new Error('Select the entire stack.');
+      if (members.some(i => isLocked(i))) throw new Error('Unlock the stack first.');
+      if (!fitsPersistentStack(record, [...members, ...items].map(component))) throw new Error(record.tag ? `Only pieces tagged "${record.tag}" go into this stack.` : 'These pieces don\'t go into this stack.');
+      materialize(members);
+      new Set(items.flatMap(i => i.stack ? [i.stack] : [])).forEach(stack => materialize(stackMembers(p, items.find(i => i.stack === stack)!)));
+      const seen = new Set<string>();
+      const ordered = items.flatMap(item => {
+        if (!item.stack) return [item];
+        if (seen.has(item.stack)) return [];
+        seen.add(item.stack);
+        return items.filter(other => other.stack === item.stack).sort((a, b) => a.order - b.order);
+      });
+      const at = members[0] ?? record;
+      ordered.forEach((i, n) => Object.assign(i, { holder: null, stack: record.id, stackReversed: false, order: members.length + n, x: at.x, y: at.y }));
+      break;
+    }
     case 'lockGroups':
       for (const group of existingGroups(command.ids)) { if (command.locked) group.locked = true; else delete group.locked; }
       break;
@@ -1112,16 +1250,19 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       break;
     case 'rename': p.name = command.name; break;
   }
+  keepPersistentStacks(source, p);
+  const persistent = new Set((p.stacks ?? []).map(record => record.id));
   const counts = new Map<string, number>();
   p.instances.forEach(i => { if (i.stack) counts.set(i.stack, (counts.get(i.stack) ?? 0) + 1); });
   p.instances.forEach(i => {
-    if (i.stack && counts.get(i.stack) === 1) i.stack = null;
+    if (i.stack && counts.get(i.stack) === 1 && !persistent.has(i.stack)) i.stack = null;
     if (!i.stack && i.stackReversed) {
       if (component(i).flippable) i.flipped = !i.flipped;
       i.stackReversed = false;
     }
   });
   normalizeGroups(p);
+  syncPersistentStacks(p);
   // Commands that change table order or grouping keep each group's pieces together (see gatherGroups), so raising a
   // grouped piece raises its whole group and the Pieces panel always lists pieces in table order.
   if (['front', 'zOrder', 'arrangePieces', 'createGroup', 'moveToGroup', 'ungroup', 'duplicate', 'paste', 'spawn'].includes(command.type)) p.instances = gatherGroups(p);
