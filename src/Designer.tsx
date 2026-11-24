@@ -980,7 +980,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             dragging.current = null; setDragPreview(undefined);
           }}
           onPointerCancel={() => { dragging.current = null; pointDragging.current = null; setDragPreview(undefined); setPointPreview(undefined); }}>
-          <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left' }}>
+          <div style={{ transform: `scale(${zoom})`, transformOrigin: 'top left', '--designer-zoom': zoom } as React.CSSProperties}>
             <ComponentView component={{ ...component, [face]: shownNodes }} components={components}
               row={row} back={face === 'back'} selectedNodes={selected} onNode={(id, event) => { if (imageEdit && id !== imageEdit) setImageEdit(undefined); beginCanvasDrag(id, event); }}
               onNodeDoubleClick={startImageEdit} zoom={zoom} />

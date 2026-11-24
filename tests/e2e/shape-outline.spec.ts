@@ -31,3 +31,31 @@ test('transparent pieces take their shape from their layers, and selection outli
   // The box-shaped ring is not drawn.
   await expect.poll(() => hut.evaluate(element => getComputedStyle(element, '::after').boxShadow)).toMatch(/rgba\(0, 0, 0, 0\)/);
 });
+
+test('hover outlines keep their on-screen width: a shape outline on the table, a box in the designer', async ({ page }) => {
+  await page.goto('/');
+  const token = page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first();
+  await token.hover();
+  await expect(token).not.toHaveClass(/selected/);
+  const filter = await token.locator('.piece-face').evaluate(element => (element as HTMLElement).style.filter);
+  const id = /#([^"')]+)/.exec(filter)![1];
+  const zoom = await page.locator('.table-world').evaluate(element => Number(getComputedStyle(element).getPropertyValue('--table-zoom')));
+  const scale = await token.evaluate(element => Number(getComputedStyle(element).getPropertyValue('--piece-scale')));
+  const radius = Number(await page.locator(`filter#${id} feMorphology`).first().getAttribute('radius'));
+  expect(radius * zoom * scale).toBeCloseTo(6, 1);
+  // Locked pieces get no hover outline.
+  const board = page.locator('.table-viewport').getByRole('button', { name: 'Forest clearing', exact: true });
+  await board.hover({ position: { x: 20, y: 20 } });
+  await expect(board.locator('.piece-face')).not.toHaveAttribute('style', /filter/);
+
+  await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
+  const node = page.locator('.artboard .design-node').nth(1);
+  const spread = async () => {
+    await node.hover({ force: true });
+    const [shadow, zoomLevel] = await node.evaluate(element => [getComputedStyle(element).boxShadow, Number(getComputedStyle(element).getPropertyValue('--designer-zoom'))]);
+    return Number(/0px 0px 0px ([\d.]+)px inset/.exec(String(shadow))![1]) * Number(zoomLevel);
+  };
+  expect(await spread()).toBeCloseTo(1, 2);
+  for (let i = 0; i < 4; i++) await page.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  expect(await spread()).toBeCloseTo(1, 2);
+});

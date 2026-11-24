@@ -856,10 +856,12 @@ export function Playground({ project: p, actor, owner, host = false, viewer = fa
             const count = item.stack ? table.stacks.get(item.stack)!.length : 1;
             const position = preview[item.id] ?? item;
             const isSelected = selected.includes(item.id);
+            // Unlocked pieces under the pointer get a light outline; locked ones aren't interactive.
+            const isHovered = hovered === item.id && !item.locked && !preview[item.id];
             const badge = plan && isSelected ? plan.units.indexOf(item.stack ?? item.id) : -1;
             return <TablePiece key={item.id} item={item} component={comp} components={p.components} x={position.x} y={position.y} count={count}
               zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handDrop}
-              dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} pieceZoom={isSelected || dropHint?.id === item.id ? zoom * item.scale : undefined}
+              dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} hovered={isHovered} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
         </div>
@@ -1239,21 +1241,22 @@ type PieceEvents = {
 };
 type TablePieceProps = {
   item: Instance; component: Component; components: Component[]; x: number; y: number; zIndex: number; count: number;
-  selected: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number;
-  /** The table zoom times the piece's scale; only set for selected and drop-target pieces, whose order badge and
-   * outline keep a constant screen size. */
+  selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number;
+  /** The table zoom times the piece's scale; only set for selected, hovered and drop-target pieces, whose order badge
+   * and outline keep a constant screen size. */
   pieceZoom?: number;
   badgeIndex: number; badgeTotal: number; badgeError?: string; events: React.RefObject<PieceEvents>;
 };
-const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, dragging, miniDropSource, dropTarget, rollingRow, pieceZoom, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
+const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, pieceZoom, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
   const slot = badgeIndex >= 0 ? stackSlot(badgeIndex, badgeTotal) : undefined;
   // A book is one piece whose pages are its rows; it looks like a stack but nothing can be taken from it.
   const pages = comp.kind === 'book' ? Math.max(1, comp.rows.length) : 0;
   const element = useRef<HTMLDivElement>(null);
   const transform = `translate(-50%, -50%) rotate(${item.rotation}deg) scale(${item.scale})`;
   const open = hasOpenFace(comp);
-  // The selection and stack-drop outlines trace the face's own shape (see ShapeRing).
-  const ring = dropTarget ? { color: '#7d9b60', width: 4, offset: 9 } : selected ? { color: '#89a969', width: 2, offset: 4 } : undefined;
+  // The selection, hover and stack-drop outlines trace the face's own shape (see ShapeRing).
+  const ring = dropTarget ? { color: '#7d9b60', width: 4, offset: 9 } : selected ? { color: '#89a969', width: 2, offset: 4 }
+    : hovered ? { color: '#b9cfa0', width: 2, offset: 4 } : undefined;
   const ringId = `piece-ring-${item.id.replace(/[^\w-]/g, '_')}`;
   // Dragging keeps the layout position and moves the piece on the compositor.
   useCompositedTransform(element, dragging ? `translate(${x - item.x}px, ${y - item.y}px) ${transform}` : undefined);
