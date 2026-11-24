@@ -222,6 +222,17 @@ describe('game projects', () => {
     expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [piecesOf(game, 'Lighthouse')[0].id], stackId: slot.id })).toThrow();
   });
 
+  it('gives every component with a transparent background a back design, so no printed back comes out blank', () => {
+    const backless: string[] = [];
+    for (const { id } of GAME_PROJECTS) for (const component of build(id).components.filter(hasOpenFace)) {
+      // Every variant shows something on its back.
+      const rows = component.rows.length ? component.rows : [{}];
+      const shown = rows.every(row => component.back.some(node => !node.visibilityField || (row as Record<string, string>)[node.visibilityField] === node.visibilityValue));
+      if (!shown) backless.push(`${id}: ${component.name}`);
+    }
+    expect(backless).toEqual([]);
+  });
+
   it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {
     for (const color of ['transparent', '', '#0000', '#12345600', 'rgba(1, 2, 3, 0)', 'hsla(0 0% 0% / 0)']) expect(hasOpenFace({ color })).toBe(true);
     for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);

@@ -128,13 +128,15 @@ export function chessProject(name: string, description: string, profile: Profile
     x: 0, y: 0, width: 56, height: 56, text: '{{glyph}}', font: 'Noto Sans Symbols 2', fontSize: 46, lineHeight: 1,
     textShadow: '#00000055', textShadowY: 2, textShadowBlur: 2, ...when('side', side.toLowerCase()), ...values,
   });
+  // The same glyph on both sides, so a printed piece has a back.
+  const glyphs = () => [
+    glyph('White', { color: '#f7f1e3', textStroke: '#3b2c1e', textStrokeWidth: 1.2 }),
+    glyph('Black', { color: '#241c16', textStroke: '#d6c4a0', textStrokeWidth: .8 }),
+  ];
   const pieces = component('Chess pieces', 'token', 56, 56, {
     rotationStep: 180,
     rows: ['White', 'Black'].flatMap(side => kinds.map(([kind, symbol]) => ({ name: `${side} ${kind.toLowerCase()}`, side: side.toLowerCase(), glyph: `${symbol}︎` }))),
-    front: [
-      glyph('White', { color: '#f7f1e3', textStroke: '#3b2c1e', textStrokeWidth: 1.2 }),
-      glyph('Black', { color: '#241c16', textStroke: '#d6c4a0', textStrokeWidth: .8 }),
-    ],
+    front: glyphs(), back: glyphs(),
   });
   const backRank = [2, 4, 3, 1, 0, 3, 4, 2];
   const { groups, add, into } = grouping();
@@ -198,9 +200,10 @@ export function backgammonProject(name: string, description: string, profile: Pr
     front.push(label(`Point ${point} number`, { x, y: top ? 8 : 534, width: POINT_WIDTH, height: 18, text: String(point), fontSize: 10, color: '#d9c39a' }));
   }
   const board = component('Backgammon board', 'board', 760, 560, { color: '#5c3a24', front, rotationStep: 180 });
+  const checkerSides = [{ side: 'light', fill: '#f2e8d0', edge: '#9d8a5f' }, { side: 'dark', fill: '#2d2a28', edge: '#8e8576' }];
   const checker = component('Backgammon checker', 'token', 40, 40, {
     rows: [{ name: 'Light checker', side: 'light' }, { name: 'Dark checker', side: 'dark' }],
-    front: checkerFaces(40, [{ side: 'light', fill: '#f2e8d0', edge: '#9d8a5f' }, { side: 'dark', fill: '#2d2a28', edge: '#8e8576' }], false),
+    front: checkerFaces(40, checkerSides, false), back: checkerFaces(40, checkerSides, false),
   });
   const die = pipDie('Die', '#f4efe2', '#2b2622');
   const cube = component('Doubling cube', 'dice', 48, 48, { color: '#efe7d2', rotationStep: 180,
@@ -232,13 +235,15 @@ export function goProject(name: string, description: string, profile: Profile): 
     front.push(shape(`Star point ${row + 1}-${column + 1}`, { shapeKind: 'ellipse', x: first + column * spacing - 4, y: first + row * spacing - 4, width: 8, height: 8, fill: '#3b2a17' }));
   }
   const board = component('Go board', 'board', 600, 600, { color: '#dcb36b', front });
+  // Stones look the same from both sides.
+  const stoneFace = () => [
+    shape('Black stone', { shapeKind: 'ellipse', x: 0, y: 0, width: 28, height: 28, fill: '#1d1d1f', ...when('side', 'black') }),
+    shape('Black shine', { shapeKind: 'ellipse', x: 7, y: 5, width: 8, height: 5, fill: '#ffffff30', rotation: -25, ...when('side', 'black') }),
+    shape('White stone', { shapeKind: 'ellipse', x: .5, y: .5, width: 27, height: 27, fill: '#f4f2ec', stroke: '#b9b3a4', strokeWidth: 1, ...when('side', 'white') }),
+  ];
   const stone = component('Go stone', 'token', 28, 28, {
     stackable: true, rows: [{ name: 'Black stone', side: 'black' }, { name: 'White stone', side: 'white' }],
-    front: [
-      shape('Black stone', { shapeKind: 'ellipse', x: 0, y: 0, width: 28, height: 28, fill: '#1d1d1f', ...when('side', 'black') }),
-      shape('Black shine', { shapeKind: 'ellipse', x: 7, y: 5, width: 8, height: 5, fill: '#ffffff30', rotation: -25, ...when('side', 'black') }),
-      shape('White stone', { shapeKind: 'ellipse', x: .5, y: .5, width: 27, height: 27, fill: '#f4f2ec', stroke: '#b9b3a4', strokeWidth: 1, ...when('side', 'white') }),
-    ],
+    front: stoneFace(), back: stoneFace(),
   });
   const bowl = component('Stone bowl', 'token', 96, 96, { color: '#6b4a2b',
     front: [shape('Hollow', { shapeKind: 'ellipse', x: 10, y: 10, width: 76, height: 76, fill: '#8a6440', stroke: '#5a3d22', strokeWidth: 2 })] });
@@ -367,35 +372,42 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // A pier drawn pointing down from a coastal tile edge along its top (HARBOR.shore), as wide as the edge, with a
   // post on each of the two corners it serves. It is rotated to face out from its edge.
   const wood = { fill: '#b98a52', stroke: '#5e4128', strokeWidth: 1 };
+  const pier = () => [
+    shape('Left gangway', { shapeKind: 'path', x: 4, y: 8, width: 22, height: 21, points: outline([[1, 0], [8, 0], [22, 17], [16, 21]]), ...wood }),
+    shape('Right gangway', { shapeKind: 'path', x: 38, y: 8, width: 22, height: 21, points: outline([[21, 0], [14, 0], [0, 17], [6, 21]]), ...wood }),
+    shape('Pier', { x: 10, y: 24, width: 44, height: 27, radius: 4, ...wood, fill: '#c99a5c', strokeWidth: 1.2 }),
+  ];
+  const posts = () => [0, HARBOR.width - 8].map((x, index) => shape(`${index ? 'Right' : 'Left'} corner post`, { shapeKind: 'ellipse', x, y: HARBOR.shore - 4, width: 8, height: 8, fill: '#f1e7cf', stroke: '#5e4128', strokeWidth: 1.5 }));
   const harbor = component('Harbor', 'card', HARBOR.width, HARBOR.height, {
     previewWhenLocked: true, rotationStep: 60, rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
     front: [
-      shape('Left gangway', { shapeKind: 'path', x: 4, y: 8, width: 22, height: 21, points: outline([[1, 0], [8, 0], [22, 17], [16, 21]]), ...wood }),
-      shape('Right gangway', { shapeKind: 'path', x: 38, y: 8, width: 22, height: 21, points: outline([[21, 0], [14, 0], [0, 17], [6, 21]]), ...wood }),
-      shape('Pier', { x: 10, y: 24, width: 44, height: 27, radius: 4, ...wood, fill: '#c99a5c', strokeWidth: 1.2 }),
+      ...pier(),
       shape('Sign', { x: 14, y: 27, width: 36, height: 21, radius: 3, fill: '#f1e7cf', stroke: '#5e412866', strokeWidth: .8 }),
       label('Ratio', { x: 14, y: 27, width: 36, height: 13, text: '{{ratio}}', fontSize: 10, fontWeight: 700, color: '#2c4650' }),
       label('Good', { x: 14, y: 38, width: 36, height: 9, text: '{{good}}', fontSize: 5.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: '#55707a' }),
-      ...[0, HARBOR.width - 8].map((x, index) => shape(`${index ? 'Right' : 'Left'} corner post`, { shapeKind: 'ellipse', x, y: HARBOR.shore - 4, width: 8, height: 8, fill: '#f1e7cf', stroke: '#5e4128', strokeWidth: 1.5 })),
+      ...posts(),
     ],
+    // The back is the bare pier, planked, without its trade sign.
+    back: [...pier(), ...[21, 32, 43].map((x, index) => shape(`Plank gap ${index + 1}`, { x, y: 25, width: 1, height: 25, fill: '#5e412855' })), ...posts()],
   });
   const colorRows = PLAYER_COLORS.map(({ color, name }) => ({ name, color }));
   const colored = (part: string, values: (fill: string, edge: string) => Partial<DesignNode>) =>
     PLAYER_COLORS.map(({ color, name, fill, edge }) => shape(`${name} ${part}`, { ...values(fill, edge), ...when('color', color) }));
-  const hut = component('Hut', 'card', 26, 26, { stackable: true, rotationStep: 30, rows: colorRows,
-    front: colored('hut', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 26, points: outline([[13, 1], [25, 11], [25, 25], [1, 25], [1, 11]]), fill, stroke: edge, strokeWidth: 1.5 })) });
-  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, rotationStep: 30, rows: colorRows,
-    front: [
-      shape('Lamp', { x: 8, y: 1, width: 10, height: 9, radius: 2, fill: '#f6dc84', stroke: '#6d5a1f', strokeWidth: 1 }),
-      ...colored('tower', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 38, points: outline([[6, 10], [20, 10], [24, 37], [2, 37]]), fill, stroke: edge, strokeWidth: 1.5 })),
-      shape('Band', { x: 5, y: 22, width: 16, height: 3, fill: '#00000033' }),
-    ] });
+  // Huts, lighthouses and boardwalks look the same from both sides, so a printed piece has a back.
+  const hutFace = () => colored('hut', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 26, points: outline([[13, 1], [25, 11], [25, 25], [1, 25], [1, 11]]), fill, stroke: edge, strokeWidth: 1.5 }));
+  const hut = component('Hut', 'card', 26, 26, { stackable: true, rotationStep: 30, rows: colorRows, front: hutFace(), back: hutFace() });
+  const lighthouseFace = () => [
+    shape('Lamp', { x: 8, y: 1, width: 10, height: 9, radius: 2, fill: '#f6dc84', stroke: '#6d5a1f', strokeWidth: 1 }),
+    ...colored('tower', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 38, points: outline([[6, 10], [20, 10], [24, 37], [2, 37]]), fill, stroke: edge, strokeWidth: 1.5 })),
+    shape('Band', { x: 5, y: 22, width: 16, height: 3, fill: '#00000033' }),
+  ];
+  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, rotationStep: 30, rows: colorRows, front: lighthouseFace(), back: lighthouseFace() });
   // Boardwalks lie along tile edges (at 30, 90 or 150 degrees), so they turn in sixths from an edge angle.
-  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, rotationStep: 60, rows: colorRows,
-    front: [
-      ...colored('boardwalk', (fill, edge) => ({ x: 0, y: 5, width: 44, height: 10, radius: 2, fill, stroke: edge, strokeWidth: 1.2 })),
-      ...[11, 22, 33].map((x, index) => shape(`Plank gap ${index + 1}`, { x, y: 6, width: 1.2, height: 8, fill: '#00000040' })),
-    ] });
+  const boardwalkFace = () => [
+    ...colored('boardwalk', (fill, edge) => ({ x: 0, y: 5, width: 44, height: 10, radius: 2, fill, stroke: edge, strokeWidth: 1.2 })),
+    ...[11, 22, 33].map((x, index) => shape(`Plank gap ${index + 1}`, { x, y: 6, width: 1.2, height: 8, fill: '#00000040' })),
+  ];
+  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, rotationStep: 60, rows: colorRows, front: boardwalkFace(), back: boardwalkFace() });
   const resource = component('Resource', 'card', 64, 90, {
     color: '#f4ecd8', flippable: true, hand: true, hideInHand: true, stackable: true, shufflable: true,
     rows: TERRAINS.slice(0, 5).map(({ terrain, resource }) => ({ name: resource, terrain })),
