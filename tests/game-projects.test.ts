@@ -129,6 +129,45 @@ describe('game projects', () => {
     expect(slotted).toHaveLength(tiles.length);
   });
 
+  it('turns each harbor pier out to sea, flush against a coastal edge with its posts on the two corners it serves', () => {
+    const game = build('tidewater');
+    const harbor = componentNamed(game, 'Harbor'), tiles = piecesOf(game, 'Island tile'), harbors = piecesOf(game, 'Harbor');
+    // An open face shaped by its layers, not a round token.
+    expect(harbor.kind).toBe('card');
+    expect(hasOpenFace(harbor)).toBe(true);
+    const corners = (tile: Instance) => [[0, -56], [48.5, -28], [48.5, 28], [0, 56], [-48.5, 28], [-48.5, -28]].map(([x, y]) => ({ x: tile.x + x, y: tile.y + y }));
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.hypot(a.x - b.x, a.y - b.y) < .5;
+    const posts = harbor.front.filter(node => node.name.endsWith('corner post'));
+    expect(posts).toHaveLength(2);
+    const served = new Set<string>();
+    for (const piece of harbors) {
+      const turn = piece.rotation * Math.PI / 180;
+      const [left, right] = posts.map(post => {
+        const x = post.x + post.width / 2 - harbor.width / 2, y = post.y + post.height / 2 - harbor.height / 2;
+        return { x: piece.x + x * Math.cos(turn) - y * Math.sin(turn), y: piece.y + x * Math.sin(turn) + y * Math.cos(turn) };
+      });
+      // Both posts sit on corners of one tile, so the pier spans exactly one of its edges...
+      const tile = tiles.find(item => [left, right].every(post => corners(item).some(corner => near(corner, post))));
+      expect(tile, harbor.rows[piece.row].name).toBeDefined();
+      const middle = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
+      expect(Math.hypot(left.x - right.x, left.y - right.y)).toBeCloseTo(56, 0);
+      // ...a coastal edge, with no tile across it...
+      const across = { x: 2 * middle.x - tile!.x, y: 2 * middle.y - tile!.y };
+      expect(tiles.some(item => near(item, across))).toBe(false);
+      // ...and the pier reaches out from it, away from the tile.
+      expect(Math.hypot(piece.x - tile!.x, piece.y - tile!.y)).toBeGreaterThan(Math.hypot(middle.x - tile!.x, middle.y - tile!.y));
+      for (const post of [left, right]) {
+        const key = `${Math.round(post.x)},${Math.round(post.y)}`;
+        expect(served.has(key), 'no two harbors share a corner').toBe(false);
+        served.add(key);
+      }
+    }
+    expect(harbors).toHaveLength(9);
+    // They are spread around the island: every sixth of the way round has one or two.
+    const sectors = harbors.map(piece => Math.floor(((Math.atan2(piece.y - 550, piece.x - 980) * 180 / Math.PI) + 360) % 360 / 60));
+    for (let sector = 0; sector < 6; sector++) expect(sectors.filter(item => item === sector).length).toBeGreaterThanOrEqual(1);
+  });
+
   it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {
     for (const color of ['transparent', '', '#0000', '#12345600', 'rgba(1, 2, 3, 0)', 'hsla(0 0% 0% / 0)']) expect(hasOpenFace({ color })).toBe(true);
     for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);

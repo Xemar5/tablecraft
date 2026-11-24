@@ -244,12 +244,30 @@ export function goProject(name: string, description: string, profile: Profile): 
     boardGrid(spacing, { x: CENTER.x - 300 + first, y: CENTER.y - 300 + first }));
 }
 
-// Tidewater Isles: an original game of settling tidal islands. Pointy-top hex tiles 97 wide and 112 tall tile at
-// 97 across and 84 down.
+// Tidewater Isles: an original game of settling tidal islands. Pointy-top hex tiles 97 wide and 112 tall (sides of
+// 56) tile at 97 across and 84 down.
 const HEX = { width: 97, height: 112 };
 const HEX_OUTLINE = outline([[48.5, 0], [97, 28], [97, 84], [48.5, 112], [0, 84], [0, 28]]);
 /** The round slot on each island tile, below its art, that holds the tide marker (or the squall). */
 const SLOT = { x: 48.5, y: 79, size: 40 };
+/** Edge directions of a pointy-top hex, in degrees anticlockwise from east; a neighbour lies 97 away across each. */
+const HEX_SIDES = [0, 60, 120, 180, 240, 300];
+/** Harbor piers: 56 wide between the corner posts, with the shore line `shore` below the top edge. */
+const HARBOR = { width: 64, height: 52, shore: 8 };
+/** Tile centres of the island's rows of 3, 4, 5, 4 and 3, relative to its middle. */
+const ISLAND = [3, 4, 5, 4, 3].map((length, row) => Array.from({ length }, (_, column) => ({ x: (column - (length - 1) / 2) * HEX.width, y: (row - 2) * 84 })));
+/**
+ * The island's outer tile edges in order around it, clockwise from the top: each is a tile centre (relative to the
+ * middle) and the direction it faces, with no tile across it.
+ */
+function coastEdges() {
+  const cells = ISLAND.flat(), toward = (angle: number) => ({ x: Math.cos(angle * Math.PI / 180), y: -Math.sin(angle * Math.PI / 180) });
+  const edges = cells.flatMap(cell => HEX_SIDES.filter(angle => !cells.some(other =>
+    Math.hypot(other.x - cell.x - toward(angle).x * HEX.width, other.y - cell.y - toward(angle).y * HEX.width) < 1)).map(angle => ({ cell, angle })));
+  const bearing = ({ cell, angle }: { cell: { x: number; y: number }; angle: number }) =>
+    (Math.atan2(cell.x + toward(angle).x * 48.5, -(cell.y + toward(angle).y * 48.5)) + 2 * Math.PI) % (2 * Math.PI);
+  return edges.sort((a, b) => bearing(a) - bearing(b)).map(edge => ({ ...edge, normal: toward(edge.angle) }));
+}
 const TERRAINS = [
   { terrain: 'reed', name: 'Reed marsh', resource: 'Reed', fill: '#7f9d55' },
   { terrain: 'clay', name: 'Clay banks', resource: 'Clay', fill: '#b9704a' },
@@ -327,17 +345,27 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   const sea = component('Open sea', 'board', 720, 620, {
     color: '#2a6a80',
     front: [
-      shape('Shore', { shapeKind: 'polygon', sides: 6, x: 60, y: 10, width: 600, height: 600, rotation: 30, fill: '#d8c48f' }),
+      // Shallows and a narrow beach follow the island's coast, so the harbor piers reach out over the water.
+      ...[{ part: 'Shallows', radius: 74, fill: '#3f8a9c' }, { part: 'Beach', radius: 63, fill: '#d8c48f' }].flatMap(({ part, radius, fill }) => ISLAND.flat().map((cell, index) =>
+        shape(`${part} ${index + 1}`, { shapeKind: 'polygon', sides: 6, x: 360 + cell.x - radius, y: 310 + cell.y - radius, width: radius * 2, height: radius * 2, fill }))),
       ...[[40, 90], [610, 120], [70, 520], [600, 540], [330, 590]].map(([x, y], index) => shape(`Swell ${index + 1}`, { x, y, width: 50, height: 4, radius: 2, fill: '#ffffff26' })),
       label('Title', { x: 18, y: 14, width: 240, height: 22, text: 'TIDEWATER ISLES', font: 'Lora', fontSize: 15, letterSpacing: 2, align: 'start', color: '#d7ecef' }),
     ],
   });
   const harbors = [{ good: 'Any', ratio: '3:1' }, ...TERRAINS.slice(0, 5).map(({ resource }) => ({ good: resource, ratio: '2:1' }))];
-  const harbor = component('Harbor', 'token', 42, 42, {
-    color: '#f1e7cf', rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
+  // A pier drawn pointing down from a coastal tile edge along its top (HARBOR.shore), as wide as the edge, with a
+  // post on each of the two corners it serves. It is rotated to face out from its edge.
+  const wood = { fill: '#b98a52', stroke: '#5e4128', strokeWidth: 1 };
+  const harbor = component('Harbor', 'card', HARBOR.width, HARBOR.height, {
+    rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
     front: [
-      label('Ratio', { x: 0, y: 7, width: 42, height: 16, text: '{{ratio}}', fontSize: 13, fontWeight: 700, color: '#2c4650' }),
-      label('Good', { x: 0, y: 23, width: 42, height: 11, text: '{{good}}', fontSize: 7, textTransform: 'uppercase', letterSpacing: .5, color: '#55707a' }),
+      shape('Left gangway', { shapeKind: 'path', x: 4, y: 8, width: 22, height: 21, points: outline([[1, 0], [8, 0], [22, 17], [16, 21]]), ...wood }),
+      shape('Right gangway', { shapeKind: 'path', x: 38, y: 8, width: 22, height: 21, points: outline([[21, 0], [14, 0], [0, 17], [6, 21]]), ...wood }),
+      shape('Pier', { x: 10, y: 24, width: 44, height: 27, radius: 4, ...wood, fill: '#c99a5c', strokeWidth: 1.2 }),
+      shape('Sign', { x: 14, y: 27, width: 36, height: 21, radius: 3, fill: '#f1e7cf', stroke: '#5e412866', strokeWidth: .8 }),
+      label('Ratio', { x: 14, y: 27, width: 36, height: 13, text: '{{ratio}}', fontSize: 10, fontWeight: 700, color: '#2c4650' }),
+      label('Good', { x: 14, y: 38, width: 36, height: 9, text: '{{good}}', fontSize: 5.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: .5, color: '#55707a' }),
+      ...[0, HARBOR.width - 8].map((x, index) => shape(`${index ? 'Right' : 'Left'} corner post`, { shapeKind: 'ellipse', x, y: HARBOR.shore - 4, width: 8, height: 8, fill: '#f1e7cf', stroke: '#5e4128', strokeWidth: 1.5 })),
     ],
   });
   const colorRows = PLAYER_COLORS.map(({ color, name }) => ({ name, color }));
@@ -431,16 +459,20 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   const island = add('Island'), tiles: Instance[] = [], tides: Instance[] = [], harborPieces: Instance[] = [];
   let storm: Instance | undefined;
   layout.forEach((row, rowIndex) => row.forEach((terrain, column) => {
-    const x = CENTER.x + (column - (row.length - 1) / 2) * HEX.width, y = CENTER.y + (rowIndex - 2) * 84;
+    const x = CENTER.x + ISLAND[rowIndex][column].x, y = CENTER.y + ISLAND[rowIndex][column].y;
     tiles.push(place(tile, TERRAINS.findIndex(item => item.terrain === terrain), x, y));
     // The marker (or the squall, on the dunes) sits in the tile's number slot.
     const number = markers[rowIndex][column], slotX = x + SLOT.x - HEX.width / 2, slotY = y + SLOT.y - HEX.height / 2;
     if (number) tides.push(place(marker, numbers.indexOf(number), slotX, slotY));
     else storm = place(squall, 0, slotX, slotY);
   }));
+  // Nine harbors spread around the 30 coastal edges, 3, 3 and 4 edges apart, each pier flush against its edge
+  // (the edge's middle is 48.5 from the tile centre) and turned so it points out to sea.
+  const coast = coastEdges();
   [0, 1, 0, 2, 3, 0, 4, 0, 5].forEach((row, index) => {
-    const angle = (20 + index * 40) * Math.PI / 180;
-    harborPieces.push(place(harbor, row, CENTER.x + Math.cos(angle) * 332, CENTER.y - Math.sin(angle) * 287));
+    const { cell, angle, normal } = coast[1 + Math.floor(index / 3) * 10 + [0, 3, 6][index % 3]];
+    const reach = 48.5 + HARBOR.height / 2 - HARBOR.shore;
+    harborPieces.push(place(harbor, row, CENTER.x + cell.x + normal.x * reach, CENTER.y + cell.y + normal.y * reach, { rotation: (270 - angle + 360) % 360 }));
   });
   const instances: Instance[] = [
     ...into(add('Open sea', island, true), [place(sea, 0, CENTER.x, CENTER.y)]),
