@@ -493,7 +493,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     setHandDrop(hand);
     const target = targetAt(x, y, moving.map(i => i.id));
     setAltDown(alt);
-    setDropHint(!hand && target && moving.length && compatible(target, moving) ? { id: target.id, x, y } : undefined);
+    // A hand the pieces can't go into doesn't get in the way: they can still stack onto what's under it.
+    setDropHint((!hand || hand.blocked) && target && moving.length && compatible(target, moving) ? { id: target.id, x, y } : undefined);
   };
   const handInsertion = (x: number, y: number, dragged: string[]) => {
     const scroller = handScroller.current;
@@ -723,16 +724,14 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       if (insertIntoTableHand(e.clientX, e.clientY, moving, e.altKey)) {
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
-      if (!e.altKey && seatAt(e.clientX, e.clientY) && moving.length) {
-        notify('This hand cannot accept the selected components.', true);
-        gesture.current = null; setPreview({}); setDropHint(undefined); return;
-      }
+      // Over a hand they can't go into, the pieces drop as if the hand weren't there (stacking included).
+      const bypass = e.altKey;
       if (inside(tray) && moving.length) {
         dispatch({ type: 'drawSelection', ids: moving.map(i => i.id), playerId: actor });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
       }
       const target = targetAt(e.clientX, e.clientY, Object.keys(g.positions));
-      if (!e.altKey && target && moving.length && compatible(target, moving)) {
+      if (!bypass && target && moving.length && compatible(target, moving)) {
         void dispatch({ type: 'dropStack', ids: moving.map(i => i.id), targetId: target.id, stackId: uid('stack') })
           .then(ok => { if (ok) setSelected([...stackMembers(p, target), ...moving].map(i => i.id)); });
         gesture.current = null; setPreview({}); setDropHint(undefined); return;
@@ -908,8 +907,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                     if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) return;
                     if (insertIntoTableHand(e.clientX, e.clientY, [i], e.altKey)) return;
                     const tray = handScroller.current?.getBoundingClientRect();
-                    const targetSeat = seatAt(e.clientX, e.clientY);
-                    if (!e.altKey && targetSeat) { notify('Inserting into this hand is disabled.', true); return; }
+                    // Over a hand it can't go into, the card drops as if the hand weren't there.
+                    const bypass = e.altKey;
                     const destination = tray && e.clientX >= tray.left && e.clientX <= tray.right && e.clientY >= tray.top && e.clientY <= tray.bottom ? actor : undefined;
                     if (destination) {
                       if (destination !== i.holder) {
@@ -922,12 +921,12 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                     const point = worldPoint(e.clientX, e.clientY);
                     const target = targetAt(e.clientX, e.clientY, [i.id]);
                     if (i.holder === actor) {
-                      void dispatch(!e.altKey && target && compatible(target, [i])
+                      void dispatch(!bypass && target && compatible(target, [i])
                         ? { type: 'dropFromHand', id: i.id, targetId: target.id, stackId: uid('stack') }
                         : { type: 'release', id: i.id, ...point });
                     } else {
                       void dispatch({ type: 'playVisibleHand', id: i.id, ...point,
-                        ...(!e.altKey && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
+                        ...(!bypass && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
                     }
                   }}
                   onPointerCancel={() => { tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined); }}
@@ -1044,7 +1043,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             const moving = selected.includes(item.id) ? held.filter(i => selected.includes(i.id)) : [item];
             const movingIds = moving.map(i => i.id);
             if (insertIntoTableHand(e.clientX, e.clientY, moving, e.altKey)) return;
-            if (!e.altKey && seatAt(e.clientX, e.clientY)) { notify('Inserting into this hand is disabled.', true); return; }
+            // Over a hand they can't go into, the cards drop as if the hand weren't there.
+            const bypass = e.altKey;
             const index = handInsertion(e.clientX, e.clientY, movingIds);
             if (index !== undefined) {
               const ids = held.filter(i => !movingIds.includes(i.id)).map(i => i.id);
@@ -1056,7 +1056,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               let { x, y } = worldPoint(e.clientX, e.clientY);
               if (p.settings.snap) { x = snapToGrid(x, p.settings.gridSize, gridOffset.x); y = snapToGrid(y, p.settings.gridSize, gridOffset.y); }
               const target = targetAt(e.clientX, e.clientY, []);
-              if (!e.altKey && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
+              if (!bypass && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
               else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y });
             }
           }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}
@@ -1106,9 +1106,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           dx={current.x - anchor.x} dy={current.y - anchor.y} rotation={camera + item.rotation} scale={zoom * item.scale} />;
       })}
       {marquee && <div className="selection-marquee" style={{ left: cssPx(marquee.x), top: cssPx(marquee.y), width: cssPx(marquee.width), height: cssPx(marquee.height) }} />}
-      {handDrop && <div className={`stack-drop-hint hand-drop-hint${handDrop.blocked ? ' hand-drop-blocked-hint' : ''}`} role="status" style={{ left: Math.min(cssPx(handDrop.x) + 18, cssPx(window.innerWidth) - 285), top: Math.max(12, cssPx(handDrop.y) - 62) }}>
+      {handDrop && !(handDrop.blocked && dropHint) && <div className={`stack-drop-hint hand-drop-hint${handDrop.blocked ? ' hand-drop-blocked-hint' : ''}`} role="status" style={{ left: Math.min(cssPx(handDrop.x) + 18, cssPx(window.innerWidth) - 285), top: Math.max(12, cssPx(handDrop.y) - 62) }}>
         <strong>{handDrop.blocked ? `Can't go into ${p.players.find(player => player.id === handDrop.playerId)?.name ?? 'this'}'s hand` : 'Release to insert into hand'}</strong>
-        <span>{handDrop.blocked ? `${handDrop.blocked} Release to leave it on the table.` : `Position ${handDrop.index + 1} · Hold Alt to place on table instead`}</span>
+        <span>{handDrop.blocked ? `${handDrop.blocked} Release to drop it on the table.` : `Position ${handDrop.index + 1} · Hold Alt to place on table instead`}</span>
       </div>}
       {dropHint && <div className={`stack-drop-hint ${altDown ? 'stack-bypassed' : ''}`} role="status" style={{ left: Math.min(cssPx(dropHint.x) + 18, cssPx(window.innerWidth) - 285), top: Math.max(12, cssPx(dropHint.y) - 62) }}>
         <strong>{altDown ? 'Stacking off — release to move' : 'Release to add to stack'}</strong>

@@ -39,9 +39,12 @@ test('a table hand the pieces can\'t go into shows as blocked, with the reason',
   const hint = page.locator('.hand-drop-blocked-hint');
   await expect(hint).toContainText("Can't go into");
   await expect(hint).toContainText("Spirit die can't be held in a hand");
+  const dieBefore = (await die.boundingBox())!;
   await page.mouse.up();
   await expect(hint).toHaveCount(0);
-  await expect(die).toBeVisible();
+  // Released over the blocked hand, the die drops where it was released, as if the hand weren't there.
+  await expect.poll(async () => { const box = (await die.boundingBox())!; return Math.hypot(box.x + box.width / 2 - to.x, box.y + box.height / 2 - (to.y - 10)); }).toBeLessThan(8);
+  expect(Math.round(dieBefore.y)).not.toBe(Math.round(from.y - dieBefore.height / 2));
 });
 
 test('the selection grid starts with rotation and shows only the actions a piece has', async ({ page }) => {
@@ -131,5 +134,33 @@ test('the grid and snapping toggles look like the active tool when on', async ({
   await expect.poll(() => background(snap)).toBe(tool);
   await snap.click();
   await expect.poll(() => background(snap)).not.toBe(tool);
+});
+
+test('pieces dropped over a hand they can’t go into still stack onto what lies under it', async ({ page }) => {
+  await page.goto('/');
+  // Amber tokens can't be held in a hand.
+  await page.getByRole('button', { name: 'Edit Amber token', exact: true }).click();
+  await page.getByRole('button', { name: 'Behavior', exact: true }).click();
+  await page.getByRole('checkbox', { name: /^Can be put in hand/ }).uncheck();
+  await page.getByRole('button', { name: /Playground/ }).click();
+  const tokens = page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true });
+  const seat = await center(page, '.seat-marker.active .seat-badge');
+  const dragTo = async (index: number, to: { x: number; y: number }, alt = false) => {
+    const box = (await tokens.nth(index).boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    if (alt) await page.keyboard.down('Alt');
+    await page.mouse.move(to.x, to.y, { steps: 8 });
+    return async () => { await page.mouse.up(); if (alt) await page.keyboard.up('Alt'); };
+  };
+  // Put one token under the hand, then drop another one on it there.
+  await (await dragTo(0, seat, true))();
+  await expect(page.locator('.seat-marker.active .other-hand')).not.toHaveClass(/hand-drop-blocked/);
+  const release = await dragTo(1, { x: seat.x + 2, y: seat.y + 2 });
+  await expect(page.locator('.seat-marker.active .other-hand')).toHaveClass(/hand-drop-blocked/);
+  await expect(page.locator('.stack-drop-hint:not(.hand-drop-hint)')).toContainText('Release to add to stack');
+  await expect(page.locator('.hand-drop-blocked-hint')).toHaveCount(0);
+  await release();
+  await expect(page.locator('.table-viewport').getByRole('button', { name: 'Amber token, stack of 2', exact: true })).toBeVisible();
 });
 

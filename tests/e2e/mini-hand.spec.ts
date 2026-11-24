@@ -266,6 +266,9 @@ test('own mini hand accepts and releases cards with other-player access disabled
   await page.mouse.down();
   await page.mouse.move(otherBox.x + otherBox.width / 2, otherBox.y + otherBox.height / 2, { steps: 10 });
   await page.mouse.up();
-  await expect(page.locator('.hand-card')).toHaveCount(1);
+  // That hand doesn't take the card, so it drops onto the table there, as if the hand weren't there.
+  await expect(page.locator('.hand-card')).toHaveCount(0);
   await expect(otherSeat.locator('.other-hand > div')).toHaveCount(0);
+  const dropped = (await page.locator(`.table-piece[data-piece-id="${id}"]`).boundingBox())!;
+  expect(Math.hypot(dropped.x + dropped.width / 2 - (otherBox.x + otherBox.width / 2), dropped.y + dropped.height / 2 - (otherBox.y + otherBox.height / 2))).toBeLessThan(10);
 });
