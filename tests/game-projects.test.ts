@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { projectSchema, validateProject, type Project } from '../src/domain';
+import { applyCommand, projectSchema, validateProject, withGroupLocks, type Instance, type Project } from '../src/domain';
 import { GAME_PROJECTS, gameProject } from '../src/gameProjects';
 import { hasOpenFace } from '../src/ComponentView';
 import { snapToGrid } from '../src/playgroundPreview';
@@ -7,6 +7,8 @@ import { groupMembers } from '../src/pieceGroups';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
 const build = (id: Parameters<typeof gameProject>[0]) => validateProject(projectSchema.parse(gameProject(id, 'Game', 'About the game', profile)));
+const componentNamed = (project: Project, name: string) => project.components.find(component => component.name === name)!;
+const piecesOf = (project: Project, name: string) => project.instances.filter(instance => instance.componentId === componentNamed(project, name).id);
 const count = (project: Project, name: string, row?: number) => project.instances.filter(instance =>
   project.components.find(component => component.id === instance.componentId)?.name === name && (row === undefined || instance.row === row)).length;
 
@@ -16,22 +18,33 @@ describe('game projects', () => {
       const project = build(id);
       expect(project.name).toBe('Game');
       expect(project.players[0]).toMatchObject({ name: 'Tester', color: '#b7cc91' });
-      // The board is placed and locked, so pieces can be box-selected over it.
-      expect(project.instances[0].locked).toBe(true);
+      // The board is placed and locked (by its group), so pieces can be box-selected over it.
+      expect(withGroupLocks(project).instances[0].locked).toBe(true);
     }
   });
 
-  it('files every movable piece in a named group and locks the parts that never move', () => {
+  it('files every piece in a named group and locks the parts that never move', () => {
     const named = (project: Project, name: string) => {
       const group = (project.groups ?? []).find(item => item.name === name);
       expect(group, name).toBeDefined();
       return groupMembers(project, group!.id).map(id => project.instances.find(item => item.id === id)!);
     };
     const kind = (project: Project, id: string) => project.components.find(component => component.id === id)!.kind;
+    const lockedGroups = (project: Project) => (project.groups ?? []).filter(group => group.locked).map(group => group.name);
+    const heldByGroup = (project: Project, items: Instance[]) => {
+      const playing = withGroupLocks(project);
+      return items.every(item => !item.locked && playing.instances.find(other => other.id === item.id)!.locked);
+    };
     for (const { id } of GAME_PROJECTS) {
       const project = build(id);
-      // Only boards stay outside the groups.
-      expect(project.instances.filter(item => !item.group).every(item => kind(project, item.componentId) === 'board' && item.locked)).toBe(true);
+      expect(project.instances.every(item => item.group)).toBe(true);
+      // Boards are held in place by their group's lock rather than their own, so unlocking the group frees them.
+      expect(heldByGroup(project, project.instances.filter(item => kind(project, item.componentId) === 'board'))).toBe(true);
+    }
+    for (const id of ['chess', 'checkers', 'backgammon', 'go'] as const) {
+      const project = build(id);
+      expect(lockedGroups(project)).toEqual(['Board']);
+      expect(named(project, 'Board')).toHaveLength(1);
     }
     const chess = build('chess');
     expect([named(chess, 'White pieces').length, named(chess, 'Black pieces').length]).toEqual([16, 16]);
@@ -46,10 +59,13 @@ describe('game projects', () => {
     expect(black.filter(item => !item.locked)).toHaveLength(181);
 
     const tidewater = build('tidewater');
-    for (const name of ['Island tiles', 'Tide markers', 'Harbors']) expect(named(tidewater, name).every(item => item.locked), name).toBe(true);
+    expect(lockedGroups(tidewater)).toEqual(['Open sea', 'Island tiles', 'Tide markers', 'Harbors']);
+    for (const name of ['Open sea', 'Island tiles', 'Tide markers', 'Harbors']) expect(heldByGroup(tidewater, named(tidewater, name)), name).toBe(true);
     expect([named(tidewater, 'Island tiles').length, named(tidewater, 'Tide markers').length, named(tidewater, 'Harbors').length]).toEqual([19, 18, 9]);
-    // The squall moves during play; the island group holds it beside its locked subgroups.
-    expect(named(tidewater, 'Island').filter(item => !item.locked).map(item => tidewater.components.find(component => component.id === item.componentId)!.name)).toEqual(['Squall']);
+    // The squall moves during play; the unlocked island group holds it beside its locked subgroups.
+    const playing = withGroupLocks(tidewater);
+    expect(named(tidewater, 'Island').filter(item => !playing.instances.find(other => other.id === item.id)!.locked)
+      .map(item => tidewater.components.find(component => component.id === item.componentId)!.name)).toEqual(['Squall']);
     expect(named(tidewater, 'Supply').some(item => item.locked)).toBe(false);
     for (const { name } of [{ name: 'Crimson' }, { name: 'Azure' }, { name: 'Ivory' }, { name: 'Amber' }]) {
       const pieces = named(tidewater, `${name} pieces`);
@@ -84,6 +100,15 @@ describe('game projects', () => {
     expect(count(game, 'Tide card')).toBe(25);
     expect([count(game, 'Hut'), count(game, 'Lighthouse'), count(game, 'Boardwalk'), count(game, 'Harbor'), count(game, 'Squall')]).toEqual([20, 16, 60, 9, 1]);
     expect(game.components.find(component => component.name === 'Tidewater rules')!.rows.length).toBeGreaterThan(3);
+  });
+
+  it('holds the laid-out island in place until its group is unlocked', () => {
+    const game = build('tidewater');
+    const tile = piecesOf(game, 'Island tile')[0], tiles = (game.groups ?? []).find(group => group.name === 'Island tiles')!;
+    const move = (project: Project) => applyCommand(project, { type: 'move', ids: [tile.id], patch: { x: tile.x + 40 } });
+    expect(() => move(game)).toThrow('Unlock its group first.');
+    const moved = move(applyCommand(game, { type: 'lockGroups', ids: [tiles.id], locked: false }));
+    expect(moved.instances.find(item => item.id === tile.id)!.x).toBe(tile.x + 40);
   });
 
   it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {

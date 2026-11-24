@@ -3,8 +3,9 @@ import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type De
 /**
  * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
  * an original hex-island trading game. Everything is built from ordinary components, so every piece stays editable.
- * Each side's or player's pieces sit in a named group in the Pieces panel, and parts that never move during play
- * (boards, bowls, the laid-out island, reference cards) are locked so pieces can be dragged and box-selected over them.
+ * Each side's or player's pieces sit in a named group in the Pieces panel. Parts that never move during play are
+ * locked so pieces can be dragged and box-selected over them: whole groups (each board, the laid-out island) through
+ * the group's lock, and single pieces among moving ones (Go's stone bowls, reference cards) through their own.
  */
 export type GameProjectId = 'chess' | 'checkers' | 'backgammon' | 'go' | 'tidewater';
 export const GAME_PROJECTS: readonly { id: GameProjectId; name: string; summary: string; description: string }[] = [
@@ -54,14 +55,18 @@ function seats(profile: Profile, colors: string[]): Player[] {
     color: index ? color : profile.color, ...nextSeatPlacement(players) }));
   return players;
 }
-/** Piece groups for the Pieces panel: `add` creates a group, `into` files pieces (whole stacks) under one. */
+/**
+ * Piece groups for the Pieces panel: `add` creates a group, `into` files pieces (whole stacks) under one. A locked
+ * group holds its pieces in place, so unlocking the group in the Pieces panel frees them all.
+ */
 function grouping() {
   const groups: PieceGroup[] = [];
-  const add = (name: string, parent: string | null = null) => { const id = uid('group'); groups.push({ id, name, parent }); return id; };
+  const add = (name: string, parent: string | null = null, locked = false) => {
+    const id = uid('group'); groups.push({ id, name, parent, ...locked ? { locked } : {} }); return id;
+  };
   const into = (group: string, items: Instance[]) => items.map(item => ({ ...item, group }));
   return { groups, add, into };
 }
-const locked = (items: Instance[]) => items.map(item => ({ ...item, locked: true }));
 /** A shown, snapping grid of `size` with a point at `at` (a square's centre or a line crossing on the board). */
 const boardGrid = (size: number, at: { x: number; y: number }): Partial<Project['settings']> =>
   ({ grid: true, snap: true, gridSize: size, gridOffsetX: ((at.x % size) + size) % size, gridOffsetY: ((at.y % size) + size) % size });
@@ -127,7 +132,7 @@ export function chessProject(name: string, description: string, profile: Profile
     ...Array.from({ length: 8 }, (_, file) => place(pieces, 5 + offset, square(file, pawns).x, square(file, pawns).y)),
   ];
   const instances = [
-    place(board, 0, CENTER.x, CENTER.y, { locked: true }),
+    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('White pieces'), army(0, 0, 1)), ...into(add('Black pieces'), army(6, 7, 6)),
   ];
   return project(name, description, [board, pieces], instances, seats(profile, ['#f1ead8', '#3a3029']), groups, false, boardGrid(60, square(0, 0)));
@@ -153,7 +158,7 @@ export function checkersProject(name: string, description: string, profile: Prof
   const side = (row: number, ranks: number[]) => ranks.flatMap(rank => Array.from({ length: 8 }, (_, file) => file)
     .filter(file => (rank + file) % 2 === 0).map(file => place(checker, row, square(file, rank).x, square(file, rank).y)));
   const instances = [
-    place(board, 0, CENTER.x, CENTER.y, { locked: true }),
+    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('Light checkers'), side(0, [0, 1, 2])), ...into(add('Dark checkers'), side(1, [5, 6, 7])),
   ];
   return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']), groups, false, boardGrid(60, square(0, 0)));
@@ -195,7 +200,7 @@ export function backgammonProject(name: string, description: string, profile: Pr
     place(checker, row, left + pointX(point), point >= 13 ? top + 30 + 20 + index * 40 : top + 530 - 20 - index * 40));
   const { groups, add, into } = grouping();
   const instances = [
-    place(board, 0, CENTER.x, CENTER.y, { locked: true }),
+    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('Light checkers'), [...stackOn(24, 2, 0), ...stackOn(13, 5, 0), ...stackOn(8, 3, 0), ...stackOn(6, 5, 0)]),
     ...into(add('Dark checkers'), [...stackOn(1, 2, 1), ...stackOn(12, 5, 1), ...stackOn(17, 3, 1), ...stackOn(19, 5, 1)]),
     ...into(add('Dice and doubling cube'), [place(die, 2, CENTER.x + 440, CENTER.y - 40, { rotation: 8 }), place(die, 4, CENTER.x + 445, CENTER.y + 30, { rotation: -6 }),
@@ -230,7 +235,7 @@ export function goProject(name: string, description: string, profile: Profile): 
   // Each player's stones sit in their bowl, which is locked so the stones can be dragged off it.
   const stones = (row: number, count: number, x: number, y: number) => [place(bowl, 0, x, y, { locked: true }), ...pile(stone, Array<number>(count).fill(row), x, y)];
   const instances = [
-    place(board, 0, CENTER.x, CENTER.y, { locked: true }),
+    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('Black stones'), stones(0, 181, CENTER.x - 390, CENTER.y + 200)),
     ...into(add('White stones'), stones(1, 180, CENTER.x + 390, CENTER.y - 200)),
   ];
@@ -414,8 +419,9 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ['stone', 'reed', 'fish'], ['clay', 'salt', 'fish', 'reed'], ['salt', 'stone', 'dunes', 'reed', 'clay'], ['reed', 'fish', 'clay', 'salt'], ['fish', 'salt', 'stone'],
   ];
   const markers = [[10, 2, 9], [12, 6, 4, 10], [9, 11, 0, 3, 8], [8, 3, 4, 5], [5, 6, 11]];
-  // The island is laid out and locked: tiles, tide markers and harbors stay put while huts, boardwalks and the
-  // squall are placed on them. Unlock a part (L) to rearrange it, for example to deal a random island.
+  // The island is laid out in locked groups: the sea, tiles, tide markers and harbors stay put while huts, boardwalks
+  // and the squall are placed on them. Unlock a group in the Pieces panel to rearrange it, for example to deal a
+  // random island.
   const { groups, add, into } = grouping();
   const island = add('Island'), tiles: Instance[] = [], tides: Instance[] = [], harborPieces: Instance[] = [];
   let storm: Instance | undefined;
@@ -431,9 +437,9 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     harborPieces.push(place(harbor, row, CENTER.x + Math.cos(angle) * 332, CENTER.y - Math.sin(angle) * 287));
   });
   const instances: Instance[] = [
-    place(sea, 0, CENTER.x, CENTER.y, { locked: true }),
-    ...into(add('Island tiles', island), locked(tiles)), ...into(add('Tide markers', island), locked(tides)),
-    ...into(add('Harbors', island), locked(harborPieces)), ...into(island, [storm!]),
+    ...into(add('Open sea', island, true), [place(sea, 0, CENTER.x, CENTER.y)]),
+    ...into(add('Island tiles', island, true), tiles), ...into(add('Tide markers', island, true), tides),
+    ...into(add('Harbors', island, true), harborPieces), ...into(island, [storm!]),
   ];
   const supply = add('Supply');
   instances.push(...into(add('Resources', supply), TERRAINS.slice(0, 5).flatMap((_, row) => pile(resource, Array<number>(19).fill(row), 1450, 330 + row * 100))));

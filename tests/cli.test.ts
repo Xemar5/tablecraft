@@ -112,8 +112,9 @@ describe('agent CLI', () => {
     type Row = { id: string; stack: string | null; locked: boolean; group?: string };
     const instances = () => run('list', '--file', file, '--what', 'instances') as Row[];
     const groups: { id: string; name: string; pieces: string[] }[] = run('list', '--file', file, '--what', 'groups');
-    expect(groups.map(group => group.name)).toEqual(['Black stones', 'White stones']);
-    const black = groups[0];
+    // The board sits in its own locked group; each player's stones and bowl in another.
+    expect(groups.map(group => group.name)).toEqual(['Board', 'Black stones', 'White stones']);
+    const black = groups[1];
     // The group's bowl is already locked, so only its stones change; a piece brings its whole stack.
     expect(run('lock', '--file', file, '--groups', black.id).locked).toHaveLength(181);
     expect(instances().filter(item => item.group === black.id).every(item => item.locked)).toBe(true);
