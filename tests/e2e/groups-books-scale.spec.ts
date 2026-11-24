@@ -110,6 +110,10 @@ test('the interface scale zooms the page without page scrolling, and pieces stil
   await expect.poll(() => page.evaluate(() => [document.documentElement.scrollHeight - innerHeight, document.documentElement.scrollWidth - innerWidth])).toEqual([0, 0]);
 
   const piece = page.locator('.table-viewport').getByRole('button', { name: 'Spirit die', exact: true });
+  // The small view at 125% can put the die under the zoom controls; focus the camera on it first.
+  await page.locator('#playground-pieces-panel').getByRole('button', { name: /^Spirit die/ }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Focus/ }).click();
+  await page.keyboard.press('Escape');
   const before = (await piece.boundingBox())!;
   await page.mouse.move(before.x + before.width / 2, before.y + before.height / 2);
   await page.mouse.down();

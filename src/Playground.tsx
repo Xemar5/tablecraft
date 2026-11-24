@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { createPortal, flushSync } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, Ban, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
 import { canStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type Component, type Instance, type Player, type Project } from './domain';
@@ -29,6 +29,8 @@ type Props = {
   onShowInspector: () => void;
   panel: 'selection' | 'table' | 'players'; setPanel: (panel: 'selection' | 'table' | 'players') => void;
   panels: ReturnType<typeof usePanelLayout>;
+  /** Whether the app's component library is shown; with the other panels it decides the table view's size. */
+  libraryVisible?: boolean;
   /** A transient table message (such as why undo history was cleared), shown as a dismissible toast. */
   notice?: string; onDismissNotice?: () => void;
 };
@@ -41,7 +43,7 @@ const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo his
 const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, notice, onDismissNotice }: Props) {
+export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, libraryVisible, notice, onDismissNotice }: Props) {
   // Play works from the project with group locks applied, so pieces in a locked group behave as locked everywhere;
   // a piece's own lock (the Lock button and L) still toggles its own flag.
   const p = useMemo(() => withGroupLocks(source), [source]);
@@ -301,21 +303,31 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     const z = Math.max(.15, Math.min(width / 1680, height / 1030, 1));
     setCamera(0); setZoom(z); setPan({ x: width / 2 - 950 * z, y: height / 2 - 500 * z });
   }, []);
+  // When the view changes size, the camera shifts by half the change so the table's centre stays put. The shift must
+  // land before the browser paints the resized view, or one frame shows the table jumping aside.
+  const viewSize = useRef<{ width: number; height: number }>(undefined);
+  const followView = useCallback((now: boolean) => {
+    const element = viewport.current;
+    if (!element) return;
+    const next = { width: element.clientWidth, height: element.clientHeight };
+    if (!fitted.current) { fit(); viewSize.current = next; return; }
+    const previous = viewSize.current;
+    viewSize.current = next;
+    if (!previous || (previous.width === next.width && previous.height === next.height)) return;
+    const shift = () => setPan(value => ({ x: value.x + (next.width - previous.width) / 2, y: value.y + (next.height - previous.height) / 2 }));
+    if (now) flushSync(shift); else shift();
+  }, [fit]);
   useEffect(() => {
     fit();
-    let previous = viewport.current?.getBoundingClientRect();
-    const observer = new ResizeObserver(() => {
-      if (!fitted.current) { fit(); previous = viewport.current?.getBoundingClientRect(); return; }
-      const next = viewport.current?.getBoundingClientRect();
-      if (next && previous) {
-        const dx = cssPx(next.width - previous.width) / 2, dy = cssPx(next.height - previous.height) / 2;
-        setPan(value => ({ x: value.x + dx, y: value.y + dy }));
-      }
-      previous = next;
-    });
+    viewSize.current = viewport.current ? { width: viewport.current.clientWidth, height: viewport.current.clientHeight } : undefined;
+    // Window resizes: a resize observer runs before paint, and flushSync renders the shift right there.
+    const observer = new ResizeObserver(() => followView(true));
     if (viewport.current) observer.observe(viewport.current);
     return () => observer.disconnect();
-  }, [fit]);
+  }, [fit, followView]);
+  // Panels opening, closing or resizing change the view in the same commit, so shift the camera in that commit too.
+  const panelLayout = `${libraryVisible}|${inspectorVisible}|${layersVisible}|${handVisible}|${JSON.stringify(panels.sizes)}`;
+  useLayoutEffect(() => followView(false), [panelLayout, followView]);
   const changeZoom = (next: number, cursor?: { x: number; y: number }) => {
     const z = Math.max(.15, Math.min(MAX_ZOOM, next));
     const rect = viewport.current?.getBoundingClientRect();
