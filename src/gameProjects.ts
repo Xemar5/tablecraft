@@ -1,4 +1,4 @@
-import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PieceGroup, type Player, type Project } from './domain';
+import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PersistentStack, type PieceGroup, type Player, type Project } from './domain';
 
 /**
  * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
@@ -70,9 +70,19 @@ function grouping() {
 /** A shown, snapping grid of `size` with a point at `at` (a square's centre or a line crossing on the board). */
 const boardGrid = (size: number, at: { x: number; y: number }): Partial<Project['settings']> =>
   ({ grid: true, snap: true, gridSize: size, gridOffsetX: ((at.x % size) + size) % size, gridOffsetY: ((at.y % size) + size) % size });
+/**
+ * Every starting pile (decks, supply piles, each player's pieces, stones) is a persistent stack, untagged, so it takes
+ * back its own component and keeps its place on the table as a slot when it runs down to one piece or none.
+ */
+function persistentStacks(instances: Instance[]): PersistentStack[] {
+  const bottoms = new Map<string, Instance>();
+  for (const item of instances) if (item.stack && (bottoms.get(item.stack)?.order ?? Infinity) > item.order) bottoms.set(item.stack, item);
+  return [...bottoms].map(([id, { x, y, rotation, scale, componentId }]) => ({ id, tag: '', x, y, rotation, scale, componentId }));
+}
 function project(name: string, description: string, components: Component[], instances: Instance[], players: Player[], groups: PieceGroup[], hands = false,
   grid: Partial<Project['settings']> = {}): Project {
-  return { id: uid('project'), name, description, components, instances, players, groups,
+  const stacks = persistentStacks(instances);
+  return { id: uid('project'), name, description, components, instances, players, groups, ...stacks.length ? { stacks } : {},
     settings: { grid: false, snap: false, gridSize: 25, hands, turns: true, turn: 0, ...grid } };
 }
 

@@ -195,6 +195,33 @@ describe('game projects', () => {
     for (const name of ['Hut', 'Lighthouse']) expect(piecesOf(game, name).every(item => angle(item.rotation) % 30 === 0), name).toBe(true);
   });
 
+  it('keeps every starting pile as a persistent stack, which stays on the table once it runs out', () => {
+    const piles = (project: Project) => new Set(project.instances.flatMap(item => item.stack ? [item.stack] : []));
+    for (const { id } of GAME_PROJECTS) {
+      const project = build(id);
+      expect((project.stacks ?? []).map(record => record.id).sort(), id).toEqual([...piles(project)].sort());
+      for (const record of project.stacks ?? []) {
+        const bottom = project.instances.filter(item => item.stack === record.id).sort((a, b) => a.order - b.order)[0];
+        expect(record).toMatchObject({ tag: '', x: bottom.x, y: bottom.y, rotation: bottom.rotation, componentId: bottom.componentId });
+      }
+    }
+    expect([build('chess'), build('checkers'), build('backgammon')].map(project => project.stacks)).toEqual([undefined, undefined, undefined]);
+    expect(build('go').stacks).toHaveLength(2);
+    // Tidewater: five resource piles, the tide card deck, and a hut, lighthouse and boardwalk pile per player.
+    const game = build('tidewater');
+    expect(game.stacks).toHaveLength(5 + 1 + 4 * 3);
+    // Building every hut leaves the pile behind as an empty slot, which takes huts back.
+    const huts = piecesOf(game, 'Hut').filter(item => item.stack === piecesOf(game, 'Hut')[0].stack).sort((a, b) => b.order - a.order);
+    let next = game;
+    huts.forEach((item, index) => { next = applyCommand(next, { type: 'extractMove', id: item.id, x: 980 + index * 30, y: 550 }); });
+    const slot = next.stacks!.find(record => record.id === huts[0].stack)!;
+    expect(next.instances.some(item => item.stack === slot.id)).toBe(false);
+    expect(slot).toMatchObject({ x: huts[0].x, y: huts[0].y });
+    next = applyCommand(next, { type: 'dropIntoStack', ids: [huts[0].id], stackId: slot.id });
+    expect(next.instances.find(item => item.id === huts[0].id)).toMatchObject({ stack: slot.id, x: slot.x, y: slot.y });
+    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [piecesOf(game, 'Lighthouse')[0].id], stackId: slot.id })).toThrow();
+  });
+
   it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {
     for (const color of ['transparent', '', '#0000', '#12345600', 'rgba(1, 2, 3, 0)', 'hsla(0 0% 0% / 0)']) expect(hasOpenFace({ color })).toBe(true);
     for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);
