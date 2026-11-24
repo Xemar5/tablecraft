@@ -159,6 +159,8 @@ export const instanceSchema = z.object({
   holder: id.nullable(), stack: id.nullable(), order: num, locked: z.boolean(),
   stackReversed: z.boolean().optional(),
   rolls: z.number().int().min(0).optional(),
+  /** Counts shuffles of the stack this piece is in, so every player sees the shuffle animate. */
+  shuffles: z.number().int().min(0).optional(),
   /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
   group: id.optional(),
 });
@@ -979,7 +981,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         const j = seed % (n + 1);
         [items[n], items[j]] = [items[j], items[n]];
       }
-      items.forEach((i, n) => { editable(i); i.order = n; });
+      items.forEach((i, n) => { editable(i); i.order = n; i.shuffles = (i.shuffles ?? 0) + 1; });
       break;
     }
     case 'reorder': {

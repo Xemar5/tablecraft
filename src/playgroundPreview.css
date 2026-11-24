@@ -66,3 +66,4 @@
 .piece-preview-help small { flex-basis: 100%; text-align: center; opacity: .7; }
 /* Fixed geometry: hover placement must never depend on whether the thumbnail has mounted. */
 .table-viewport .hover-preview { max-width: calc(50% - 28px); box-sizing: border-box; }
+.piece-preview-fullscreen[data-theme-fixed] .piece-preview-page { display: inline-block; text-align: center; font-variant-numeric: tabular-nums; }

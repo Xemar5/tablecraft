@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, Ban, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
 import { canStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
@@ -33,6 +33,7 @@ type Props = {
   notice?: string; onDismissNotice?: () => void;
 };
 const ROLL_MS = 650;
+const SHUFFLE_MS = 700;
 const MAX_ZOOM = 3;
 const VIEWER_NOTICE = 'You are watching as a viewer. Take a seat in Players to play.';
 const CLEARED = 'Undo history cleared because ';
@@ -118,6 +119,25 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     }
   }, [p.instances, p.components]);
   useEffect(() => () => rollTimers.current.forEach(timer => window.clearInterval(timer)), []);
+  // Stacks whose shuffle count went up (here or by another player) play the shuffle animation once.
+  const [shuffling, setShuffling] = useState<ReadonlySet<string>>(() => new Set());
+  const seenShuffles = useRef<Map<string, number>>(null);
+  useEffect(() => {
+    const first = !seenShuffles.current;
+    const seen = seenShuffles.current ??= new Map();
+    const counts = new Map<string, number>();
+    for (const item of p.instances) if (item.stack) counts.set(item.stack, Math.max(counts.get(item.stack) ?? 0, item.shuffles ?? 0));
+    const started: string[] = [];
+    for (const [stack, count] of counts) {
+      const previous = seen.get(stack);
+      seen.set(stack, count);
+      if (!first && previous !== undefined && count > previous) started.push(stack);
+    }
+    if (!started.length) return;
+    setShuffling(current => new Set([...current, ...started]));
+    const timer = window.setTimeout(() => setShuffling(current => new Set([...current].filter(stack => !started.includes(stack)))), SHUFFLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [p.instances]);
   const seatMoved = useRef(false);
   const pointer = useRef<{ x: number; y: number }>(null);
   const clipboard = useRef<Instance[]>([]);
@@ -146,7 +166,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   }, [handTrayShown, panels.sizes.hand]); // Tray resizes re-measure directly; the observer covers other layout changes.
   const [insertion, setInsertion] = useState<number>();
   const [dropHint, setDropHint] = useState<{ id: string; x: number; y: number }>();
-  const [handDrop, setHandDrop] = useState<{ playerId: string; index: number; ids: string[]; x: number; y: number }>();
+  // Over a table hand while dragging: where the pieces would go, or (with `blocked`) why they can't go there.
+  const [handDrop, setHandDrop] = useState<{ playerId: string; index: number; ids: string[]; x: number; y: number; blocked?: string }>();
+  const handTarget = handDrop && !handDrop.blocked ? handDrop : undefined;
   const permissions = handPermissions(p, actor);
   const [altDown, setAltDown] = useState(false);
   const [marquee, setMarquee] = useState<{ x: number; y: number; width: number; height: number }>();
@@ -243,7 +265,18 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     if (id) positionPreview(pointer.current.x);
     setHovered(id); setPreviewItem(id);
   }, [p.instances]);
+  // Points the hover (and its preview) at whatever is under (x, y).
+  const hoverAt = (x: number, y: number) => {
+    const element = document.elementFromPoint(x, y);
+    if (element?.closest('.hover-preview')) return;
+    const target = element?.closest<HTMLElement>('[data-piece-id],[data-hand-id],[data-mini-id]');
+    const id = target?.dataset.pieceId ?? target?.dataset.handId ?? target?.dataset.miniId;
+    if (id) positionPreview(x);
+    setHovered(id); setPreviewItem(id);
+  };
   const leavePiece = (event: React.PointerEvent) => {
+    // Pressing to pan captures the pointer, which reports leaving the piece; keep the preview until the pan moves.
+    if (gesture.current?.pan) return;
     setHovered(undefined);
     if (!(event.relatedTarget instanceof Element) || !event.relatedTarget.closest('.hover-preview')) setPreviewItem(undefined);
   };
@@ -258,16 +291,21 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     setHovered(id); setPreviewItem(id);
   };
 
+  // Whether the camera has been fitted to a viewport with a real size yet (it can mount hidden, with no size).
+  const fitted = useRef(false);
   const fit = useCallback(() => {
     if (!viewport.current) return;
     const width = viewport.current.clientWidth, height = viewport.current.clientHeight;
-    const z = Math.min(width / 1680, height / 1030, 1);
+    if (!width || !height) return;
+    fitted.current = true;
+    const z = Math.max(.15, Math.min(width / 1680, height / 1030, 1));
     setCamera(0); setZoom(z); setPan({ x: width / 2 - 950 * z, y: height / 2 - 500 * z });
   }, []);
   useEffect(() => {
     fit();
     let previous = viewport.current?.getBoundingClientRect();
     const observer = new ResizeObserver(() => {
+      if (!fitted.current) { fit(); previous = viewport.current?.getBoundingClientRect(); return; }
       const next = viewport.current?.getBoundingClientRect();
       if (next && previous) {
         const dx = cssPx(next.width - previous.width) / 2, dy = cssPx(next.height - previous.height) / 2;
@@ -406,10 +444,17 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     return nearest?.id;
   };
   const tableHandInsertion = (x: number, y: number, moving: Instance[], alt = false) => {
-    if (alt || !p.settings.hands || !moving.length || moving.some(i => i.locked || !p.components.find(c => c.id === i.componentId)?.hand)) return undefined;
+    if (alt || !p.settings.hands || !moving.length) return undefined;
     const playerId = seatAt(x, y), player = p.players.find(player => player.id === playerId);
-    if (!player || (player.id !== actor && !handPermissions(p, player.id).insert && moving.some(i => i.holder !== player.id)) ||
-      moving.some(i => i.holder && i.holder !== actor && !handPermissions(p, i.holder).take)) return undefined;
+    if (!player) return undefined;
+    // Over a hand the pieces can't go into: show the hand as blocked, with the reason.
+    const noHand = moving.map(i => p.components.find(c => c.id === i.componentId)).find(c => !c?.hand);
+    const from = moving.find(i => i.holder && i.holder !== actor && !handPermissions(p, i.holder).take);
+    const blocked = moving.some(i => i.locked) ? 'Locked pieces stay on the table.'
+      : noHand ? `${noHand.name} can't be held in a hand (see its Behavior settings).`
+      : player.id !== actor && !handPermissions(p, player.id).insert && moving.some(i => i.holder !== player.id) ? `${player.name} doesn't let others put pieces into their hand.`
+      : from ? `Taking from ${p.players.find(seat => seat.id === from.holder)?.name ?? 'that'}'s hand is turned off.` : undefined;
+    if (blocked) return { playerId: player.id, index: -1, ids: [] as string[], x, y, blocked };
     const ids = moving.map(i => i.id);
     const cards = [...(viewport.current?.querySelectorAll<HTMLElement>(`[data-seat-id="${CSS.escape(player.id)}"] [data-mini-id]`) ?? [])].filter(el => !ids.includes(el.dataset.miniId!));
     const angle = (camera + player.rotation) * Math.PI / 180;
@@ -421,7 +466,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   };
   const insertIntoTableHand = (x: number, y: number, moving: Instance[], alt: boolean) => {
     const drop = tableHandInsertion(x, y, moving, alt);
-    if (!drop) return false;
+    if (!drop || drop.blocked) return false;
     void dispatch({ type: 'transferToHand', ids: drop.ids, playerId: drop.playerId, index: drop.index });
     return true;
   };
@@ -681,6 +726,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       }
     }
     gesture.current = null; setPreview({}); setDropHint(undefined);
+    // After panning, the preview follows whatever is now under the pointer.
+    if (g.pan && pointer.current) hoverAt(e.clientX, e.clientY);
   };
   return <div className="playground-layout">
     {layersVisible && <><aside id="playground-pieces-panel" aria-label="Pieces" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}
@@ -747,7 +794,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           }
           const g = gesture.current;
           if (!g || g.pointer !== e.pointerId) return;
-          if (g.pan) setPan({ x: g.pan.x + cssPx(e.clientX - g.x), y: g.pan.y + cssPx(e.clientY - g.y) });
+          if (g.pan) {
+            setPan({ x: g.pan.x + cssPx(e.clientX - g.x), y: g.pan.y + cssPx(e.clientY - g.y) });
+            if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) { setHovered(undefined); setPreviewItem(undefined); }
+          }
           else {
             const delta = dragDelta(g, e.clientX, e.clientY);
             setPreview(Object.fromEntries(Object.entries(g.positions).map(([id, pos]) => [id, { x: pos.x + delta.x, y: pos.y + delta.y }])));
@@ -797,7 +847,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             onPointerEnter={() => setHoveredSeat(player.id)} onPointerLeave={() => setHoveredSeat(seat => seat === player.id ? undefined : seat)}>
             <div className="seat-badge"><span className="seat-avatar">{player.name.slice(0, 1).toUpperCase()}</span><strong>{player.name}</strong>{player.id === actor && <YouTag />}
             <span>{playerHeld.length} cards</span></div>
-            <div className={`other-hand ${canTake ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? 'hand-drop-target' : ''}`} style={handDrop?.playerId === player.id ? { outlineOffset: 20 / zoom } : undefined} aria-label={`${player.name}'s hand`}>
+            <div className={`other-hand ${canTake ? 'interactive-hand' : ''} ${handDrop?.playerId === player.id ? handDrop.blocked ? 'hand-drop-blocked' : 'hand-drop-target' : ''}`} style={handDrop?.playerId === player.id ? { outlineOffset: 20 / zoom } : undefined} aria-label={`${player.name}'s hand`}>
               {playerHeld.map((i, index) => {
                 const comp = p.components.find(c => c.id === i.componentId)!;
                 return <div key={i.id} data-mini-id={i.id} data-grabbable={!i.locked && canTake} className={`${player.id === actor && selected.includes(i.id) ? 'hand-selected' : ''} ${handDrop?.playerId === player.id && remaining[handDrop.index]?.id === i.id ? 'mini-insert-before' : ''} ${handDrop?.ids.includes(i.id) || handDrag?.id === i.id ? 'mini-drag-source' : ''}`} style={{ transform: `rotate(${(index - (playerHeld.length - 1) / 2) * 5}deg)` }}
@@ -853,7 +903,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                   {handDrop?.playerId === player.id && handDrop.index === remaining.length && remaining.at(-1)?.id === i.id && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
                 </div>;
               })}
-              {handDrop?.playerId === player.id && !remaining.length && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
+              {handTarget?.playerId === player.id && !remaining.length && <span className="mini-insert-end" aria-label="Insert at end of table hand" />}
+              {handDrop?.blocked && handDrop.playerId === player.id && <span className="mini-hand-blocked" aria-hidden="true"><Ban size={18} /></span>}
             </div>
           </button>; })}
           {topPieces.map(item => {
@@ -865,8 +916,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             const isHovered = hovered === item.id && !item.locked && !preview[item.id];
             const badge = plan && isSelected ? plan.units.indexOf(item.stack ?? item.id) : -1;
             return <TablePiece key={item.id} item={item} component={comp} components={p.components} x={position.x} y={position.y} count={count}
-              zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handDrop}
-              dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} hovered={isHovered} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
+              zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handTarget}
+              dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} shuffling={!!item.stack && shuffling.has(item.stack)} hovered={isHovered}
+              {...(count > 1 || comp.kind === 'book' ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
         </div>
@@ -988,7 +1040,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         {insertion !== undefined && insertion === held.filter(i => !(handDrag && (selected.includes(handDrag.id) ? selected.includes(i.id) : i.id === handDrag.id))).length && <div className="hand-insert-end" aria-label="Insert at end of hand" />}
         </HorizontalScroll>
       </div><HorizontalScroll contentClassName="hand-toolbar" label="Hand actions">{handActions()}</HorizontalScroll></>}
-      {handDrag && !handDrop && (() => {
+      {handDrag && !handTarget && (() => {
         const item = p.instances.find(i => i.id === handDrag.id);
         const comp = p.components.find(c => c.id === item?.componentId);
         return item && comp ? <div className="hand-drag-preview" style={{ left: cssPx(handDrag.x), top: cssPx(handDrag.y) }} aria-hidden="true"><ComponentThumbnail component={comp} components={p.components} row={item.row} back={item.flipped} hidden={!!item.holder && item.holder !== actor && comp.hideInHand} height={handCardHeight} /></div> : null;
@@ -996,7 +1048,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       <footer className="table-status"><span>{p.instances.length} pieces on the table</span><span>{p.settings.snap ? `Snapping to ${p.settings.gridSize}px` : 'Free movement'}<span className="status-divider">/</span>{p.players.length} players<span className="status-divider">/</span>2D playground</span></footer>
     </section>
     {createPortal(<>
-      {handDrop && (() => {
+      {handTarget && (() => {
+        const handDrop = handTarget;
         const item = p.instances.find(i => i.id === handDrop.ids[0]);
         const comp = p.components.find(c => c.id === item?.componentId);
         const player = p.players.find(player => player.id === handDrop.playerId);
@@ -1006,7 +1059,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           {handDrop.ids.length > 1 && <span className="mini-drop-count">{handDrop.ids.length}</span>}
         </div>;
       })()}
-      {topPieces.filter(i => preview[i.id] && !handDrop).map(item => {
+      {topPieces.filter(i => preview[i.id] && !handTarget).map(item => {
         const comp = table.components.get(item.componentId)!;
         const rect = viewport.current!.getBoundingClientRect();
         const angle = camera * Math.PI / 180;
@@ -1020,9 +1073,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           dx={current.x - anchor.x} dy={current.y - anchor.y} rotation={camera + item.rotation} scale={zoom * item.scale} />;
       })}
       {marquee && <div className="selection-marquee" style={{ left: cssPx(marquee.x), top: cssPx(marquee.y), width: cssPx(marquee.width), height: cssPx(marquee.height) }} />}
-      {handDrop && <div className="stack-drop-hint hand-drop-hint" role="status" style={{ left: Math.min(cssPx(handDrop.x) + 18, cssPx(window.innerWidth) - 285), top: Math.max(12, cssPx(handDrop.y) - 62) }}>
-        <strong>Release to insert into hand</strong>
-        <span>Position {handDrop.index + 1} · Hold Alt to place on table instead</span>
+      {handDrop && <div className={`stack-drop-hint hand-drop-hint${handDrop.blocked ? ' hand-drop-blocked-hint' : ''}`} role="status" style={{ left: Math.min(cssPx(handDrop.x) + 18, cssPx(window.innerWidth) - 285), top: Math.max(12, cssPx(handDrop.y) - 62) }}>
+        <strong>{handDrop.blocked ? `Can't go into ${p.players.find(player => player.id === handDrop.playerId)?.name ?? 'this'}'s hand` : 'Release to insert into hand'}</strong>
+        <span>{handDrop.blocked ? `${handDrop.blocked} Release to leave it on the table.` : `Position ${handDrop.index + 1} · Hold Alt to place on table instead`}</span>
       </div>}
       {dropHint && <div className={`stack-drop-hint ${altDown ? 'stack-bypassed' : ''}`} role="status" style={{ left: Math.min(cssPx(dropHint.x) + 18, cssPx(window.innerWidth) - 285), top: Math.max(12, cssPx(dropHint.y) - 62) }}>
         <strong>{altDown ? 'Stacking off — release to move' : 'Release to add to stack'}</strong>
@@ -1085,16 +1138,31 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             <div className="stack-actions"><button className="button" onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={14} /> Focus</button>
               {items.length > 1 && <button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>}</div>
           </div> : <>
+          {hasPages(c) && <p className="page-status" role="status">{c.kind === 'book' ? 'Page' : 'Face'} {piece.row + 1} of {Math.max(1, c.rows.length)}</p>}
+          {/* Rotation first, then what this piece or stack can do, then the general actions. Actions that don't apply are left out. */}
           <div className="action-grid">
-            <button disabled={!selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable)} onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>
             <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
             <button onClick={() => rotate(90)}><RotateCw size={17} /><span>Rotate +90°<kbd>E</kbd></span></button>
+            {selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable) && <button onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>}
+            {hasPages(c) && <>
+              <button disabled={c.kind === 'book' && piece.row <= 0} onClick={() => turnPages(-1)}><ChevronLeft size={17} /><span>{c.kind === 'book' ? 'Previous page' : 'Previous face'}<kbd>Shift Q</kbd></span></button>
+              <button disabled={c.kind === 'book' && piece.row >= c.rows.length - 1} onClick={() => turnPages(1)}><ChevronRight size={17} /><span>{c.kind === 'book' ? 'Next page' : 'Next face'}<kbd>Shift E</kbd></span></button>
+            </>}
+            {c.kind === 'dice' && <button onClick={() => dispatch({ type: 'roll', ids: [piece.id], seed: crypto.getRandomValues(new Uint32Array(1))[0] })}><Dices size={17} /><span>Roll die<kbd>R</kbd></span></button>}
+            {selected.length > 1 && !wholeStack && <button disabled={!!plan?.error} title={plan?.error ? `Can't stack: ${plan.error}` : plan ? 'The first selected piece goes on the bottom, the last on top' : undefined} onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={17} /><span>Stack selected pieces<kbd>G</kbd></span></button>}
+            {items.length > 1 && <>
+              <button onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={17} /><span>Search stack</span></button>
+              <button disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={17} /><span>Shuffle<kbd>R</kbd></span></button>
+              <button onClick={() => dispatch({ type: 'unstack', id: piece.id })}><Layers size={17} /><span>Spread stack</span></button>
+            </>}
             <button onClick={() => clone()}><Copy size={17} /><span>Clone<kbd>Ctrl D</kbd></span></button>
             <button onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={17} /><span>Focus<kbd>Shift F</kbd></span></button>
+            {p.settings.hands && <>
             {wholeStack ? <>
               <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
               <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Layers size={17} /><span>Draw all</span></button>
             </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
+            </>}
             <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'forward' })} disabled={selectedPieces.every(i => i.holder)} title="Bring forward (Ctrl/Cmd+]; with Shift, to the front)"><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
             <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'backward' })} disabled={selectedPieces.every(i => i.holder)} title="Send backward (Ctrl/Cmd+[; with Shift, to the back)"><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !ownLock(piece.id) } })}>{ownLock(piece.id) ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{ownLock(piece.id) ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
@@ -1107,16 +1175,6 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             <NumberField deferred label="Scale" value={piece.scale} mixed={selectedPieces.some(i => i.scale !== piece.scale)} min={.1} max={5} step={.1}
               onChange={scale => dispatch({ type: 'move', ids: selectedPieces.map(i => i.id), patch: { scale } })} />
           </div>
-          {selected.length > 1 && <button className="button full" disabled={!!plan?.error} title={plan?.error ? `Can't stack: ${plan.error}` : plan ? 'The first selected piece goes on the bottom, the last on top' : undefined} onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={15} /> Stack selected pieces</button>}
-          {items.length > 1 && <div className="stack-actions"><button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>
-            <button className="button" disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={14} /> Shuffle</button>
-            <button className="button full" onClick={() => dispatch({ type: 'unstack', id: piece.id })}><Layers size={14} /> Spread stack</button></div>}
-          {hasPages(c) && <div className="page-controls" role="group" aria-label={c.kind === 'book' ? 'Book pages' : 'Die faces'}>
-            <button className="icon-button" aria-label={c.kind === 'book' ? 'Previous page' : 'Previous face'} title={`${c.kind === 'book' ? 'Previous page' : 'Previous face'} (Shift+Q)`} disabled={c.kind === 'book' && piece.row <= 0} onClick={() => turnPages(-1)}><ChevronLeft size={15} /></button>
-            <span>{c.kind === 'book' ? 'Page' : 'Face'} {piece.row + 1} of {Math.max(1, c.rows.length)}</span>
-            <button className="icon-button" aria-label={c.kind === 'book' ? 'Next page' : 'Next face'} title={`${c.kind === 'book' ? 'Next page' : 'Next face'} (Shift+E)`} disabled={c.kind === 'book' && piece.row >= c.rows.length - 1} onClick={() => turnPages(1)}><ChevronRight size={15} /></button>
-          </div>}
-          {c.kind === 'dice' && <button className="button full" onClick={() => dispatch({ type: 'roll', ids: [piece.id], seed: crypto.getRandomValues(new Uint32Array(1))[0] })}><Dices size={16} /> Roll die</button>}
           </>}
         </div> : <div className="inspector-section table-intro"><div className="intro-icon"><MousePointer2 size={23} /></div><h3>No component selected</h3><p>Select a component on the table or in your hand to see its settings and actions.</p></div>}
       </> : <>
@@ -1247,13 +1305,17 @@ type PieceEvents = {
 };
 type TablePieceProps = {
   item: Instance; component: Component; components: Component[]; x: number; y: number; zIndex: number; count: number;
-  selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number;
+  selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number; shuffling?: boolean;
   /** The table zoom times the piece's scale; only set for selected, hovered and drop-target pieces, whose order badge
    * and outline keep a constant screen size. */
   pieceZoom?: number;
+  /** For stacks and books: the piece's rotation on screen (with the camera's), so its labels stay upright at its screen-bottom edge. */
+  labelAngle?: number;
+  /** For stacks and books too small on screen for a full label: show just the icon. */
+  compactLabel?: boolean;
   badgeIndex: number; badgeTotal: number; badgeError?: string; events: React.RefObject<PieceEvents>;
 };
-const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, pieceZoom, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
+const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
   const slot = badgeIndex >= 0 ? stackSlot(badgeIndex, badgeTotal) : undefined;
   // A book is one piece whose pages are its rows; it looks like a stack but nothing can be taken from it.
   const pages = comp.kind === 'book' ? Math.max(1, comp.rows.length) : 0;
@@ -1275,7 +1337,7 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     void getComputedStyle(node).left;
     node.style.transition = '';
   }, [dragging]);
-  return <div ref={element} className={`table-piece ${rollingRow !== undefined ? 'rolling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
+  return <div ref={element} className={`table-piece ${rollingRow !== undefined ? 'rolling' : ''} ${shuffling ? 'shuffling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
     data-testid="table-piece" data-piece-id={item.id}
     style={{ ...(pieceZoom !== undefined ? { '--piece-zoom': pieceZoom } : {}), '--piece-scale': item.scale, left: dragging ? item.x : x, top: dragging ? item.y : y, width: comp.width, height: comp.height, zIndex, transform } as React.CSSProperties}
     onPointerDown={e => events.current.start(e, item)}
@@ -1291,8 +1353,15 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     <div className="piece-face" style={ring && pieceZoom !== undefined ? { filter: `url(#${ringId})` } : undefined}>
       <ComponentView component={comp} components={components} row={rollingRow ?? item.row} back={visibleBack(item)} />
     </div>
-    {count > 1 && <span className="stack-count"><Layers size={13} /> {count}</span>}
-    {pages > 0 && <span className="stack-count book-page-count" data-testid="book-page"><BookOpen size={13} /> {item.row + 1} / {pages}</span>}
+    {(count > 1 || pages > 0) && (() => {
+      // The labels sit on the piece's edge that faces down on screen, upright for the viewer and a fixed screen size.
+      const angle = labelAngle ?? item.rotation, turn = angle * Math.PI / 180, dx = Math.sin(turn), dy = Math.cos(turn);
+      const reach = Math.min(Math.abs(dx) > 1e-6 ? comp.width / 2 / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? comp.height / 2 / Math.abs(dy) : Infinity);
+      return <div className={`piece-labels${compactLabel ? ' compact' : ''}`} style={{ left: comp.width / 2 + dx * reach, top: comp.height / 2 + dy * reach, '--label-turn': `${-angle}deg` } as React.CSSProperties}>
+        {count > 1 && <span className="stack-count" title={`Stack of ${count}`}><Layers size={13} />{compactLabel ? <span className="visually-hidden">{count}</span> : <> {count}</>}</span>}
+        {pages > 0 && <span className="stack-count book-page-count" data-testid="book-page" title={`Page ${item.row + 1} of ${pages}`}><BookOpen size={13} />{compactLabel ? <span className="visually-hidden">{item.row + 1} / {pages}</span> : <> {item.row + 1} / {pages}</>}</span>}
+      </div>;
+    })()}
     {slot && <span className={`stack-order-badge ${badgeError ? 'blocked' : ''}`} data-testid="stack-order" data-slot={slot}
       title={badgeError ? `Can't stack: ${badgeError}` : `Stacked ${slot === 'bottom' ? 'at the bottom' : slot === 'top' ? 'on top' : 'in the middle'} (${badgeIndex + 1} of ${badgeTotal})`}>
       <b>{badgeIndex + 1}</b><StackSlotIcon slot={slot} blocked={!!badgeError} />

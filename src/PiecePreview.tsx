@@ -122,7 +122,8 @@ export function PiecePreview({ item, component, components, actor, viewer, point
       {pages > 0 && <span className="piece-preview-pages" role="group" aria-label="Book pages" onClick={event => event.stopPropagation()}>
         <button type="button" aria-label="Previous page" title="Previous page (Shift+Q)" disabled={page <= 0} onClick={() => turn(-1)}>
           <ChevronLeft size={15} aria-hidden="true" /><kbd>Shift+Q</kbd></button>
-        <span aria-live="polite">Page {page + 1} of {pages}</span>
+        {/* Wide enough for the longest page number, so the buttons don't shift as pages turn. */}
+        <span className="piece-preview-page" aria-live="polite" style={{ minWidth: `${`Page ${pages} of ${pages}`.length + 1}ch` }}>Page {page + 1} of {pages}</span>
         <button type="button" aria-label="Next page" title="Next page (Shift+E)" disabled={page >= pages - 1} onClick={() => turn(1)}>
           <kbd>Shift+E</kbd><ChevronRight size={15} aria-hidden="true" /></button>
       </span>}

@@ -24,7 +24,7 @@ test('Selection and Table isolate object controls and shared settings', async ({
   await expect(inspector.getByRole('heading', { name: 'Stack selected' })).toBeVisible();
   await expectConsistentInsets();
   await expect(inspector.getByLabel('Rotation', { exact: true })).toBeVisible();
-  await expect(inspector.getByRole('button', { name: 'Shuffle', exact: true })).toBeVisible();
+  await expect(inspector.locator('.action-grid').getByRole('button', { name: /^Shuffle/ })).toBeVisible();
   await table.click();
   await expect(inspector.getByRole('heading', { name: 'Table settings' })).toBeVisible();
   await expectConsistentInsets();

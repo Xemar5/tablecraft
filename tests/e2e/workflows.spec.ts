@@ -335,7 +335,7 @@ test('stack search, draw, hotseat privacy, hand release and manipulation', async
   await expect(page.locator('.hand-card')).toHaveCount(0);
   await page.getByRole('button', { name: 'Selection', exact: true }).click();
   await stack.click();
-  await page.getByRole('button', { name: 'Shuffle', exact: true }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Shuffle/ }).click();
   await page.getByRole('button', { name: 'Rotate +90° E', exact: true }).click();
   const rotated = (await workspace(page)).projects[0].instances.filter((i: { rotation: number }) => i.rotation === 90);
   expect(rotated).toHaveLength(11);
