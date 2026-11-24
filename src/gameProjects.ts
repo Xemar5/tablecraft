@@ -318,7 +318,7 @@ const RULES = [
 export function tidewaterProject(name: string, description: string, profile: Profile): Project {
   const terrainRows = TERRAINS.map(({ terrain, name, resource }) => ({ name, terrain, resource }));
   const tile = component('Island tile', 'card', HEX.width, HEX.height, {
-    flippable: true, stackable: true, shufflable: true, rows: terrainRows,
+    flippable: true, stackable: true, shufflable: true, previewWhenLocked: true, rows: terrainRows,
     front: [
       ...TERRAINS.map(({ terrain, name, fill }) => shape(name, { shapeKind: 'path', x: 0, y: 0, ...HEX, points: HEX_OUTLINE, fill, stroke: '#1f2b2633', strokeWidth: 1.5, ...when('terrain', terrain) })),
       // The art and resource name fill the upper half, leaving the number slot free below them.
@@ -334,7 +334,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   });
   const numbers = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
   const marker = component('Tide marker', 'token', 38, 38, {
-    color: '#efe3c4', stackable: true, shufflable: true,
+    color: '#efe3c4', stackable: true, shufflable: true, previewWhenLocked: true,
     rows: numbers.map(number => ({ number: String(number), pips: '•'.repeat(6 - Math.abs(7 - number)), hot: number === 6 || number === 8 ? 'yes' : 'no' })),
     front: [
       label('Number', { x: 0, y: 4, width: 38, height: 20, text: '{{number}}', font: 'Lora', fontSize: 17, fontWeight: 700, color: '#2c2a24', ...when('hot', 'no') }),
@@ -357,7 +357,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // post on each of the two corners it serves. It is rotated to face out from its edge.
   const wood = { fill: '#b98a52', stroke: '#5e4128', strokeWidth: 1 };
   const harbor = component('Harbor', 'card', HARBOR.width, HARBOR.height, {
-    rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
+    previewWhenLocked: true, rows: harbors.map(({ good, ratio }) => ({ name: `${good} ${ratio}`, ratio, good })),
     front: [
       shape('Left gangway', { shapeKind: 'path', x: 4, y: 8, width: 22, height: 21, points: outline([[1, 0], [8, 0], [22, 17], [16, 21]]), ...wood }),
       shape('Right gangway', { shapeKind: 'path', x: 38, y: 8, width: 22, height: 21, points: outline([[21, 0], [14, 0], [0, 17], [6, 21]]), ...wood }),
@@ -453,7 +453,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   ];
   const markers = [[10, 2, 9], [12, 6, 4, 10], [9, 11, 0, 3, 8], [8, 3, 4, 5], [5, 6, 11]];
   // The island is laid out in locked groups: the sea, tiles, tide markers and harbors stay put while huts, boardwalks
-  // and the squall are placed on them. Unlock a group in the Pieces panel to rearrange it, for example to deal a
+  // and the squall are placed on them (tiles, markers and harbors still show their hover preview). Unlock a group in the Pieces panel to rearrange it, for example to deal a
   // random island.
   const { groups, add, into } = grouping();
   const island = add('Island'), tiles: Instance[] = [], tides: Instance[] = [], harborPieces: Instance[] = [];
