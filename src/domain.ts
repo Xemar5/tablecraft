@@ -436,6 +436,9 @@ export function withGroupLocks(p: Project): Project {
   return changed ? { ...p, instances } : p;
 }
 
+/** Rotations land on tenths of a degree, so steps such as 3 × 0.1 or 360 / 7 don't leave floating-point leftovers. */
+export const snapAngle = (degrees: number) => { const snapped = Math.round(degrees * 10) / 10; return snapped === 0 ? 0 : snapped; };
+
 /** Keeps piece groups consistent after a tabletop change: held pieces leave groups, stacks share their bottom piece's group, empty groups disappear. */
 function normalizeGroups(p: Project) {
   const groups = p.groups ?? [];
@@ -886,6 +889,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         if (lockedByGroup(item) && Object.keys(command.patch).some(key => key !== 'locked')) throw new Error('Unlock its group first.');
         if (command.patch.flipped !== undefined && !component(item).flippable) throw new Error('This component is not flippable.');
         Object.assign(item, command.patch);
+        if (command.patch.rotation !== undefined) item.rotation = snapAngle(item.rotation);
       }
       break;
     case 'transform': {
@@ -917,7 +921,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         if (isLocked(item)) throw new Error('Unlock this component first.');
         item.x = positions?.get(key)?.x ?? item.x + (command.dx ?? 0);
         item.y = positions?.get(key)?.y ?? item.y + (command.dy ?? 0);
-        item.rotation = (item.rotation + (command.rotation ?? 0) + (command.turns ?? 0) * (component(item).rotationStep ?? 90)) % 360;
+        item.rotation = snapAngle((item.rotation + (command.rotation ?? 0) + (command.turns ?? 0) * (component(item).rotationStep ?? 90)) % 360);
         // Rounding keeps relative factors such as target / current from drifting below the typed value.
         item.scale = Math.round(item.scale * (command.scaleFactor ?? 1) * 1e9) / 1e9;
         if (command.flip && item.stack && flippedStacks.has(item.stack)) item.stackReversed = !item.stackReversed;

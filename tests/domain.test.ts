@@ -604,4 +604,19 @@ describe('structural sharing for large projects', () => {
     expect(shared[0]).toBe(p.components[0]);
     expect(shared[1]).toBe(copy[1]);
   });
+
+  it('snaps rotations to tenths of a degree, so floating-point leftovers never build up', () => {
+    let project = starterProject();
+    const id = project.instances.find(item => !item.locked && !item.holder)!.id;
+    const rotation = () => project.instances.find(item => item.id === id)!.rotation;
+    for (let i = 0; i < 3; i++) project = applyCommand(project, { type: 'transform', ids: [id], rotation: 0.1 });
+    expect(rotation()).toBe(0.3);
+    project = applyCommand(project, { type: 'transform', ids: [id], rotation: 360 / 7 - 0.3 });
+    expect(rotation()).toBe(51.4);
+    project = applyCommand(project, { type: 'move', ids: [id], patch: { rotation: 12.345678 } });
+    expect(rotation()).toBe(12.3);
+    project = applyCommand(project, { type: 'transform', ids: [id], rotation: -12.3 });
+    expect(Object.is(rotation(), 0)).toBe(true);
+  });
 });
+
