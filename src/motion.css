@@ -226,9 +226,10 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .piece-labels{position:absolute;z-index:3;display:flex;gap:6px;pointer-events:none;white-space:nowrap;transform:translate(-50%,-50%) rotate(var(--label-turn,0deg)) scale(calc(.72 / var(--ring-zoom,1)))}
 .piece-labels .stack-count{position:static;transform:none}
 .piece-labels.compact .stack-count{padding:4px;gap:0}
-/* A table hand the dragged pieces can't go into (see tableHandInsertion): dimmed, with a red dashed outline. */
-.other-hand.hand-drop-blocked{outline:2px dashed #b9584a;border-radius:5px;opacity:.6;min-width:44px;min-height:44px}
-.mini-hand-blocked{position:absolute;inset:0;display:grid;place-items:center;color:#a8463a;pointer-events:none}
+/* A table hand the dragged pieces can't go into (see tableHandInsertion): dimmed, with a red dashed outline. Nothing
+   here may change the hand's size: the seat would shift and the pointer could leave and re-enter it on every move. */
+.other-hand.hand-drop-blocked{outline:2px dashed #b9584a;border-radius:5px;opacity:.6}
+.mini-hand-blocked{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);display:grid;place-items:center;color:#a8463a;pointer-events:none}
 .stack-drop-hint.hand-drop-blocked-hint{background:#8e3b30}
 .page-status{margin:0 0 8px;font-size:11px;color:#6d7d60;font-variant-numeric:tabular-nums}
 /* Shuffling a stack (TablePiece .shuffling): the cards under the top one fan out to the sides and back while the top
