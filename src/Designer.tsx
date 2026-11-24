@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, BringToFront, CaseLower, CaseSensitive, CaseUpper, ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Italic, Layers, Link2, MousePointer2, MoveHorizontal, MoveVertical, PenTool, Redo2, RemoveFormatting, RotateCcw, RotateCw, SendToBack, Spline, Square, Strikethrough, Trash2, Type, Underline, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
@@ -657,10 +657,44 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
     element.addEventListener('wheel', wheel, { passive: false });
     return () => element.removeEventListener('wheel', wheel);
   }, [zoom]);
-  const selectFromTree = (id: string, event: MouseEvent<HTMLButtonElement>) => {
-    if (event.metaKey || event.ctrlKey || event.shiftKey) {
-      setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
-    } else setSelected(current => current.length > 1 && current.includes(id) ? current : [id]);
+  // Layers panel selection works like a file list: click selects one layer, Ctrl/Cmd-click toggles one, Shift-click
+  // selects every visible row from the last clicked one (adding to the selection with Ctrl/Cmd), and Up/Down move it.
+  const layerAnchor = useRef<string | undefined>(undefined);
+  useEffect(() => { if (selected.length <= 1) layerAnchor.current = selected[0]; }, [selected]);
+  const visibleLayerIds = () => {
+    const ids: string[] = [];
+    const walk = (parent: string | null) => nodes.filter(item => item.parent === parent).forEach(item => {
+      ids.push(item.id);
+      if ((item.type === 'frame' || item.type === 'compound') && !collapsed.has(item.id)) walk(item.id);
+    });
+    walk(null);
+    return ids;
+  };
+  const selectFromTree = (id: string, event: { shiftKey: boolean; ctrlKey: boolean; metaKey: boolean }) => {
+    const toggle = event.metaKey || event.ctrlKey;
+    if (event.shiftKey) {
+      const order = visibleLayerIds(), from = order.indexOf(layerAnchor.current ?? ''), to = order.indexOf(id);
+      if (from >= 0 && to >= 0) {
+        const range = order.slice(Math.min(from, to), Math.max(from, to) + 1);
+        setSelected(current => toggle ? [...new Set([...current, ...range])] : range);
+        return;
+      }
+    }
+    layerAnchor.current = id;
+    if (toggle) setSelected(current => current.includes(id) ? current.filter(item => item !== id) : [...current, id]);
+    else setSelected([id]);
+  };
+  const stepInTree = (id: string, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if ((event.key !== 'ArrowUp' && event.key !== 'ArrowDown') || event.altKey || event.ctrlKey || event.metaKey) return;
+    // Up/Down move through the list here instead of nudging the selection.
+    event.preventDefault(); event.stopPropagation();
+    const order = visibleLayerIds(), next = order[order.indexOf(id) + (event.key === 'ArrowUp' ? -1 : 1)];
+    if (!next) return;
+    if (event.shiftKey) {
+      const from = order.indexOf(layerAnchor.current ?? id), to = order.indexOf(next);
+      setSelected(order.slice(Math.min(from, to), Math.max(from, to) + 1));
+    } else { layerAnchor.current = next; setSelected([next]); }
+    event.currentTarget.closest('.layer-list')?.querySelector<HTMLElement>(`[data-layer-id="${CSS.escape(next)}"]`)?.focus();
   };
   const movePreservingPosition = (sourceId: string, parentId: string | null, beforeId?: string, currentNodes = nodes) => {
     const source = currentNodes.find(item => item.id === sourceId);
@@ -725,8 +759,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         onDragOver={event => layerDragOver(event, item)}
         onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setDropTarget(undefined); }}
         onDrop={event => { event.preventDefault(); event.stopPropagation(); if (draggedLayer.length) dropLayers(draggedLayer, item.id, dropModeFor(event, item)); setDraggedLayer([]); setDropTarget(undefined); }}>
-        <button className={`layer-row ${selected.includes(item.id) ? 'active' : ''}`} draggable
-          onClick={event => selectFromTree(item.id, event)}
+        <button className={`layer-row ${selected.includes(item.id) ? 'active' : ''}`} draggable data-layer-id={item.id} aria-pressed={selected.includes(item.id)}
+          onClick={event => selectFromTree(item.id, event)} onKeyDown={event => stepInTree(item.id, event)}
           onDragStart={event => {
             event.dataTransfer.effectAllowed = 'move';
             const moving = selected.includes(item.id) ? selected : [item.id];
