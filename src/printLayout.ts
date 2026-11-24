@@ -32,8 +32,11 @@ export type PrintPage = { side: 'front' | 'back'; items: PrintItem[] };
 
 /** Components that are printed as physical pieces (not artwork, textures or fonts). */
 const printable = (component: Component) => !['artwork', 'texture', 'font'].includes(component.kind);
-/** Components whose backs are printed on the reverse of the sheet: flippable ones, and others with a designed back. */
-export const hasPrintedBack = (component: Component) => !hasPages(component) && (component.flippable || component.back.length > 0);
+/**
+ * Every printed piece gets a back on the reverse of the sheet: its back design, or just its background colour when it
+ * has none. Book pages and die faces are printed as separate pieces and have no backs.
+ */
+export const hasPrintedBack = (component: Component) => !hasPages(component);
 
 /**
  * Every copy to print: one per piece in the project (on the table, in stacks and in hands). A book piece prints all its

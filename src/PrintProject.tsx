@@ -33,7 +33,7 @@ export function PrintDialog({ project, onClose }: { project: Project; onClose: (
           <NumberField label="Page margin (mm)" value={options.margin} min={0} max={40} onChange={margin => set({ margin })} />
         </div>
         <Toggle label="Cut lines" description="A light dashed outline around every piece" checked={cutLines} onChange={setCutLines} />
-        <Toggle label="Double-sided backs" description="Each page of fronts is followed by the backs of its flippable pieces, mirrored to line up when printed on both sides (flip on the long edge)"
+        <Toggle label="Double-sided backs" description="Each page of fronts is followed by the backs of its pieces (just the background colour where a component has no back design), mirrored to line up when printed on both sides (flip on the long edge)"
           checked={options.backs} onChange={backs => set({ backs })} />
         <Toggle label="Components not on the table" description="Also print one copy of each variant of components with no pieces" checked={options.unplaced} onChange={unplaced => set({ unplaced })} />
         <p className="print-summary" role="status">

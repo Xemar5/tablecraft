@@ -52,11 +52,11 @@ describe('print layout', () => {
     }
     const card = fronts.flatMap(page => page.items).find(item => item.component.kind === 'card')!;
     expect(card.width).toBeCloseTo(card.component.width * MM_PER_PX, 6);
-    // A card's back sits behind it when the sheet is flipped on its long edge; tokens and dice have no printed back.
+    // A card's back sits behind it when the sheet is flipped on its long edge; die faces have no printed back.
     const back = pages[pages.indexOf(fronts.find(page => page.items.includes(card))!) + 1];
     const behind = back.items.find(item => item.component === card.component && item.y === card.y && item.back)!;
     expect(behind.x).toBeCloseTo(paper.width - card.x - card.width, 6);
-    expect(back.items.some(item => item.component.kind === 'token' || item.component.kind === 'dice')).toBe(false);
+    expect(back.items.some(item => item.component.kind === 'dice')).toBe(false);
     // Without backs only fronts are printed; a bigger scale needs more pages, and oversized pieces shrink to fit.
     expect(printLayout(project, { ...options, backs: false }).every(page => page.side === 'front')).toBe(true);
     const large = printLayout(project, { ...options, backs: false, scale: 4 });
@@ -64,13 +64,15 @@ describe('print layout', () => {
     expect(large.flatMap(page => page.items).some(item => item.shrunk)).toBe(true);
   });
 
-  it('prints the designed back of a component that can’t be flipped', () => {
+  it('gives every piece a back, even components that can’t be flipped or have no back design', () => {
     const project = starterProject();
+    const backs = printLayout(project, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'back').flatMap(page => page.items);
+    const fronts = printLayout(project, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'front').flatMap(page => page.items);
+    // Tokens (not flippable, no back design) and the board get backs; only die faces don't.
+    expect(backs).toHaveLength(fronts.filter(item => item.component.kind !== 'dice').length);
     const token = project.components.find(component => component.kind === 'token')!;
-    const withBack = { ...project, components: project.components.map(component => component.id === token.id ? { ...component, back: [...token.front] } : component) };
-    const backs = printLayout(withBack, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'back').flatMap(page => page.items);
-    expect(backs.some(item => item.component.id === token.id)).toBe(true);
-    expect(printLayout(project, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'back').flatMap(page => page.items).some(item => item.component.id === token.id)).toBe(false);
+    expect(token.flippable || token.back.length).toBeFalsy();
+    expect(backs.filter(item => item.component.id === token.id)).toHaveLength(5);
   });
 });
 
