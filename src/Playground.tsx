@@ -31,6 +31,8 @@ type Props = {
   panels: ReturnType<typeof usePanelLayout>;
   /** Whether the app's component library is shown; with the other panels it decides the table view's size. */
   libraryVisible?: boolean;
+  /** Dragging a stack takes its top piece (Shift moves the whole stack), or the other way round when false. */
+  stackDragTakesTop?: boolean;
   /** A transient table message (such as why undo history was cleared), shown as a dismissible toast. */
   notice?: string; onDismissNotice?: () => void;
 };
@@ -43,7 +45,7 @@ const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo his
 const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, libraryVisible, notice, onDismissNotice }: Props) {
+export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, notice, onDismissNotice }: Props) {
   // Play works from the project with group locks applied, so pieces in a locked group behave as locked everywhere;
   // a piece's own lock (the Lock button and L) still toggles its own flag.
   const p = useMemo(() => withGroupLocks(source), [source]);
@@ -127,17 +129,17 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   useEffect(() => {
     const first = !seenShuffles.current;
     const seen = seenShuffles.current ??= new Map();
-    const counts = new Map<string, number>();
-    for (const item of p.instances) if (item.stack) counts.set(item.stack, Math.max(counts.get(item.stack) ?? 0, item.shuffles ?? 0));
-    const started: string[] = [];
-    for (const [stack, count] of counts) {
-      const previous = seen.get(stack);
-      seen.set(stack, count);
-      if (!first && previous !== undefined && count > previous) started.push(stack);
+    // Per piece: only a shuffle raises a piece's own count. Comparing whole stacks would also fire when a piece that was
+    // shuffled elsewhere joins or leaves a stack.
+    const started = new Set<string>();
+    for (const item of p.instances) {
+      const count = item.shuffles ?? 0, previous = seen.get(item.id);
+      seen.set(item.id, count);
+      if (!first && previous !== undefined && count > previous && item.stack) started.add(item.stack);
     }
-    if (!started.length) return;
+    if (!started.size) return;
     setShuffling(current => new Set([...current, ...started]));
-    const timer = window.setTimeout(() => setShuffling(current => new Set([...current].filter(stack => !started.includes(stack)))), SHUFFLE_MS);
+    const timer = window.setTimeout(() => setShuffling(current => new Set([...current].filter(stack => !started.has(stack)))), SHUFFLE_MS);
     return () => window.clearTimeout(timer);
   }, [p.instances]);
   const seatMoved = useRef(false);
@@ -180,7 +182,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const handSelectionAnchor = useRef<string>(undefined);
   const handClickSuppressed = useRef(false);
   const tableHandGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
-  const gesture = useRef<{ pointer: number; x: number; y: number; startWorld?: { x: number; y: number }; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number } }>(null);
+  // `extract`: the top piece to take off its stack once the pointer starts moving (a plain click still selects the stack).
+  const gesture = useRef<{ pointer: number; x: number; y: number; startWorld?: { x: number; y: number }; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number }; extract?: string }>(null);
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
@@ -531,7 +534,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     const ids = selectedPieces.filter(i => hasPages(table.components.get(i.componentId)!)).map(i => i.id);
     if (ids.length) void dispatch({ type: 'cycleVariant', ids, delta });
   };
-  const rotate = (rotation: number) => { if (piece) dispatch({ type: 'transform', ids: selected, rotation }); };
+  // Rotation goes in steps of each piece's component rotation step (90° by default).
+  const rotate = (turns: number) => { if (piece) dispatch({ type: 'transform', ids: selected, turns }); };
+  const stepOf = (componentId?: string) => p.components.find(c => c.id === componentId)?.rotationStep ?? 90;
+  const selectionStep = (() => { const steps = new Set(selectedPieces.map(i => stepOf(i.componentId))); return steps.size === 1 ? [...steps][0] : undefined; })();
   const shuffleOrRoll = (ids: string[]) => {
     const chosen = p.instances.filter(i => ids.includes(i.id) && !i.holder);
     const dice = chosen.filter(i => p.components.find(c => c.id === i.componentId)?.kind === 'dice');
@@ -621,7 +627,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         // Shift turns book pages and steps dice to their next face; other pieces rotate.
         const paged = e.shiftKey ? shortcutIds.filter(id => { const comp = table.components.get(p.instances.find(i => i.id === id)?.componentId ?? ''); return !!comp && hasPages(comp); }) : [];
         if (paged.length) dispatch({ type: 'cycleVariant', ids: paged, delta });
-        else dispatch({ type: 'transform', ids: shortcutIds, rotation: delta * 90 });
+        else dispatch({ type: 'transform', ids: shortcutIds, turns: delta });
       }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'r' && shortcutPiece) { e.preventDefault(); shuffleOrRoll(shortcutIds); }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'g' && selected.length > 1) { e.preventDefault(); dispatch({ type: 'stack', ids: selected, stackId: uid('stack') }); }
@@ -667,16 +673,19 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     // Locked pieces ignore plain clicks so a box selection can start over them; Ctrl/Cmd-click still selects them.
     if (item.locked && !e.ctrlKey && !e.metaKey) return;
     e.stopPropagation();
-    const extracting = !viewer && e.shiftKey && !!item.stack;
+    // On a stack, Shift swaps between taking its top piece and moving the whole stack (see the stackDragTakesTop setting).
+    const takeTop = !viewer && !!item.stack && !e.ctrlKey && !e.metaKey && e.shiftKey !== stackDragTakesTop;
+    const extracting = takeTop && e.shiftKey;
     const group = extracting ? [item.id] : stackMembers(p, item).map(i => i.id);
-    const extending = !extracting && (e.shiftKey || e.ctrlKey || e.metaKey);
+    const extending = !extracting && (e.ctrlKey || e.metaKey || (e.shiftKey && !item.stack));
     const ids = extracting ? group : extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
     setSelected(ids);
     if (viewer || !ids.includes(item.id)) return;
     // Selecting a locked piece (or one in a locked group) leaves it where it is in the table order.
     if (item.locked) return;
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
-    const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), positions, front: group };
+    const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), positions, front: group,
+      ...(takeTop && !extracting ? { extract: item.id } : {}) };
     gesture.current = active;
     if (extracting) {
       viewport.current?.setPointerCapture(e.pointerId);
@@ -811,6 +820,18 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) { setHovered(undefined); setPreviewItem(undefined); }
           }
           else {
+            // Taking the top piece off a stack starts once the pointer moves, so a click still selects the stack.
+            if (g.extract && Math.hypot(e.clientX - g.x, e.clientY - g.y) > 3) {
+              const top = p.instances.find(i => i.id === g.extract);
+              g.extract = undefined;
+              if (top) {
+                g.positions = { [top.id]: { x: top.x, y: top.y } }; g.front = [top.id];
+                setSelected([top.id]);
+                void dispatch({ type: 'extractMove', id: top.id, x: top.x, y: top.y }).then(ok => {
+                  if (!ok && gesture.current === g) { gesture.current = null; setPreview({}); setDropHint(undefined); setHandDrop(undefined); }
+                });
+              }
+            }
             const delta = dragDelta(g, e.clientX, e.clientY);
             setPreview(Object.fromEntries(Object.entries(g.positions).map(([id, pos]) => [id, { x: pos.x + delta.x, y: pos.y + delta.y }])));
             showDropHint(e.clientX, e.clientY, p.instances.filter(i => i.id in g.positions), e.altKey);
@@ -930,15 +951,15 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             return <TablePiece key={item.id} item={item} component={comp} components={p.components} x={position.x} y={position.y} count={count}
               zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handTarget}
               dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} shuffling={!!item.stack && shuffling.has(item.stack)} hovered={isHovered}
-              {...(count > 1 || comp.kind === 'book' ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
+              {...(count > 1 || comp.kind === 'book' || isSelected ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
         </div>
         <div className="floating-tools" onPointerDown={e => e.stopPropagation()}>
           <button className={tool === 'select' ? 'active' : ''} title="Select & move" aria-label="Select and move" onClick={() => setTool('select')}><MousePointer2 size={19} /></button>
           <button className={tool === 'pan' ? 'active' : ''} title="Pan table" aria-label="Pan table" onClick={() => setTool('pan')}><Hand size={19} /></button>
-          <span /><button className={p.settings.grid ? 'active-subtle' : ''} title="Toggle grid" aria-label="Toggle grid" onClick={() => dispatch({ type: 'settings', patch: { grid: !p.settings.grid } })}><Grid2X2 size={18} /></button>
-          <button className={p.settings.snap ? 'active-subtle' : ''} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
+          <span /><button className={p.settings.grid ? 'active' : ''} aria-pressed={p.settings.grid} title="Toggle grid" aria-label="Toggle grid" onClick={() => dispatch({ type: 'settings', patch: { grid: !p.settings.grid } })}><Grid2X2 size={18} /></button>
+          <button className={p.settings.snap ? 'active' : ''} aria-pressed={p.settings.snap} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
         </div>
         {(plan?.error || notice) && <div className="table-warnings" onPointerDown={e => e.stopPropagation()}>
           {notice && <div className="warning-card undo-toast" role="status" title="Click to dismiss" onClick={onDismissNotice}>
@@ -965,7 +986,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}{count > 1 && <span className="preview-stack-count" aria-label={`Stack of ${count}`}><Layers size={11} /> {count}</span>}{comp.kind === 'book' && <span className="preview-stack-count" aria-label={`Page ${item.row + 1} of ${Math.max(1, comp.rows.length)}`}><BookOpen size={11} /> {item.row + 1} / {Math.max(1, comp.rows.length)}</span>}</strong>
             <table className="preview-shortcuts" aria-label="Piece shortcuts"><tbody>
               <tr><th scope="row">Flip</th><td><kbd>F</kbd></td></tr>
-              <tr><th scope="row">Rotate −90° / +90°</th><td><kbd>Q / E</kbd></td></tr>
+              <tr><th scope="row">Rotate −{comp.rotationStep ?? 90}° / +{comp.rotationStep ?? 90}°</th><td><kbd>Q / E</kbd></td></tr>
               {hasPages(comp) && <tr><th scope="row">{comp.kind === 'book' ? 'Previous / next page' : 'Previous / next face'}</th><td><kbd>Shift Q / E</kbd></td></tr>}
               <tr><th scope="row">Shuffle / roll</th><td><kbd>R</kbd></td></tr>
               <tr><th scope="row">Stack selection</th><td><kbd>G</kbd></td></tr>
@@ -1153,8 +1174,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           {hasPages(c) && <p className="page-status" role="status">{c.kind === 'book' ? 'Page' : 'Face'} {piece.row + 1} of {Math.max(1, c.rows.length)}</p>}
           {/* Rotation first, then what this piece or stack can do, then the general actions. Actions that don't apply are left out. */}
           <div className="action-grid">
-            <button onClick={() => rotate(-90)}><RotateCcw size={17} /><span>Rotate −90°<kbd>Q</kbd></span></button>
-            <button onClick={() => rotate(90)}><RotateCw size={17} /><span>Rotate +90°<kbd>E</kbd></span></button>
+            <button onClick={() => rotate(-1)}><RotateCcw size={17} /><span>{selectionStep ? `Rotate −${selectionStep}°` : 'Rotate back'}<kbd>Q</kbd></span></button>
+            <button onClick={() => rotate(1)}><RotateCw size={17} /><span>{selectionStep ? `Rotate +${selectionStep}°` : 'Rotate on'}<kbd>E</kbd></span></button>
             {selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable) && <button onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>}
             {hasPages(c) && <>
               <button disabled={c.kind === 'book' && piece.row <= 0} onClick={() => turnPages(-1)}><ChevronLeft size={17} /><span>{c.kind === 'book' ? 'Previous page' : 'Previous face'}<kbd>Shift Q</kbd></span></button>
@@ -1321,7 +1342,8 @@ type TablePieceProps = {
   /** The table zoom times the piece's scale; only set for selected, hovered and drop-target pieces, whose order badge
    * and outline keep a constant screen size. */
   pieceZoom?: number;
-  /** For stacks and books: the piece's rotation on screen (with the camera's), so its labels stay upright at its screen-bottom edge. */
+  /** For stacks, books and selected pieces: the piece's rotation on screen (with the camera's), so its labels and selection
+   * badge stay upright, at its screen-bottom edge and screen top-left corner. */
   labelAngle?: number;
   /** For stacks and books too small on screen for a full label: show just the icon. */
   compactLabel?: boolean;
@@ -1340,6 +1362,17 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
   const ringId = `piece-ring-${item.id.replace(/[^\w-]/g, '_')}`;
   // Dragging keeps the layout position and moves the piece on the compositor.
   useCompositedTransform(element, dragging ? `translate(${x - item.x}px, ${y - item.y}px) ${transform}` : undefined);
+  // While dragging, the piece's transform follows the pointer on the compositor and a rotation would jump; turn its
+  // contents from the old angle instead (the table transition does this for pieces at rest).
+  const lastRotation = useRef(item.rotation);
+  useLayoutEffect(() => {
+    const from = lastRotation.current;
+    lastRotation.current = item.rotation;
+    if (!dragging || from === item.rotation || !element.current || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    for (const part of element.current.querySelectorAll(':scope > .piece-face, :scope > .stack-shadow')) {
+      part.animate([{ transform: `rotate(${from - item.rotation}deg)` }, { transform: 'rotate(0deg)' }], { duration: 200, easing: 'cubic-bezier(.2, .8, .2, 1)', composite: 'add' });
+    }
+  }, [item.rotation, dragging]);
   const wasDragging = useRef(dragging);
   useLayoutEffect(() => {
     const node = element.current;
@@ -1374,7 +1407,7 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
         {pages > 0 && <span className="stack-count book-page-count" data-testid="book-page" title={`Page ${item.row + 1} of ${pages}`}><BookOpen size={13} />{compactLabel ? <span className="visually-hidden">{item.row + 1} / {pages}</span> : <> {item.row + 1} / {pages}</>}</span>}
       </div>;
     })()}
-    {slot && <span className={`stack-order-badge ${badgeError ? 'blocked' : ''}`} data-testid="stack-order" data-slot={slot}
+    {slot && <span className={`stack-order-badge ${badgeError ? 'blocked' : ''}`} data-testid="stack-order" data-slot={slot} style={orderBadgePlace(comp, labelAngle ?? item.rotation, pieceZoom)}
       title={badgeError ? `Can't stack: ${badgeError}` : `Stacked ${slot === 'bottom' ? 'at the bottom' : slot === 'top' ? 'on top' : 'in the middle'} (${badgeIndex + 1} of ${badgeTotal})`}>
       <b>{badgeIndex + 1}</b><StackSlotIcon slot={slot} blocked={!!badgeError} />
     </span>}
@@ -1415,6 +1448,19 @@ function useCompositedTransform(ref: React.RefObject<HTMLElement | null>, transf
     }, settleAfter);
   }, [ref, transform, settleAfter]);
   useEffect(() => () => { window.clearTimeout(settle.current); animation.current?.cancel(); }, []);
+}
+
+/**
+ * Places the selection order badge upright at the piece corner that is top-left on screen, just outside it (overlapping
+ * by 10 screen pixels) and at a fixed screen size. `angle` is the piece's rotation on screen, camera included.
+ */
+function orderBadgePlace(comp: Component, angle: number, zoom = 1): React.CSSProperties {
+  const turn = angle * Math.PI / 180, cos = Math.cos(turn), sin = Math.sin(turn);
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => ({ sx, sy, x: sx * comp.width / 2, y: sy * comp.height / 2 }));
+  // The corner whose screen position has the smallest x + y is the top-left one.
+  const corner = corners.reduce((best, at) => (at.x * cos - at.y * sin) + (at.x * sin + at.y * cos) < (best.x * cos - best.y * sin) + (best.x * sin + best.y * cos) ? at : best);
+  return { left: comp.width / 2 + corner.x, top: comp.height / 2 + corner.y, right: 'auto', bottom: 'auto', transformOrigin: '0 0',
+    transform: `rotate(${-angle}deg) scale(${1 / zoom}) translate(calc(-100% + 10px), calc(-100% + 10px))` };
 }
 
 /**

@@ -10,7 +10,7 @@ describe('user settings', () => {
 
   it('keeps valid fields and replaces only the invalid ones', () => {
     const settings = parseSettings(JSON.stringify({ name: 'Ada', color: 'red', server: 'https://maincloud.spacetimedb.com', database: '', theme: 'neon' }));
-    expect(settings).toEqual({ name: 'Ada', color: DEFAULT_COLOR, server: 'https://maincloud.spacetimedb.com', database: DEFAULT_DATABASE, theme: 'system', uiScale: 100, onboarded: false });
+    expect(settings).toEqual({ name: 'Ada', color: DEFAULT_COLOR, server: 'https://maincloud.spacetimedb.com', database: DEFAULT_DATABASE, theme: 'system', uiScale: 100, stackDragTakesTop: true, onboarded: false });
     expect(parseSettings(JSON.stringify({ color: '#11223344', theme: 'dark', onboarded: true }))).toMatchObject({ color: '#112233', theme: 'dark', onboarded: true });
   });
 

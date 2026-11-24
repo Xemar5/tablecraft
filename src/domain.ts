@@ -82,6 +82,8 @@ export const componentSchema = z.object({
   stackable: z.boolean(), shufflable: z.boolean(), stackTag: z.string().max(100),
   /** Show the corner preview when hovering its pieces even while they are locked (locked pieces have none otherwise). */
   previewWhenLocked: z.boolean().optional(),
+  /** Degrees each Q/E press or rotate button turns its pieces (90 when absent). */
+  rotationStep: z.number().int().min(1).max(180).optional(),
   source: z.object({ projectId: id, componentId: id, projectName: z.string().min(1).max(100) }).optional(),
   asset: assetSchema.optional(),
 });
@@ -239,7 +241,9 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(),
     positions: z.array(z.object({ id, x: num, y: num })).min(1).max(10000).optional(),
-    rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional() }),
+    rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional(),
+    /** Rotation steps: each piece turns by this many of its component's rotation step. */
+    turns: z.number().int().min(-360).max(360).optional() }),
   z.object({ type: z.literal('drawSelection'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('delete'), ids: z.array(id) }),
   z.object({ type: z.literal('stack'), ids: z.array(id), stackId: id }),
@@ -913,7 +917,7 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
         if (isLocked(item)) throw new Error('Unlock this component first.');
         item.x = positions?.get(key)?.x ?? item.x + (command.dx ?? 0);
         item.y = positions?.get(key)?.y ?? item.y + (command.dy ?? 0);
-        item.rotation = (item.rotation + (command.rotation ?? 0)) % 360;
+        item.rotation = (item.rotation + (command.rotation ?? 0) + (command.turns ?? 0) * (component(item).rotationStep ?? 90)) % 360;
         // Rounding keeps relative factors such as target / current from drifting below the typed value.
         item.scale = Math.round(item.scale * (command.scaleFactor ?? 1) * 1e9) / 1e9;
         if (command.flip && item.stack && flippedStacks.has(item.stack)) item.stackReversed = !item.stackReversed;

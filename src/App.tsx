@@ -14,7 +14,7 @@ import { Designer } from './Designer';
 import { Playground } from './Playground';
 import { PanelSeparator, usePanelLayout } from './panelLayout';
 import type { LiveSession } from './multiplayer';
-import { ColorField, Field, Modal, Notice, NumberField, ScrollArrows, useSmoothHorizontalWheel } from './ui';
+import { ColorField, Field, Modal, Notice, NumberField, ScrollArrows, Toggle, useSmoothHorizontalWheel } from './ui';
 import { applyUiScale, clampUiScale, UI_SCALE_MAX, UI_SCALE_MIN, UI_SCALE_PRESETS } from './uiScale';
 import { Home } from './Home';
 import { LinkedComponent } from './LinkedComponent';
@@ -665,7 +665,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components} notify={notify}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
@@ -768,6 +768,11 @@ export default function App() {
               <NumberField deferred label={`Custom scale (${UI_SCALE_MIN}–${UI_SCALE_MAX}%)`} value={settings.uiScale} min={UI_SCALE_MIN} max={UI_SCALE_MAX} step={5} onChange={value => updateSettings({ uiScale: clampUiScale(value) })} />
             </div>
           </div>
+        </section>
+        <section className="settings-section" aria-labelledby="settings-table">
+          <header><span className="settings-section-icon"><Layers size={18} /></span><div><h3 id="settings-table">Table</h3><p>How your pointer handles pieces on the table.</p></div></header>
+          <Toggle label="Drag the top piece off stacks" description="Dragging a stack takes its top piece; hold Shift to move the whole stack. Turn off to move whole stacks by default and Shift-drag to take the top piece."
+            checked={settings.stackDragTakesTop} onChange={stackDragTakesTop => updateSettings({ stackDragTakesTop })} />
         </section>
         <section className="settings-section" aria-labelledby="settings-multiplayer">
           <header><span className="settings-section-icon"><Wifi size={18} /></span><div><h3 id="settings-multiplayer">Multiplayer</h3><p>Prefilled when you invite players or join a table. You can still change them for a single session.</p></div></header>

@@ -1078,6 +1078,8 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <Toggle label="Can be stacked" checked={component.stackable} onChange={stackable => update({ stackable })} />
             <Toggle label="Shufflable" checked={component.shufflable} onChange={shufflable => update({ shufflable })} disabled={!component.stackable} />
             <Toggle label="Preview when locked" description="Show the hover preview even while a piece is locked" checked={!!component.previewWhenLocked} onChange={previewWhenLocked => update({ previewWhenLocked })} />
+            <NumberField deferred label="Rotation step (°)" hint="How far Q/E and the rotate buttons turn its pieces, for example 90, 60, 45, 30 or 15 degrees." value={component.rotationStep ?? 90} min={1} max={180}
+              onChange={rotationStep => update({ rotationStep })} />
             {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>

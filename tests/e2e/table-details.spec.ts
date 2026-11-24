@@ -117,3 +117,19 @@ test('shuffling a stack plays the shuffle animation once', async ({ page }) => {
   expect(saved.filter((item: { stack: string | null; shuffles?: number }) => item.stack === 'starter-deck').every((item: { shuffles?: number }) => item.shuffles === 1)).toBe(true);
   void id;
 });
+
+test('the grid and snapping toggles look like the active tool when on', async ({ page }) => {
+  await page.goto('/');
+  const tools = page.locator('.floating-tools');
+  const active = tools.locator('button.active').first();
+  const grid = tools.getByRole('button', { name: 'Toggle grid' }), snap = tools.getByRole('button', { name: 'Toggle snapping' });
+  if ((await snap.getAttribute('aria-pressed')) !== 'true') await snap.click();
+  if ((await grid.getAttribute('aria-pressed')) !== 'true') await grid.click();
+  const background = (locator: typeof grid) => locator.evaluate(element => getComputedStyle(element).backgroundColor);
+  const tool = await background(active);
+  await expect.poll(() => background(grid)).toBe(tool);
+  await expect.poll(() => background(snap)).toBe(tool);
+  await snap.click();
+  await expect.poll(() => background(snap)).not.toBe(tool);
+});
+

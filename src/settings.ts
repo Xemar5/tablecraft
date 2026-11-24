@@ -31,6 +31,8 @@ export const userSettingsSchema = z.object({
   theme: z.enum(['system', 'light', 'dark']).catch('system'),
   /** Interface scale in percent (50–200), applied to the whole page. */
   uiScale: z.number().int().min(UI_SCALE_MIN).max(UI_SCALE_MAX).catch(100),
+  /** Dragging a stack takes its top piece off (Shift drags the whole stack); when off, it's the other way round. */
+  stackDragTakesTop: z.boolean().catch(true),
   /** Set once the first-launch profile (a name) is complete. */
   onboarded: z.boolean().catch(false),
 });

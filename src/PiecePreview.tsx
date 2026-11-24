@@ -102,13 +102,13 @@ export function PiecePreview({ item, component, components, actor, viewer, point
       if (event.ctrlKey || event.metaKey || event.altKey) return;
       if (key === 'f' && permission.canFlip) setFlipped(value => !value);
       if ((key === 'q' || key === 'e') && event.shiftKey) { if (pages) turn(key === 'q' ? -1 : 1); }
-      else if (key === 'q' || key === 'e') setRotation(value => value + (key === 'q' ? -90 : 90));
+      else if (key === 'q' || key === 'e') setRotation(value => value + (key === 'q' ? -1 : 1) * (component.rotationStep ?? 90));
     };
     window.addEventListener('keydown', key, true);
     return () => {
       window.removeEventListener('keydown', key, true);
     };
-  }, [onClose, pages, permission.canFlip, turn]);
+  }, [onClose, pages, permission.canFlip, turn, component.rotationStep]);
   // Re-evaluate permissions on every render, including while a remote seat/face changes.
   const back = permission.canFlip ? permission.back !== flipped : permission.back;
   return createPortal(<div ref={root} tabIndex={-1} role="dialog" aria-modal="true" data-theme-fixed aria-label={`Fullscreen preview: ${component.name}`}
