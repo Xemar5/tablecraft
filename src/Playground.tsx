@@ -135,6 +135,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   // Stacks whose shuffle count went up (here or by another player) play the shuffle animation once.
   const [shuffling, setShuffling] = useState<ReadonlySet<string>>(() => new Set());
   const seenShuffles = useRef<Map<string, number>>(null);
+  // One timer per stack ends its animation. It must outlive table updates: cancelling it when the next action changes
+  // the table left the stack marked as shuffling, and a later draw (a new top piece) replayed the animation.
+  const shuffleTimers = useRef(new Map<string, number>());
+  useEffect(() => () => shuffleTimers.current.forEach(timer => window.clearTimeout(timer)), []);
   useEffect(() => {
     const first = !seenShuffles.current;
     const seen = seenShuffles.current ??= new Map();
@@ -148,8 +152,13 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     }
     if (!started.size) return;
     setShuffling(current => new Set([...current, ...started]));
-    const timer = window.setTimeout(() => setShuffling(current => new Set([...current].filter(stack => !started.has(stack)))), SHUFFLE_MS);
-    return () => window.clearTimeout(timer);
+    for (const stack of started) {
+      window.clearTimeout(shuffleTimers.current.get(stack));
+      shuffleTimers.current.set(stack, window.setTimeout(() => {
+        shuffleTimers.current.delete(stack);
+        setShuffling(current => new Set([...current].filter(item => item !== stack)));
+      }, SHUFFLE_MS));
+    }
   }, [p.instances]);
   const seatMoved = useRef(false);
   const pointer = useRef<{ x: number; y: number }>(null);
