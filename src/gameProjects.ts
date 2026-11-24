@@ -248,13 +248,15 @@ export function goProject(name: string, description: string, profile: Profile): 
 // 97 across and 84 down.
 const HEX = { width: 97, height: 112 };
 const HEX_OUTLINE = outline([[48.5, 0], [97, 28], [97, 84], [48.5, 112], [0, 84], [0, 28]]);
+/** The round slot on each island tile, below its art, that holds the tide marker (or the squall). */
+const SLOT = { x: 48.5, y: 79, size: 40 };
 const TERRAINS = [
   { terrain: 'reed', name: 'Reed marsh', resource: 'Reed', fill: '#7f9d55' },
   { terrain: 'clay', name: 'Clay banks', resource: 'Clay', fill: '#b9704a' },
   { terrain: 'salt', name: 'Salt flats', resource: 'Salt', fill: '#e2ded0' },
   { terrain: 'fish', name: 'Fishing shoals', resource: 'Fish', fill: '#4a92a6' },
   { terrain: 'stone', name: 'Sea cliffs', resource: 'Stone', fill: '#7d7f86' },
-  { terrain: 'dunes', name: 'Dunes', resource: 'Nothing grows here', fill: '#d9bf7f' },
+  { terrain: 'dunes', name: 'Dunes', resource: 'Nothing grows', fill: '#d9bf7f' },
 ];
 const PLAYER_COLORS = [
   { color: 'crimson', name: 'Crimson', fill: '#b8483a', edge: '#5e2018' }, { color: 'azure', name: 'Azure', fill: '#3b6fa8', edge: '#1c3657' },
@@ -301,8 +303,11 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     flippable: true, stackable: true, shufflable: true, rows: terrainRows,
     front: [
       ...TERRAINS.map(({ terrain, name, fill }) => shape(name, { shapeKind: 'path', x: 0, y: 0, ...HEX, points: HEX_OUTLINE, fill, stroke: '#1f2b2633', strokeWidth: 1.5, ...when('terrain', terrain) })),
-      ...resourceArt('terrain', 28.5, 26, 40),
-      label('Resource', { x: 14, y: 74, width: 69, height: 14, text: '{{resource}}', fontSize: 7, textTransform: 'uppercase', letterSpacing: 1, color: '#1f2b26cc' }),
+      // The art and resource name fill the upper half, leaving the number slot free below them.
+      ...resourceArt('terrain', 31.5, 11, 34),
+      label('Resource', { x: 8, y: 45, width: 81, height: 12, text: '{{resource}}', fontSize: 6.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: '#1f2b26cc' }),
+      shape('Number slot', { shapeKind: 'ellipse', x: SLOT.x - SLOT.size / 2, y: SLOT.y - SLOT.size / 2, width: SLOT.size, height: SLOT.size, fill: '#f6efdc66', stroke: '#1f2b2666', strokeWidth: 1.5 }),
+      shape('Number slot well', { shapeKind: 'ellipse', x: SLOT.x - 13, y: SLOT.y - 13, width: 26, height: 26, fill: '#1f2b2614' }),
     ],
     back: [
       shape('Sea', { shapeKind: 'path', x: 0, y: 0, ...HEX, points: HEX_OUTLINE, fill: '#2d6f86', stroke: '#1f4c5c', strokeWidth: 1.5 }),
@@ -428,9 +433,10 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   layout.forEach((row, rowIndex) => row.forEach((terrain, column) => {
     const x = CENTER.x + (column - (row.length - 1) / 2) * HEX.width, y = CENTER.y + (rowIndex - 2) * 84;
     tiles.push(place(tile, TERRAINS.findIndex(item => item.terrain === terrain), x, y));
-    const number = markers[rowIndex][column];
-    if (number) tides.push(place(marker, numbers.indexOf(number), x, y + 4));
-    else storm = place(squall, 0, x, y);
+    // The marker (or the squall, on the dunes) sits in the tile's number slot.
+    const number = markers[rowIndex][column], slotX = x + SLOT.x - HEX.width / 2, slotY = y + SLOT.y - HEX.height / 2;
+    if (number) tides.push(place(marker, numbers.indexOf(number), slotX, slotY));
+    else storm = place(squall, 0, slotX, slotY);
   }));
   [0, 1, 0, 2, 3, 0, 4, 0, 5].forEach((row, index) => {
     const angle = (20 + index * 40) * Math.PI / 180;

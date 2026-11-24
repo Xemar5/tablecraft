@@ -111,6 +111,24 @@ describe('game projects', () => {
     expect(moved.instances.find(item => item.id === tile.id)!.x).toBe(tile.x + 40);
   });
 
+  it("puts every tide marker, and the squall on the dunes, in its island tile's number slot", () => {
+    const game = build('tidewater');
+    const tile = componentNamed(game, 'Island tile'), slot = tile.front.find(node => node.name === 'Number slot')!;
+    const offset = { x: slot.x + slot.width / 2 - tile.width / 2, y: slot.y + slot.height / 2 - tile.height / 2 };
+    // The slot sits below the art and the resource name, clear of every layer but the tile outline and its own well.
+    expect(offset.x).toBe(0);
+    expect(offset.y).toBeGreaterThan(15);
+    for (const node of tile.front.filter(node => !node.name.startsWith('Number slot') && node.shapeKind !== 'path')) expect(node.y + node.height, node.name).toBeLessThanOrEqual(slot.y);
+    const slotted = [...piecesOf(game, 'Tide marker'), ...piecesOf(game, 'Squall')];
+    const tiles = piecesOf(game, 'Island tile');
+    for (const piece of tiles) {
+      const inSlot = slotted.filter(item => item.x === piece.x + offset.x && item.y === piece.y + offset.y);
+      expect(inSlot).toHaveLength(1);
+      expect(inSlot[0].componentId === componentNamed(game, 'Squall').id).toBe(tile.rows[piece.row].terrain === 'dunes');
+    }
+    expect(slotted).toHaveLength(tiles.length);
+  });
+
   it('treats only fully transparent backgrounds as open faces shaped by their layers', () => {
     for (const color of ['transparent', '', '#0000', '#12345600', 'rgba(1, 2, 3, 0)', 'hsla(0 0% 0% / 0)']) expect(hasOpenFace({ color })).toBe(true);
     for (const color of ['#fff', '#e9e5d7', '#12345601', 'rgba(1, 2, 3, .5)', 'white']) expect(hasOpenFace({ color })).toBe(false);
