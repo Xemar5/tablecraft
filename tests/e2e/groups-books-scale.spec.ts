@@ -19,9 +19,18 @@ test('pieces can be grouped, nested, renamed, selected and ungrouped while point
   await expect(amber).toBeVisible();
 
   await page.keyboard.press('Escape');
-  await expect(page.locator('.table-piece.selected')).toHaveCount(0);
+  await expect(amber).toHaveAttribute('aria-pressed', 'false');
+  // Clicking a group selects the group itself, not its pieces; its Selection tab can select them.
   await amber.click();
+  await expect(amber).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.table-piece.selected')).toHaveCount(0);
+  const inspector = page.locator('.group-inspector');
+  await expect(inspector.locator('h3')).toHaveText('Group selected');
+  await expect(inspector).toContainText('2 pieces');
+  await inspector.getByRole('button', { name: /^Select pieces/ }).click();
   await expect(page.locator('.table-piece.selected')).toHaveCount(2);
+  await expect(amber).toHaveAttribute('aria-pressed', 'false');
+  await amber.click();
 
   // A whole group plus another piece nests the group in a new one.
   await panel.getByRole('button', { name: /^Spirit die/ }).click({ modifiers: ['Control'] });
@@ -29,12 +38,35 @@ test('pieces can be grouped, nested, renamed, selected and ungrouped while point
   await page.keyboard.press('g');
   await expect(panel.getByRole('button', { name: /^Group Group 1, 3 pieces/ })).toBeVisible();
   await expect(panel.locator('[role=treeitem][aria-level="3"]')).toHaveCount(2);
+  // The new group is selected. Inside it, Amber moves down past the die and up again, and out of the group and back.
+
+  await expect(inspector).toContainText('Group 1');
+  await amber.click();
+  await expect(inspector).toContainText('in Group 1');
+  const level2 = () => panel.locator('[role=treeitem][aria-level="2"] .layer-row').evaluateAll(rows => rows.map(row => row.getAttribute('aria-label')));
+  const order = await level2();
+  const moveDown = inspector.getByRole('button', { name: /^Move down/ }), moveUp = inspector.getByRole('button', { name: /^Move up/ });
+  const [first] = order[0]!.startsWith('Group Amber') ? [moveDown] : [moveUp];
+  await first.click();
+  await expect.poll(level2).toEqual([...order].reverse());
+  // At the end of its group it can't go further, and says why.
+  await expect(first).toHaveAttribute('aria-disabled', 'true');
+  await expect(first).toHaveAttribute('title', /already at the (top|bottom)/);
+  await (first === moveDown ? moveUp : moveDown).click();
+  await expect.poll(level2).toEqual(order);
+  await inspector.getByRole('button', { name: /^Out of group/ }).click();
+  await expect(panel.getByRole('button', { name: /^Group Group 1, 1 piece/ })).toBeVisible();
+  await expect(inspector).not.toContainText('in Group 1');
+  await page.keyboard.press('Control+z');
+  await expect(panel.getByRole('button', { name: /^Group Group 1, 3 pieces/ })).toBeVisible();
+  await panel.getByRole('button', { name: /^Group Group 1/ }).click();
   await page.keyboard.press('Shift+G');
   await expect(panel.getByRole('button', { name: /^Group Group 1/ })).toHaveCount(0);
   await expect(amber).toBeVisible();
 
   // Away from the panel, G still stacks the selection; the stack stays in its group.
   await amber.click();
+  await page.locator('.group-inspector').getByRole('button', { name: /^Select pieces/ }).click();
   await page.locator('.table-viewport').hover({ position: { x: 20, y: 20 } });
   await page.keyboard.press('g');
   await expect(panel.getByRole('button', { name: 'Amber token, stack of 2', exact: true })).toBeVisible();

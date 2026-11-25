@@ -76,12 +76,16 @@ export function selectedGroups(p: Project, selected: string[]): PieceGroup[] {
 }
 
 /**
- * What grouping the selection would create: the fully selected groups plus the remaining selected table pieces
- * (with their whole stacks), placed in the deepest group that contains all of them.
+ * What grouping the selection would create: the selected groups (picked in the Pieces panel, or with every piece
+ * selected) plus the remaining selected table pieces (with their whole stacks), placed in the deepest group that
+ * contains all of them.
  */
-export function groupSelection(p: Project, selected: string[]): { ids: string[]; groups: string[]; parent: string | null } | undefined {
+export function groupSelection(p: Project, selected: string[], pickedGroups: string[] = []): { ids: string[]; groups: string[]; parent: string | null } | undefined {
   const groups = p.groups ?? [];
-  const units = selectedGroups(p, selected);
+  const all = [...selectedGroups(p, selected), ...groups.filter(group => pickedGroups.includes(group.id))];
+  const allIds = new Set(all.map(group => group.id));
+  // A group inside another chosen group moves with it.
+  const units = [...new Map(all.map(group => [group.id, group])).values()].filter(group => !groupAncestors(groups, group.parent).some(id => allIds.has(id)));
   const chosen = new Set(selected), covered = new Set(units.flatMap(group => groupMembers(p, group.id)));
   const stacks = new Set(p.instances.filter(item => chosen.has(item.id) && item.stack && !item.holder).map(item => item.stack));
   const pieces = p.instances.filter(item => !item.holder && !covered.has(item.id) && (chosen.has(item.id) || (item.stack && stacks.has(item.stack))));
@@ -97,7 +101,24 @@ export function nextGroupName(p: Project) {
 }
 
 /** The createGroup command for the current selection, or undefined when nothing on the table is selected. */
-export function createGroupCommand(p: Project, selected: string[], name = nextGroupName(p)): Extract<Command, { type: 'createGroup' }> | undefined {
-  const plan = groupSelection(p, selected);
+export function createGroupCommand(p: Project, selected: string[], name = nextGroupName(p), pickedGroups: string[] = []): Extract<Command, { type: 'createGroup' }> | undefined {
+  const plan = groupSelection(p, selected, pickedGroups);
   return plan && { type: 'createGroup', id: uid('group'), name, ...plan };
+}
+
+/**
+ * Moves a row of the Pieces panel past the previous (direction -1, towards the front) or next row at its own level, as
+ * an arrangePieces command: `units` are the pieces and groups that move with it. Undefined when there is no such row.
+ */
+export function nudgeCommand(p: Project, rows: PieceTreeRow[], row: PieceTreeRow, units: { ids: string[]; groups: string[] }, direction: -1 | 1): Extract<Command, { type: 'arrangePieces' }> | undefined {
+  let neighbour: PieceTreeRow | undefined;
+  for (let at = rows.indexOf(row) + direction; at >= 0 && at < rows.length; at += direction) {
+    const candidate = rows[at];
+    if (candidate.depth < row.depth) break;
+    if (candidate.depth === row.depth && !(candidate.kind === 'piece' && candidate.member)) { neighbour = candidate; break; }
+  }
+  if (!neighbour) return undefined;
+  const parent = neighbour.kind === 'group' ? neighbour.group.parent : neighbour.item.group ?? null;
+  if (units.groups.some(id => groupAncestors(p.groups ?? [], parent).includes(id))) return undefined;
+  return { type: 'arrangePieces', parent, ids: units.ids, groups: units.groups, target: neighbour.ids, position: direction < 0 ? 'above' : 'below' };
 }

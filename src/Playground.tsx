@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Radar, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Radar, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X, Folder, FolderOutput, BoxSelect } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
 import { componentTags, fitsPersistentStack, handPermissions, stackFilterOf, stackJoinError, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
-import { createGroupCommand, selectedGroups } from './pieceGroups';
+import { createGroupCommand, groupMembers, nudgeCommand, pieceTree, selectedGroups } from './pieceGroups';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ZoomPresets } from './ZoomPresets';
 import { ColorField, Field, HorizontalScroll, InfoTip, Modal, NumberField, Toggle } from './ui';
@@ -111,7 +111,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const [selectedSeatId, setSelectedSeatId] = useState<string>();
   const selectedSeat = p.players.find(player => player.id === selectedSeatId);
   useEffect(() => { if (selected.length) setSelectedSeatId(undefined); }, [selected]);
-  const selectSeat = (player: Player) => { setSelected([]); setSelectedSeatId(player.id); setPanel('selection'); onShowInspector(); };
+  const selectSeat = (player: Player) => { setSelected([]); setPickedGroupIds([]); setSelectedSeatId(player.id); setPanel('selection'); onShowInspector(); };
   const [hovered, setHovered] = useState<string>();
   // Persistent stacks (domain.ts): the empty ones show as slots on the table that can be selected, moved and dropped into.
   const persistentStacks = p.stacks ?? [];
@@ -122,6 +122,15 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const [slotPreview, setSlotPreview] = useState<{ id: string; x: number; y: number }>();
   const slotDrag = useRef<{ id: string; pointer: number; x: number; y: number; startWorld: { x: number; y: number }; origin: { x: number; y: number } } | null>(null);
   useEffect(() => { if (selected.length) setSelectedSlot(undefined); }, [selected]);
+  // Groups picked in the Pieces panel are selected as groups, not as their pieces. Selecting pieces anywhere else (the
+  // table, a hand) drops them; the panel keeps them when it changes both together.
+  const [pickedGroupIds, setPickedGroupIds] = useState<string[]>([]);
+  const keepPickedGroups = useRef(false);
+  useEffect(() => {
+    if (!keepPickedGroups.current && selected.length) setPickedGroupIds([]);
+    keepPickedGroups.current = false;
+  }, [selected]);
+  const pickedGroups = (p.groups ?? []).filter(group => pickedGroupIds.includes(group.id));
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
   const [previewOnLeft, setPreviewOnLeft] = useState(false);
@@ -687,14 +696,24 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   };
   const flip = () => { if (piece) dispatch({ type: 'transform', ids: selected, flip: true }); };
   const fullGroups = useMemo(() => selectedGroups(p, selected), [p, selected]);
-  const canGroup = selected.some(id => p.instances.some(i => i.id === id && !i.holder));
+  const canGroup = pickedGroupIds.length > 0 || selected.some(id => p.instances.some(i => i.id === id && !i.holder));
   const groupSelected = () => {
-    const command = createGroupCommand(p, selected);
-    if (command) void dispatch(command); else notify('Select pieces on the table to group them.', true);
+    const command = createGroupCommand(p, selected, undefined, pickedGroupIds);
+    if (!command) { notify('Select pieces on the table to group them.', true); return; }
+    // The new group is selected, as a group (Shift+G undoes it straight away).
+    void dispatch(command).then(ok => { if (ok) { setSelected([]); setPickedGroupIds([command.id]); } });
   };
+  const ungroupIds = [...new Set([...fullGroups.map(group => group.id), ...pickedGroupIds])];
   const ungroupSelected = () => {
-    if (fullGroups.length) void dispatch({ type: 'ungroup', ids: fullGroups.map(group => group.id) });
-    else notify('Click a group in the Pieces panel to select it, then ungroup it.', true);
+    if (!ungroupIds.length) { notify('Click a group in the Pieces panel to select it, then ungroup it.', true); return; }
+    // Their pieces stay selected, now without the groups around them.
+    const members = [...new Set([...selected, ...ungroupIds.flatMap(id => groupMembers(p, id))])];
+    void dispatch({ type: 'ungroup', ids: ungroupIds }).then(ok => { if (ok) { setPickedGroupIds([]); setSelected(members); } });
+  };
+  /** Moves a group past its neighbour in the Pieces panel (up is towards the front), or says why it can't. */
+  const groupMove = (id: string, direction: -1 | 1) => {
+    const rows = pieceTree(p, new Set(), new Set()), row = rows.find(item => item.kind === 'group' && item.group.id === id);
+    return row && nudgeCommand(p, rows, row, { ids: [], groups: [id] }, direction);
   };
   const turnPages = (delta: number) => {
     const ids = selectedPieces.filter(i => hasPages(table.components.get(i.componentId)!)).map(i => i.id);
@@ -773,7 +792,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         if (target) { e.preventDefault(); setFullscreen({ id: target.id, pointer: lastPointer.current }); setAltDown(false); }
         return;
       }
-      if (e.key === 'Escape') { setSelected([]); setSelectedSeatId(undefined); }
+      if (e.key === 'Escape') { setSelected([]); setPickedGroupIds([]); setSelectedSeatId(undefined); }
       const hoveredPiece = p.instances.find(i => i.id === hovered && (!i.holder || i.holder === actor));
       const shortcutIds = hoveredPiece && !selected.includes(hoveredPiece.id) ? stackMembers(p, hoveredPiece).map(i => i.id) : selected;
       const shortcutPiece = hoveredPiece ?? piece;
@@ -972,9 +991,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         onChange={grid => dispatch({ type: 'grid', grid })} readOnly={viewer} /> : <>
       <div className="panel-heading"><span><Shapes size={15} /> Pieces</span><span className="panel-heading-actions">
         <button className="icon-button" title="Group selected pieces (G while pointing at this panel)" aria-label="Group selected pieces" disabled={viewer || !canGroup} onClick={groupSelected}><FolderPlus size={14} /></button>
-        <button className="icon-button" title="Ungroup selected groups (Shift+G while pointing at this panel)" aria-label="Ungroup selected groups" disabled={viewer || !fullGroups.length} onClick={ungroupSelected}><Ungroup size={14} /></button>
+        <button className="icon-button" title="Ungroup selected groups (Shift+G while pointing at this panel)" aria-label="Ungroup selected groups" disabled={viewer || !ungroupIds.length} onClick={ungroupSelected}><Ungroup size={14} /></button>
         <span className="subtle">{topPieces.length}</span></span></div>
-      <PlaygroundPieces project={source} selected={selected} dispatch={dispatch} readOnly={viewer} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
+      <PlaygroundPieces project={source} selected={selected} groups={pickedGroupIds} dispatch={dispatch} readOnly={viewer}
+        onSelect={(ids, groups) => { keepPickedGroups.current = ids.join() !== selected.join(); setSelected(ids); setPickedGroupIds(groups); setSelectedSeatId(undefined); setPanel('selection'); }} />
       </>}
     </aside>
     <PanelSeparator label="Resize pieces panel" controls="playground-pieces-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
@@ -1028,7 +1048,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             e.currentTarget.setPointerCapture(e.pointerId);
           } else if (e.button === 0) {
             marqueeGesture.current = { x: e.clientX, y: e.clientY, ids: e.shiftKey ? selected : [] };
-            if (!e.shiftKey) { setSelected([]); setSelectedSeatId(undefined); }
+            if (!e.shiftKey) { setSelected([]); setPickedGroupIds([]); setSelectedSeatId(undefined); }
             e.currentTarget.setPointerCapture(e.pointerId);
           }
         }}
@@ -1205,7 +1225,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               onPointerDown={e => {
                 if (e.button !== 0 || tool === 'pan') return;
                 e.stopPropagation();
-                setSelected([]); setSelectedSeatId(undefined); setSelectedSlot(record.id); setPanel('selection');
+                setSelected([]); setPickedGroupIds([]); setSelectedSeatId(undefined); setSelectedSlot(record.id); setPanel('selection');
                 if (viewer) return;
                 slotDrag.current = { id: record.id, pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), origin: { x: record.x, y: record.y } };
                 e.currentTarget.setPointerCapture(e.pointerId);
@@ -1535,7 +1555,15 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             <summary>Scripting</summary>
             <PieceIds ids={selected} stack={selectionStack} notify={notify} />
           </details>
-        </div> : slotRecord ? <div className="inspector-section selected-inspector">
+        </div> : pickedGroups.length ? <GroupInspector groups={pickedGroups} project={p} viewer={viewer} available={available}
+          onClose={() => setPickedGroupIds([])}
+          onSelectPieces={() => { const ids = [...new Set(pickedGroups.flatMap(group => groupMembers(p, group.id)))]; setPickedGroupIds([]); setSelected(ids); }}
+          onRename={(id, name) => void dispatch({ type: 'renameGroup', id, name })}
+          onLock={locked => void dispatch({ type: 'lockGroups', ids: pickedGroups.map(group => group.id), locked })}
+          move={groupMove} dispatch={dispatch}
+          onOut={group => void dispatch({ type: 'moveToGroup', parent: (p.groups ?? []).find(other => other.id === group.parent)?.parent ?? null, ids: [], groups: [group.id] })}
+          onUngroup={ungroupSelected} />
+        : slotRecord ? <div className="inspector-section selected-inspector">
           <div className="section-title"><h3>Empty persistent stack</h3><button className="icon-button" aria-label="Clear selection" onClick={() => setSelectedSlot(undefined)}><X size={15} /></button></div>
           <p className="help-text">Drop pieces here to fill it. Drag it to move it.</p>
           <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, slotRecord.id)} suggestions={stackTags} disabled={viewer}
@@ -1888,4 +1916,43 @@ function PieceIds({ ids, stack, notify }: { ids: string[]; stack?: string; notif
     {ids.length === 1 ? row('Piece id', ids[0], ids[0], 'piece id') : row('Piece ids', ids.join(', '), `${ids.length} pieces`, 'piece ids')}
     {stack && row('Stack id', stack, stack, 'stack id')}
   </dl>;
+}
+
+/**
+ * The Selection tab for groups picked in the Pieces panel: the group itself, not its pieces. It renames it, moves it up
+ * or down among its neighbours (up is towards the front) or out of its parent group, locks it, ungroups it, or selects
+ * every piece in it.
+ */
+function GroupInspector({ groups, project: p, viewer, available, onClose, onSelectPieces, onRename, onLock, move, dispatch, onOut, onUngroup }: {
+  groups: NonNullable<Project['groups']>; project: Project; viewer: boolean;
+  available: (reason: string | false | undefined, onClick: () => void, title?: string) => object;
+  onClose: () => void; onSelectPieces: () => void; onRename: (id: string, name: string) => void; onLock: (locked: boolean) => void;
+  move: (id: string, direction: -1 | 1) => Command | undefined; dispatch: (command: Command) => Promise<boolean>;
+  onOut: (group: NonNullable<Project['groups']>[number]) => void; onUngroup: () => void;
+}) {
+  const group = groups.length === 1 ? groups[0] : undefined;
+  const count = new Set(groups.flatMap(item => groupMembers(p, item.id))).size;
+  const parent = group && (p.groups ?? []).find(other => other.id === group.parent);
+  const locked = groups.every(item => item.locked);
+  const up = group && move(group.id, -1), down = group && move(group.id, 1);
+  const readOnly = viewer && 'Take a seat to change groups. Viewers can only look.';
+  return <div className="inspector-section selected-inspector group-inspector">
+    <div className="section-title"><h3>{group ? 'Group selected' : `${groups.length} groups selected`}</h3><button className="icon-button" aria-label="Clear selection" onClick={onClose}><X size={15} /></button></div>
+    <div className="selected-component"><span className="group-inspector-icon" aria-hidden="true"><Folder size={26} /></span><div>
+      <strong>{group ? group.name : groups.map(item => item.name).join(', ')}</strong>
+      <small>{count} {count === 1 ? 'piece' : 'pieces'}{parent ? ` · in ${parent.name}` : ''}{locked ? ' · locked' : ''}</small></div></div>
+    {group && <label className="field"><span>Group name</span><input key={group.id} aria-label="Selected group name" defaultValue={group.name} maxLength={100} disabled={viewer}
+      onBlur={event => { const name = event.target.value.trim(); if (name && name !== group.name) onRename(group.id, name); else event.target.value = group.name; }}
+      onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur(); else if (event.key === 'Escape') { event.currentTarget.value = group.name; event.currentTarget.blur(); } }} /></label>}
+    <div className="action-grid">
+      <button {...available(!count && 'This group has no pieces on the table.', onSelectPieces, 'Select every piece in the group (and its subgroups)')}><BoxSelect size={17} /><span>Select pieces</span></button>
+      {group && <>
+        <button {...available(readOnly || (!up && 'It is already at the top of its group.'), () => { if (up) void dispatch(up); }, 'Move up in the Pieces panel, in front of the row above')}><ArrowUp size={17} /><span>Move up<kbd>Alt ↑</kbd></span></button>
+        <button {...available(readOnly || (!down && 'It is already at the bottom of its group.'), () => { if (down) void dispatch(down); }, 'Move down in the Pieces panel, behind the row below')}><ArrowDown size={17} /><span>Move down<kbd>Alt ↓</kbd></span></button>
+        <button {...available(readOnly || (!parent && 'It is not inside another group.'), () => onOut(group), parent ? `Move it out of ${parent.name}` : undefined)}><FolderOutput size={17} /><span>Out of group</span></button>
+      </>}
+      <button {...available(readOnly, () => onLock(!locked), locked ? 'Unlock: its pieces can move again (pieces locked on their own stay locked)' : 'Lock: hold all its pieces in place')}>{locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{locked ? 'Unlock' : 'Lock'}</span></button>
+      <button {...available(readOnly, onUngroup, 'Remove the group; its pieces stay where they are')}><Ungroup size={17} /><span>Ungroup<kbd>Shift G</kbd></span></button>
+    </div>
+  </div>;
 }

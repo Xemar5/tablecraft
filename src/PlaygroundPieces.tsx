@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEven
 import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, MousePointerClick, Palette, Square, UnlockKeyhole } from 'lucide-react';
 import { groupAncestors, type Command, type Component, type Project } from './domain';
 import { variantLabels } from './csv';
-import { groupSelection, pieceTree, type PieceTreeRow } from './pieceGroups';
+import { groupSelection, nudgeCommand, pieceTree, type PieceTreeRow } from './pieceGroups';
 
 const kindIcon = (component?: Component) => component?.kind === 'card' ? <Layers size={14} /> : component?.kind === 'token' ? <Circle size={14} />
   : component?.kind === 'artwork' ? <Palette size={14} /> : component?.kind === 'book' ? <BookOpen size={14} /> : component?.kind === 'button' ? <MousePointerClick size={14} /> : <Square size={14} />;
@@ -12,13 +12,17 @@ type DropMode = 'above' | 'below' | 'inside';
 
 /**
  * Lists the pieces on the table, topmost first, inside their (nestable) groups. Stacks expand into their members.
- * Clicking a group selects every piece in it; the standard click / Ctrl-click / Shift-click selection applies to all rows.
+ * Clicking a group selects the group itself, not its pieces (the Selection tab can select those); the standard click /
+ * Ctrl-click / Shift-click selection applies to all rows, and groups and pieces can be selected together.
  * Groups are renamed by double-clicking them. Dragging a row onto the top or bottom of another row places it above or
  * below that row, in the same group and in render order on the table (a group moves as one block); dropping on the
  * middle of a group puts it inside. Alt+Up/Down moves the focused row past its neighbour.
  */
-export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, readOnly = false }: {
-  project: Project; selected: string[]; onSelect: (ids: string[]) => void;
+export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, dispatch, readOnly = false }: {
+  project: Project; selected: string[];
+  /** The selected groups, as groups (not their pieces). */
+  groups?: string[];
+  onSelect: (ids: string[], groups: string[]) => void;
   dispatch: (command: Command) => Promise<boolean>; readOnly?: boolean;
 }) {
   const [expandedStacks, setExpandedStacks] = useState<ReadonlySet<string>>(() => new Set());
@@ -33,26 +37,30 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
   const rows = useMemo(() => pieceTree(p, collapsedGroups, expandedStacks), [p, collapsedGroups, expandedStacks]);
   const components = useMemo(() => new Map(p.components.map(component => [component.id, component])), [p.components]);
   const chosen = useMemo(() => new Set(selected), [selected]);
-  const isActive = (row: PieceTreeRow) => row.ids.length > 0 && row.ids.every(id => chosen.has(id));
-  useEffect(() => { list.current?.querySelector('.layer-row.active')?.scrollIntoView({ block: 'nearest' }); }, [selected]);
+  const isActive = (row: PieceTreeRow) => row.kind === 'group' ? groups.includes(row.group.id) : row.ids.length > 0 && row.ids.every(id => chosen.has(id));
+  useEffect(() => { list.current?.querySelector('.layer-row.active')?.scrollIntoView({ block: 'nearest' }); }, [selected, groups]);
   const select = (row: PieceTreeRow, event: MouseEvent) => {
     const toggle = event.ctrlKey || event.metaKey;
     const from = event.shiftKey ? rows.findIndex(item => item.key === anchor.current) : -1;
     if (from >= 0) {
-      const to = rows.indexOf(row);
-      const range = rows.slice(Math.min(from, to), Math.max(from, to) + 1).flatMap(item => item.ids);
-      onSelect([...new Set([...(toggle ? selected : []), ...range])]);
+      const to = rows.indexOf(row), range = rows.slice(Math.min(from, to), Math.max(from, to) + 1);
+      const ids = range.flatMap(item => item.kind === 'piece' ? item.ids : []), picked = range.flatMap(item => item.kind === 'group' ? [item.group.id] : []);
+      onSelect([...new Set([...(toggle ? selected : []), ...ids])], [...new Set([...(toggle ? groups : []), ...picked])]);
       return;
     }
     anchor.current = row.key;
-    if (toggle) onSelect(isActive(row) ? selected.filter(id => !row.ids.includes(id)) : [...new Set([...selected, ...row.ids])]);
-    else onSelect(row.ids);
+    if (row.kind === 'group') {
+      const id = row.group.id;
+      if (toggle) onSelect(selected, groups.includes(id) ? groups.filter(other => other !== id) : [...groups, id]);
+      else onSelect([], [id]);
+    } else if (toggle) onSelect(isActive(row) ? selected.filter(id => !row.ids.includes(id)) : [...new Set([...selected, ...row.ids])], groups);
+    else onSelect(row.ids, []);
   };
   const toggle = (set: (update: (current: ReadonlySet<string>) => ReadonlySet<string>) => void, key: string) =>
     set(current => { const next = new Set(current); if (!next.delete(key)) next.add(key); return next; });
   // A selected row drags the whole selection (its fully selected groups and loose pieces); otherwise just that row.
   const dragUnits = (row: PieceTreeRow) => {
-    if (isActive(row)) { const plan = groupSelection(p, selected); if (plan) return { ids: plan.ids, groups: plan.groups }; }
+    if (isActive(row)) { const plan = groupSelection(p, selected, groups); if (plan) return { ids: plan.ids, groups: plan.groups }; }
     return row.kind === 'group' ? { ids: [], groups: [row.group.id] } : { ids: row.ids, groups: [] };
   };
   const canDrop = (units: { groups: string[] } | undefined, parent: string | null) => !!units && !units.groups.some(id => groupAncestors(p.groups ?? [], parent).includes(id));
@@ -81,16 +89,9 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
   };
   // Alt+Up/Down: past the previous or next row at the same level (topmost first, so up is towards the front).
   const nudge = (row: PieceTreeRow, direction: -1 | 1) => {
-    const index = rows.indexOf(row);
-    let neighbour: PieceTreeRow | undefined;
-    for (let at = index + direction; at >= 0 && at < rows.length; at += direction) {
-      const candidate = rows[at];
-      if (candidate.depth < row.depth) break;
-      if (candidate.depth === row.depth && !(candidate.kind === 'piece' && candidate.member)) { neighbour = candidate; break; }
-    }
-    const units = dragUnits(row);
-    if (!neighbour || !canDrop(units, parentOf(neighbour))) return;
-    void place(units, neighbour, direction < 0 ? 'above' : 'below').then(ok => {
+    const command = nudgeCommand(p, rows, row, dragUnits(row), direction);
+    if (!command) return;
+    void dispatch(command).then(ok => {
       if (ok) requestAnimationFrame(() => list.current?.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(row.key)}"]`)?.focus());
     });
   };
