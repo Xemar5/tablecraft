@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { expectHeaderChecked, headerItem, toggleHeader } from './headerMenus';
+import { chooseHeader, expectHeaderChecked, expectHeaderEnabled, headerItem, toggleHeader } from './headerMenus';
 
 test('the header groups panel and scripting toggles into Visibility and Scripting menus', async ({ page }) => {
   await page.goto('/');
@@ -49,4 +49,35 @@ test('the designer inspector can be hidden from the Visibility menu, separately 
   await expect(inspector).toBeHidden();
   await toggleHeader(page, 'Designer inspector');
   await expect(inspector).toBeVisible();
+});
+
+test('the Actions menu undoes and redoes table actions, also with Ctrl+Z and Ctrl+Y, and saves and prints', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Actions', exact: true }).click();
+  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['UndoCtrl Z', 'RedoCtrl Y', 'Save playground', 'Print to PDF']);
+  await page.keyboard.press('Escape');
+  await expectHeaderEnabled(page, 'Undo', false);
+  await expectHeaderEnabled(page, 'Redo', false);
+  const token = page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first();
+  const id = await token.getAttribute('data-piece-id');
+  const piece = page.locator(`.table-piece[data-piece-id="${id}"]`);
+  await piece.click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock/ }).click();
+  await expect(piece).toHaveClass(/locked/);
+  await chooseHeader(page, 'Undo');
+  await expect(piece).not.toHaveClass(/locked/);
+  await expectHeaderEnabled(page, 'Redo', true);
+  await chooseHeader(page, 'Redo');
+  await expect(piece).toHaveClass(/locked/);
+  await page.locator('.table-viewport').click({ position: { x: 30, y: 30 } });
+  await page.keyboard.press('Control+z');
+  await expect(piece).not.toHaveClass(/locked/);
+  await page.keyboard.press('Control+y');
+  await expect(piece).toHaveClass(/locked/);
+  await page.keyboard.press('Control+z');
+  await page.keyboard.press('Control+Shift+z');
+  await expect(piece).toHaveClass(/locked/);
+  await expectHeaderEnabled(page, 'Redo', false);
+  await chooseHeader(page, 'Print to PDF');
+  await expect(page.getByRole('dialog', { name: 'Print to PDF' })).toBeVisible();
 });

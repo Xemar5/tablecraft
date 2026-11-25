@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { pickSeat } from './liveSeat';
+import { expectHeaderEnabled } from './headerMenus';
 
 test('a table can be joined from the home screen as a viewer who then takes and leaves an empty seat', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
@@ -47,7 +48,7 @@ test('a table can be joined from the home screen as a viewer who then takes and 
     await guest.mouse.move(before!.x + before!.width / 2, before!.y + before!.height / 2);
     await guest.mouse.down(); await guest.mouse.move(before!.x + 200, before!.y + 100, { steps: 8 }); await guest.mouse.up();
     expect(await piece.boundingBox()).toEqual(before);
-    await expect(guest.getByRole('button', { name: 'Undo playground action', exact: true })).toBeDisabled();
+    await expectHeaderEnabled(guest, 'Undo', false);
     await expect(guest.locator('.hand-tray')).toHaveCount(0);
 
     await guest.getByRole('button', { name: /^Players/ }).click();

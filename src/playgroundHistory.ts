@@ -17,8 +17,11 @@ const entrySchema = z.object({
   grids: z.array(gridSchema).nullable().optional(),
   seat: seatPresentation.optional(),
 });
+type Entry = z.infer<typeof entrySchema>;
 export const playgroundHistorySchema = z.object({
   entries: z.array(entrySchema).max(PLAYGROUND_HISTORY_LIMIT),
+  /** States undo went back from, newest last; redo returns to them. Any new action clears them. */
+  redo: z.array(entrySchema).max(PLAYGROUND_HISTORY_LIMIT).optional(),
   notice: z.string().default(''),
 });
 export type PlaygroundHistory = z.infer<typeof playgroundHistorySchema>;
@@ -62,6 +65,29 @@ export function applyPlaygroundCommand(
   };
 }
 
+/** The reversible tabletop state of a project, as a history entry (with a seat's presentation when one is given). */
+function snapshot(project: Project, seatId?: string): Entry {
+  const player = seatId ? project.players.find(player => player.id === seatId) : undefined;
+  return entrySchema.parse({
+    instances: project.instances, settings: project.settings, ...(project.groups?.length ? { groups: project.groups } : {}),
+    memory: project.memory ?? null, grids: project.grids ?? null,
+    seat: player && { id: player.id, name: player.name, color: player.color, x: player.x, y: player.y, rotation: player.rotation },
+  });
+}
+
+/** A project with an entry's tabletop state put back (designs, seat identities and ownership stay as they are). */
+function restore(project: Project, entry: Entry): Project {
+  if (entry.seat && !project.players.some(player => player.id === entry.seat!.id)) throw new Error('Seat no longer exists.');
+  // Undo never touches designs, so keep the current component objects (validateProject still checks them).
+  // Entries without groups were recorded when the table had none.
+  return validateProject({ ...projectSchema.omit({ components: true }).parse({
+    ...project, instances: entry.instances, settings: entry.settings, groups: entry.groups?.length ? entry.groups : undefined,
+    ...(entry.memory !== undefined ? { memory: entry.memory ?? undefined } : {}),
+    ...(entry.grids !== undefined ? { grids: entry.grids ?? undefined } : {}),
+    players: project.players.map(player => player.id === entry.seat?.id ? { ...player, ...entry.seat } : player),
+  }), components: project.components });
+}
+
 /** Merge only reversible tabletop state into the CURRENT project, then validate. */
 export function undoPlayground(
   project: Project, history: PlaygroundHistory,
@@ -69,19 +95,29 @@ export function undoPlayground(
   const entry = history.entries.at(-1);
   if (!entry) return { project, history, undone: false };
   try {
-    if (entry.seat && !project.players.some(player => player.id === entry.seat!.id)) throw new Error('Seat no longer exists.');
-    // Undo never touches designs, so keep the current component objects (validateProject still checks them).
-    // Entries without groups were recorded when the table had none.
-    const next = validateProject({ ...projectSchema.omit({ components: true }).parse({
-      ...project, instances: entry.instances, settings: entry.settings, groups: entry.groups?.length ? entry.groups : undefined,
-      ...(entry.memory !== undefined ? { memory: entry.memory ?? undefined } : {}),
-      ...(entry.grids !== undefined ? { grids: entry.grids ?? undefined } : {}),
-      players: project.players.map(player => player.id === entry.seat?.id ? { ...player, ...entry.seat } : player),
-    }), components: project.components });
-    return { project: next, history: { entries: history.entries.slice(0, -1), notice: '' }, undone: true };
+    const next = restore(project, entry);
+    // Redo comes back to the table as it is now.
+    const redo = [...history.redo ?? [], snapshot(project, entry.seat?.id)].slice(-PLAYGROUND_HISTORY_LIMIT);
+    return { project: next, history: { entries: history.entries.slice(0, -1), redo, notice: '' }, undone: true };
   } catch (error) {
     // Do not repeatedly offer a broken inverse, or partially restore an invalid table.
     const reason = error instanceof Error ? ` ${error.message}` : '';
     return { project, history: { entries: [], notice: `Undo history cleared because the table is no longer compatible.${reason}` }, undone: false };
+  }
+}
+
+/** Returns to the state the latest undo went back from, and makes it undoable again. */
+export function redoPlayground(
+  project: Project, history: PlaygroundHistory,
+): { project: Project; history: PlaygroundHistory; redone: boolean } {
+  const entry = history.redo?.at(-1);
+  if (!entry) return { project, history, redone: false };
+  try {
+    const next = restore(project, entry);
+    const entries = [...history.entries, snapshot(project, entry.seat?.id)].slice(-PLAYGROUND_HISTORY_LIMIT);
+    return { project: next, history: { entries, redo: history.redo!.slice(0, -1), notice: '' }, redone: true };
+  } catch (error) {
+    const reason = error instanceof Error ? ` ${error.message}` : '';
+    return { project, history: { entries: history.entries, redo: [], notice: `Redo history cleared because the table is no longer compatible.${reason}` }, redone: false };
   }
 }

@@ -1,7 +1,7 @@
 import { schema, table, t, SenderError, ScheduleAt, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
 import { applyCommand, commandSchema, nextSeatPlacement, projectSchema, validateProject, type Player, type Project } from '../../src/domain';
 import { scriptsMention } from '../../src/scripting';
-import { applyPlaygroundCommand, emptyPlaygroundHistory, playgroundHistorySchema, undoPlayground } from '../../src/playgroundHistory';
+import { applyPlaygroundCommand, emptyPlaygroundHistory, playgroundHistorySchema, redoPlayground, undoPlayground } from '../../src/playgroundHistory';
 import { upgradeLegacyArtworkProject } from '../../src/templates';
 
 const migrationNotice = 'Undo history cleared because legacy component artwork was upgraded.';
@@ -42,7 +42,7 @@ function syncUpdates(ctx: Ctx, code: string, project: Project) {
 
 // Keep the persisted room schema stable; additive history is a private table.
 export const room_state = db.view({ public: true }, t.array(t.object('PlaygroundRoomSnapshot', {
-  code: t.string(), state: t.string(), revision: t.u32(), undoCount: t.u32(), undoNotice: t.string(), host: t.string(),
+  code: t.string(), state: t.string(), revision: t.u32(), undoCount: t.u32(), undoNotice: t.string(), host: t.string(), redoCount: t.u32(),
 })), ctx => {
   const member = ctx.db.membership.identity.find(ctx.sender);
   if (!member) return [];
@@ -51,7 +51,7 @@ export const room_state = db.view({ public: true }, t.array(t.object('Playground
   const saved = ctx.db.playground_history.code.find(member.code);
   const history = saved ? playgroundHistorySchema.parse(JSON.parse(saved.history)) : emptyPlaygroundHistory();
   const host = ctx.db.room_host.code.find(member.code)?.identity ?? '';
-  return [{ ...current, undoCount: history.entries.length, undoNotice: history.notice, host }];
+  return [{ ...current, undoCount: history.entries.length, undoNotice: history.notice, host, redoCount: history.redo?.length ?? 0 }];
 });
 
 /** Online seats are owned by at most one identity at a time; an empty owner marks a seat anyone may take. */
@@ -171,9 +171,13 @@ export const room_update = db.reducer({ onSchedule: room_tick }, { tick: room_ti
   } catch { /* A room that can't be read (or a failing update, which logs itself) is left as it is. */ }
 });
 
-// Reducer transactions serialize dispatch and undo against the same authoritative history.
-// Any authenticated room member may undo the latest action, including another actor's.
-export const undo = db.reducer({ actor: t.string() }, (ctx, args) => {
+// Reducer transactions serialize dispatch, undo and redo against the same authoritative history.
+// Any authenticated room member may undo the latest action, including another actor's, and redo it.
+export const undo = db.reducer({ actor: t.string() }, (ctx, args) => historyStep(ctx, args.actor, 'undo'));
+export const redo = db.reducer({ actor: t.string() }, (ctx, args) => historyStep(ctx, args.actor, 'redo'));
+
+function historyStep(ctx: Ctx, actor: string, step: 'undo' | 'redo') {
+  const args = { actor };
   try {
     const member = ctx.db.membership.identity.find(ctx.sender);
     if (!member) throw new Error('Join a room first.');
@@ -183,14 +187,15 @@ export const undo = db.reducer({ actor: t.string() }, (ctx, args) => {
     const project = validateProject(upgradeLegacyArtworkProject(parsed));
     const identity = ctx.sender.toHexString();
     if (!project.players.some(player => player.id === args.actor && player.owner === identity)) {
-      throw new Error(project.players.some(player => player.owner === identity) ? 'Undo as your own seat.' : 'Take a seat to undo. Viewers can only inspect the table.');
+      throw new Error(project.players.some(player => player.owner === identity) ? `${step === 'undo' ? 'Undo' : 'Redo'} as your own seat.` : `Take a seat to ${step}. Viewers can only inspect the table.`);
     }
     const previous = ctx.db.playground_history.code.find(member.code);
     const migrated = project !== parsed;
     const history = migrated ? { entries: [], notice: migrationNotice }
       : previous ? playgroundHistorySchema.parse(JSON.parse(previous.history)) : emptyPlaygroundHistory();
-    const next = undoPlayground(project, history);
-    if (!migrated && !next.undone && !history.entries.length) throw new Error(history.notice || 'Nothing to undo.');
+    const next = step === 'undo' ? undoPlayground(project, history) : redoPlayground(project, history);
+    const done = 'undone' in next ? next.undone : next.redone;
+    if (!migrated && !done && !(step === 'undo' ? history.entries.length : history.redo?.length)) throw new Error(history.notice || `Nothing to ${step}.`);
     // An incompatible inverse clears history and publishes its explicit notice atomically.
     const historyRow = { code: member.code, history: JSON.stringify(next.history) };
     if (previous) ctx.db.playground_history.code.update(historyRow); else ctx.db.playground_history.insert(historyRow);
@@ -198,9 +203,9 @@ export const undo = db.reducer({ actor: t.string() }, (ctx, args) => {
       ...current, state: JSON.stringify(next.project), revision: current.revision + 1,
     });
   } catch (error) {
-    throw new SenderError(error instanceof Error ? error.message : 'Undo failed.');
+    throw new SenderError(error instanceof Error ? error.message : `${step === 'undo' ? 'Undo' : 'Redo'} failed.`);
   }
-});
+}
 
 /**
  * Takes an empty seat (or creates one when `playerId` is new) and releases any seat the sender held, so each identity

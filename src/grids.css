@@ -32,6 +32,8 @@
 .grid-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; background: none; color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
 .grid-swatch { display: inline-flex; flex-shrink: 0; }
 .grid-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Panel buttons centre their content by default; a layer row reads from the left. */
+.grid-list .grid-row { justify-content: flex-start; }
 .grid-row-actions { display: flex; align-items: center; }
 .grid-row-actions .icon-button { width: 22px; height: 24px; color: #8a9b7d; }
 .grid-row-actions .icon-button[aria-pressed="false"] { opacity: .5; }

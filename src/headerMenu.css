@@ -6,10 +6,16 @@
 .header-menu-chevron { opacity: .7; transition: transform .15s; }
 .header-menu-trigger[aria-expanded="true"] .header-menu-chevron { transform: rotate(180deg); }
 .header-menu-list { position: absolute; top: calc(100% + 6px); right: 0; z-index: 1200; min-width: 210px; padding: 5px; display: grid; gap: 1px; background: #fff; border: 1px solid #dfe5da; border-radius: 9px; box-shadow: 0 12px 30px #273c3224; animation: enter .14s cubic-bezier(.2, .8, .2, 1); }
-.header-menu-list [role="menuitemcheckbox"] { display: grid; grid-template-columns: 20px 1fr 16px; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; cursor: pointer; }
-.header-menu-list [role="menuitemcheckbox"]:hover, .header-menu-list [role="menuitemcheckbox"]:focus-visible { background: #f1f5ea; outline: none; }
+.header-menu-list [role="menuitemcheckbox"], .header-menu-list [role="menuitem"] { display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 9px; width: 100%; padding: 7px 9px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); font-size: 12px; text-align: left; cursor: pointer; }
+.header-menu-list [role^="menuitem"]:hover, .header-menu-list [role^="menuitem"]:focus-visible { background: #f1f5ea; outline: none; }
 .header-menu-list [role="menuitemcheckbox"][aria-checked="false"] .header-menu-icon { opacity: .55; }
 .header-menu-icon { display: inline-flex; color: #6f8a5c; }
 .header-menu-check { display: inline-flex; color: #365d46; }
 /* The header sits low in the page's stacking order; while a menu is open it rises above the workspace and its toolbars. */
 .app-header:has(.header-menu-trigger[aria-expanded="true"]) { z-index: 1100; }
+/* The leftmost menu opens to the right of its button. */
+.header-menu:first-child .header-menu-list { right: auto; left: 0; }
+.header-menu-list [role^="menuitem"].disabled { opacity: .45; cursor: default; }
+.header-menu-list [role^="menuitem"].disabled:hover { background: transparent; }
+.header-menu-check kbd { font: 10px/1 'DM Sans', sans-serif; color: #8a9a7c; background: #f1f4ec; border-radius: 4px; padding: 3px 5px; }
+.header-menu-divider { margin: 4px 6px; border: 0; border-top: 1px solid var(--line); }

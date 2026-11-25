@@ -1,11 +1,12 @@
 import { writeFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import { chooseHeader } from './headerMenus';
 
 test('Print to PDF lays out every piece at print size and prints them with their backs', async ({ page }, testInfo) => {
   await page.goto('/');
   // Record the print request instead of opening the browser's dialog.
   await page.evaluate(() => { (window as unknown as { printed: number }).printed = 0; window.print = () => { (window as unknown as { printed: number }).printed++; }; });
-  await page.getByRole('button', { name: 'Print to PDF', exact: true }).click();
+  await chooseHeader(page, 'Print to PDF');
   const dialog = page.getByRole('dialog', { name: 'Print to PDF' });
   // Wildwood: 15 cards, 5 tokens, the board and the die's six faces.
   await expect(dialog.getByRole('status')).toContainText('27 copies on');
@@ -42,7 +43,7 @@ test('Print to PDF lays out every piece at print size and prints them with their
 test('pieces too big for a page are listed, and print in parts with glue wings or shrink to fit', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => { window.print = () => undefined; });
-  await page.getByRole('button', { name: 'Print to PDF', exact: true }).click();
+  await chooseHeader(page, 'Print to PDF');
   const dialog = page.getByRole('dialog', { name: 'Print to PDF' });
   const scale = dialog.getByLabel('Scale (%)', { exact: true });
   await scale.fill('250');

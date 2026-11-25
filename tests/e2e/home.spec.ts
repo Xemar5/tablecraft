@@ -3,6 +3,7 @@ import { starterProject } from '../../src/templates';
 import { linkComponent } from '../../src/projectLinks';
 import { createPortableZip } from '../../src/portable';
 import type { Archive } from '../../src/domain';
+import { expectHeaderEnabled } from './headerMenus';
 
 // No saved projects, but a completed profile so the first-launch settings stay closed.
 test.use({ storageState: { cookies: [], origins: [{ origin: 'http://127.0.0.1:5173', localStorage: [{ name: 'tablecraft.settings.v1', value: JSON.stringify({ name: 'Tester', onboarded: true }) }] }] } });
@@ -59,7 +60,7 @@ test('fresh visits start at Home, open projects resume, and the logo returns Hom
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
   await page.getByRole('link', { name: 'Tablecraft home', exact: true }).click();
   await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Undo playground action', exact: true })).toBeEnabled();
+  await expectHeaderEnabled(page, 'Undo', true);
 });
 
 test('importing a workspace remaps internal project links to the imported sources', async ({ page }) => {

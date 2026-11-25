@@ -10,11 +10,12 @@ export interface LiveSession {
   connection: DbConnection; identity: string; code: string; host: string;
   send: (command: Command, actor: string) => Promise<void>;
   undo: (actor: string) => Promise<void>;
+  redo: (actor: string) => Promise<void>;
   /** Takes an empty seat (or creates playerId when new), releasing the current one; an empty id watches as a viewer. */
   takeSeat: (playerId: string, name: string, color: string) => Promise<void>;
   disconnect: () => void;
 }
-export function connectRoom(options: ConnectionOptions, onState: (p: Project, undo: { count: number; notice: string }) => void, onError: (message: string) => void, onDisconnect: () => void): Promise<LiveSession> {
+export function connectRoom(options: ConnectionOptions, onState: (p: Project, undo: { count: number; notice: string; redo: number }) => void, onError: (message: string) => void, onDisconnect: () => void): Promise<LiveSession> {
   return new Promise((resolve, reject) => {
     const tokenKey = `tablecraft.token:${options.uri}:${options.database}`;
     let settled = false;
@@ -42,7 +43,7 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project, un
               // Keep unchanged designs as the same objects so a room update re-renders only what changed.
               const components = shareComponents(previousComponents, parsed.components);
               previousComponents = components;
-              onState({ ...parsed, components }, { count: row.undoCount, notice: row.undoNotice });
+              onState({ ...parsed, components }, { count: row.undoCount, notice: row.undoNotice, redo: row.redoCount ?? 0 });
               if (!settled) {
                 settled = true;
                 clearTimeout(timeout);
@@ -50,6 +51,7 @@ export function connectRoom(options: ConnectionOptions, onState: (p: Project, un
                   connection: conn, identity: identity.toHexString(), code: options.code, host: row.host,
                   send: (command, actor) => conn.reducers.dispatch({ command: JSON.stringify(command), actor }),
                   undo: actor => conn.reducers.undo({ actor }),
+                  redo: actor => conn.reducers.redo({ actor }),
                   takeSeat: (playerId, name, color) => conn.reducers.takeSeat({ playerId, name, color }),
                   disconnect: () => { intentional = true; conn.disconnect(); },
                 });

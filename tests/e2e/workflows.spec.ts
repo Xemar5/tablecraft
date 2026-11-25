@@ -3,7 +3,7 @@ import { fillServer, pickSeat, settleJoin, setProfileName } from './liveSeat';
 import type { Archive } from '../../src/domain';
 import { createPortableZip } from '../../src/portable';
 import { savedWorkspace } from './savedWorkspace';
-import { expectHeaderChecked, toggleHeader } from './headerMenus';
+import { chooseHeader, expectHeaderChecked, toggleHeader } from './headerMenus';
 
 const workspace = (page: Page): Promise<Archive> => savedWorkspace(page);
 async function openDesigner(page: Page) {
@@ -108,7 +108,7 @@ test('card wheel rotation, preview controls and numeric dragging work', async ({
   await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2);
   await page.mouse.down(); await page.mouse.move(box.x + box.width / 3, box.y + box.height / 2 - 20, { steps: 5 }); await page.mouse.up();
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBeGreaterThan(card.rotation + 15);
-  await page.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === card.id)?.rotation).toBe(card.rotation + 15);
 });
 
@@ -351,7 +351,7 @@ test('named saves restore hands and seats; ZIP exports can be imported', async (
   await page.goto('/');
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
   await expect(page.locator('.hand-card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Save playground', exact: true }).click();
+  await chooseHeader(page, 'Save playground');
   await page.getByLabel('Snapshot name').fill('Evening playtest');
   await page.getByRole('button', { name: 'Save snapshot', exact: true }).click();
   await expect(page.locator('.snapshot-list')).toContainText('Evening playtest');
@@ -362,7 +362,7 @@ test('named saves restore hands and seats; ZIP exports can be imported', async (
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.reload();
   await expect(page.locator('.hand-card')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Save playground', exact: true }).click();
+  await chooseHeader(page, 'Save playground');
   await page.getByRole('button', { name: 'Load', exact: true }).click();
   await expect(page.locator('.project-heading h1')).toHaveText('Evening playtest');
   await expect(page.locator('.hand-card')).toHaveCount(1);
@@ -430,13 +430,13 @@ test('two real SpaceTimeDB clients share pieces, live designs, hands and returni
   await expect(b.locator('.hand-card')).toHaveCount(1);
   await expect(b.locator('.seat-marker')).toHaveCount(3);
   await expect(b.locator('.hand-tray')).toHaveAttribute('aria-label', "Bob's hand tray");
-  await a.getByRole('button', { name: 'Save playground', exact: true }).click();
+  await chooseHeader(a, 'Save playground');
   await a.getByLabel('Snapshot name').fill('Multiplayer restore');
   await a.getByRole('button', { name: 'Save snapshot', exact: true }).click();
   await a.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await a.locator('.connection-badge').click();
   await a.getByRole('button', { name: 'Leave session & keep local copy' }).click();
-  await a.getByRole('button', { name: 'Save playground', exact: true }).click();
+  await chooseHeader(a, 'Save playground');
   await a.getByRole('button', { name: 'Load', exact: true }).click();
   await expect(a.locator('.project-heading h1')).toHaveText('Multiplayer restore');
   await a.getByRole('button', { name: 'Invite players', exact: false }).click();

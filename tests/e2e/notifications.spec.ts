@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectHeaderEnabled } from './headerMenus';
 
 test('undo notices pop up as dismissible toasts and new notices still appear', async ({ page }) => {
   await page.goto('/');
@@ -9,12 +10,12 @@ test('undo notices pop up as dismissible toasts and new notices still appear', a
   await expect(notice).toBeVisible();
   await notice.getByRole('button', { name: 'Dismiss notification', exact: true }).click();
   await expect(notice).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Undo playground action', exact: true })).toBeDisabled();
+  await expectHeaderEnabled(page, 'Undo', false);
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(notice).toHaveCount(0);
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Undo playground action', exact: true })).toBeEnabled();
+  await expectHeaderEnabled(page, 'Undo', true);
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
   await page.getByRole('button', { name: 'Add text', exact: true }).click();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();

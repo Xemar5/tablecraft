@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Player } from '../../src/domain';
+import { chooseHeader } from './headerMenus';
 
 const seat = (page: Page, id: string) => page.evaluate(id => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0].players.find((p: Player) => p.id === id) as Player, id);
 
@@ -55,12 +56,11 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await x.press('Enter');
   await expect.poll(async () => (await seat(page, 'player-2')).x).toBe(321);
 
-  const undo = page.getByRole('button', { name: 'Undo playground action', exact: true });
-  await undo.click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await seat(page, 'player-2')).x).toBe(original.x);
-  await undo.click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => seat(page, 'player-2')).toMatchObject({ name: 'Ada', color: original.color });
-  await undo.click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await seat(page, 'player-2')).name).toBe(original.name);
 
   await page.getByRole('button', { name: 'Switch to this seat', exact: true }).click();
@@ -141,7 +141,7 @@ test('dragged seats stay under the cursor while zooming and rotate with the whee
   await page.locator('[data-seat-id="player-1"] .seat-badge').hover();
   await page.keyboard.press('q');
   await expect.poll(async () => (await seat(page, 'player-1')).rotation).toBe(15);
-  await page.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await seat(page, 'player-1')).rotation).toBe(105);
   await page.locator('.hand-toolbar').getByRole('button', { name: 'Lock my table hand', exact: true }).click();
   await page.locator('[data-seat-id="player-1"] .seat-badge').hover();

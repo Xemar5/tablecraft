@@ -1,7 +1,8 @@
 import { expect, type Page } from '@playwright/test';
 
 /** Header menu items and the menu they're in. */
-const MENU: Record<string, 'Visibility' | 'Scripting'> = {
+const MENU: Record<string, 'Actions' | 'Visibility' | 'Scripting'> = {
+  Undo: 'Actions', Redo: 'Actions', 'Save playground': 'Actions', 'Print to PDF': 'Actions',
   'Component library': 'Visibility', 'Pieces panel': 'Visibility', 'Layers panel': 'Visibility', 'Hand panel': 'Visibility',
   'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
 };
@@ -20,6 +21,23 @@ async function withMenu<T>(page: Page, item: string, act: () => Promise<T>) {
 
 /** Opens the item's header menu, toggles the item and closes the menu again. */
 export const toggleHeader = (page: Page, item: string) => withMenu(page, item, () => headerItem(page, item).click());
+
+/** Opens the item's header menu and chooses an action item (which closes the menu). */
+export async function chooseHeader(page: Page, item: string) {
+  await headerMenu(page, item).click();
+  await page.getByRole('menuitem', { name: item, exact: true }).click();
+}
+
+/** Checks whether a header action (such as Undo) can be chosen now, opening and closing its menu. */
+export async function expectHeaderEnabled(page: Page, item: string, enabled: boolean) {
+  const trigger = headerMenu(page, item);
+  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+  const entry = page.getByRole('menuitem', { name: item, exact: true });
+  if (enabled) await expect(entry).not.toHaveAttribute('aria-disabled', 'true');
+  else await expect(entry).toHaveAttribute('aria-disabled', 'true');
+  await entry.press('Escape');
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+}
 
 /** Checks whether a header menu item is on, opening and closing its menu. */
 export const expectHeaderChecked = (page: Page, item: string, checked: boolean) =>

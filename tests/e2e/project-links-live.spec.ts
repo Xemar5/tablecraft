@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { starterProject } from '../../src/templates';
 import { fillServer, pickSeat } from './liveSeat';
+import { chooseHeader } from './headerMenus';
 
 test('live project links share readonly snapshots without requiring the source workspace', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
@@ -34,7 +35,7 @@ test('live project links share readonly snapshots without requiring the source w
     await b.getByRole('button', { name: 'Spawn Spirit cards', exact: true }).click();
     await a.getByRole('button', { name: 'Playground', exact: true }).click();
     await expect(a.locator('.table-piece')).toHaveCount(1);
-    await a.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+    await chooseHeader(a, 'Undo');
     await expect(b.locator('.table-piece')).toHaveCount(0);
     await b.getByRole('button', { name: 'Make local copy of Spirit cards', exact: true }).click();
     await expect(b.getByRole('button', { name: 'Add text', exact: true })).toBeVisible();

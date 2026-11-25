@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Project } from '../../src/domain';
+import { chooseHeader } from './headerMenus';
 
 async function state(page: Page): Promise<Project> {
   return page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0]);
@@ -29,7 +30,7 @@ test('preview drag uses the rotated and zoomed table coordinates, while click an
   // Playwright's native mouse events round screen positions to whole pixels.
   expect(Math.abs(spawned.x - expected.x)).toBeLessThan(3);
   expect(Math.abs(spawned.y - expected.y)).toBeLessThan(3);
-  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
   await preview.click();
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 1);
@@ -63,7 +64,7 @@ test('variant selection, ranges, and drag spawn an atomic set without reordering
   expect(after.instances.slice(-4).map(i => i.row)).toEqual([1, 3, 4, 5]);
   expect(after.instances.slice(-4).every(i => i.componentId === before.components.find(c => c.name === 'Spirit cards')!.id)).toBe(true);
   expect(after.components.map(c => c.id)).toEqual(before.components.map(c => c.id));
-  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
   await variants.nth(0).dragTo(viewport);
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 1);
@@ -95,7 +96,7 @@ test('cancelled and invalid drags do not spawn, and all variants can still be cl
   await card.getByRole('button', { name: 'Spawn all variants' }).click();
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 6);
   expect((await state(page)).instances.slice(-6).map(i => i.row)).toEqual([0, 1, 2, 3, 4, 5]);
-  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 });
 
@@ -115,7 +116,7 @@ test('dragging a component or using its spawn-all button spawns every variant, s
   expect(added.map(i => i.order)).toEqual([0, 1, 2, 3, 4, 5]);
   expect(new Set(added.map(i => `${i.x},${i.y}`)).size).toBe(1);
   expect(added.every(i => i.componentId === cards.id)).toBe(true);
-  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 
   await item('Spirit cards').hover();
@@ -123,7 +124,7 @@ test('dragging a component or using its spawn-all button spawns every variant, s
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 6);
   added = (await state(page)).instances.slice(-6);
   expect(new Set(added.map(i => i.stack)).size).toBe(1);
-  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 
   const fern = item('Botanical artwork (fern)');
@@ -132,7 +133,7 @@ test('dragging a component or using its spawn-all button spawns every variant, s
   added = (await state(page)).instances.slice(-3);
   expect(added.map(i => i.row)).toEqual([0, 1, 2]);
   expect(added.every(i => !i.stack)).toBe(true);
-  await page.getByRole('button', { name: 'Undo playground action' }).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 
   const die = item('Spirit die');

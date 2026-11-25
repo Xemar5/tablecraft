@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 import { unzipSync, strFromU8 } from 'fflate';
 import { readPortableZip } from '../../src/portable';
 import { choose } from './searchSelect';
+import { chooseHeader } from './headerMenus';
 
 const image = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64');
 const font = readFileSync('node_modules/playwright-core/lib/vite/traceViewer/codicon.DCmgc-ay.ttf');
@@ -38,7 +39,7 @@ test('imported textures and fonts render, travel in ZIP saves and are deleted wi
   const current = before.projects[0], importedFont = current.components.find((component: { kind: string }) => component.kind === 'font');
   await expect(page.locator('.designer-canvas .node-text').last()).toHaveCSS('font-family', new RegExp(importedFont.id));
 
-  await page.getByRole('button', { name: 'Save playground', exact: true }).click();
+  await chooseHeader(page, 'Save playground');
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export ZIP', exact: true }).click();
   const download = await pending, bytes = readFileSync((await download.path())!);

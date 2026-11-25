@@ -1,12 +1,19 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Check, ChevronDown } from 'lucide-react';
 import './headerMenu.css';
 
-export type HeaderMenuItem = { label: string; icon: ReactNode; checked: boolean; onToggle: () => void; hint?: string };
+/** An on/off item (with `checked`), or an action (without it) that closes the menu when chosen. */
+export type HeaderMenuItem = { label: string; icon: ReactNode; checked?: boolean; onToggle: () => void; hint?: string; disabled?: boolean;
+  /** A keyboard shortcut shown beside the item. */
+  shortcut?: string;
+  /** Draw a line after this item. */
+  divider?: boolean };
+const ITEMS = '[role="menuitemcheckbox"], [role="menuitem"]';
 
 /**
- * A header button with a dropdown of on/off items (the Visibility and Scripting menus). Items toggle without closing the
- * menu; it closes on a click elsewhere, Escape or Tab. Arrow keys, Home and End move between items.
+ * A header button with a dropdown of items (the File, Visibility and Scripting menus). On/off items toggle without
+ * closing the menu; actions close it. It closes on a click elsewhere, Escape or Tab. Arrow keys, Home and End move
+ * between items.
  */
 export function HeaderMenu({ label, icon, items, title }: { label: string; icon: ReactNode; items: HeaderMenuItem[]; title?: string }) {
   const [open, setOpen] = useState(false);
@@ -22,12 +29,12 @@ export function HeaderMenu({ label, icon, items, title }: { label: string; icon:
     return () => document.removeEventListener('pointerdown', close, true);
   }, [open]);
   const focusItem = (index: number) => {
-    const entries = [...root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]') ?? []];
+    const entries = [...root.current?.querySelectorAll<HTMLButtonElement>(ITEMS) ?? []];
     entries[(index + entries.length) % entries.length]?.focus();
   };
   const openMenu = (index = 0) => { setOpen(true); requestAnimationFrame(() => focusItem(index)); };
   const keyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const entries = [...root.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]') ?? []];
+    const entries = [...root.current?.querySelectorAll<HTMLButtonElement>(ITEMS) ?? []];
     const current = entries.indexOf(document.activeElement as HTMLButtonElement);
     if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }
     else if (event.key === 'Tab') setOpen(false);
@@ -42,11 +49,13 @@ export function HeaderMenu({ label, icon, items, title }: { label: string; icon:
       {icon}<ChevronDown size={12} className="header-menu-chevron" aria-hidden="true" />
     </button>
     {open && <div className="header-menu-list" role="menu" id={menu} aria-label={label}>
-      {items.map(item => <button key={item.label} type="button" role="menuitemcheckbox" aria-checked={item.checked} title={item.hint} onClick={item.onToggle}>
+      {items.map(item => <Fragment key={item.label}><button type="button" role={item.checked === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={item.checked} title={item.hint}
+        aria-disabled={item.disabled || undefined} className={item.disabled ? 'disabled' : undefined}
+        onClick={() => { if (item.disabled) return; if (item.checked === undefined) setOpen(false); item.onToggle(); }}>
         <span className="header-menu-icon" aria-hidden="true">{item.icon}</span>
         <span className="header-menu-label">{item.label}</span>
-        <span className="header-menu-check" aria-hidden="true">{item.checked && <Check size={14} />}</span>
-      </button>)}
+        <span className="header-menu-check" aria-hidden="true">{item.checked ? <Check size={14} /> : item.shortcut && <kbd>{item.shortcut}</kbd>}</span>
+      </button>{item.divider && <hr className="header-menu-divider" />}</Fragment>)}
     </div>}
   </div>;
 }

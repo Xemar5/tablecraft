@@ -35,6 +35,7 @@ export const PlaygroundRoomSnapshot = __t.object("PlaygroundRoomSnapshot", {
   undoCount: __t.u32(),
   undoNotice: __t.string(),
   host: __t.string(),
+  redoCount: __t.u32(),
 });
 export type PlaygroundRoomSnapshot = __Infer<typeof PlaygroundRoomSnapshot>;
 

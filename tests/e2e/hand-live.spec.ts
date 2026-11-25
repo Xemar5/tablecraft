@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { pickSeat } from './liveSeat';
+import { chooseHeader } from './headerMenus';
 
 test('live table hands enforce per-hand permissions, indexed transfers and undo', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
@@ -48,7 +49,7 @@ test('live table hands enforce per-hand permissions, indexed transfers and undo'
     await a.mouse.up();
     await expect(b.locator('.hand-card')).toHaveCount(0);
     await expect.poll(() => a.locator('.hand-card').evaluateAll(cards => cards.map(card => card.getAttribute('data-hand-id')))).toEqual([original[0], original[2], original[1]]);
-    await a.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+    await chooseHeader(a, 'Undo');
     await expect(b.locator('.hand-card')).toHaveCount(1);
     await expect(a.locator('.hand-card')).toHaveCount(2);
     await b.getByRole('button', { name: 'Allow others to insert into my hand', exact: true }).click();

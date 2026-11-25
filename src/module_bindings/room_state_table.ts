@@ -17,4 +17,5 @@ export default __t.row({
   undoCount: __t.u32().name("undo_count"),
   undoNotice: __t.string().name("undo_notice"),
   host: __t.string(),
+  redoCount: __t.u32().name("redo_count"),
 });

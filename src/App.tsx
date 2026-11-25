@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Download, Eye, FileCode2, FilePlus2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { Armchair, ArrowRight, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Download, Eye, FileCode2, FilePlus2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
-import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
+import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
 import { gameProject, type GameProjectId } from './gameProjects';
 import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './storage';
@@ -116,7 +116,7 @@ export default function App() {
   const [removeLink, setRemoveLink] = useState<Component>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number } | undefined>(() => initial.draftNotice ? { message: initial.draftNotice, error: false, id: Date.now() } : undefined);
   const [session, setSession] = useState<LiveSession>();
-  const [liveUndo, setLiveUndo] = useState({ count: 0, notice: '' });
+  const [liveUndo, setLiveUndo] = useState({ count: 0, notice: '', redo: 0 });
   const sessionRef = useRef<LiveSession | undefined>(undefined);
   const [connecting, setConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState('');
@@ -399,6 +399,7 @@ export default function App() {
   }, [session, home, mode, hasUpdate, updateInterval, project.id]);
   const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
   const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
+  const redoCount = session ? liveUndo.redo : workspace.histories[project.id]?.redo?.length ?? 0;
   // Each new undo notice pops up once as a toast when the table is visible, then hides after a few seconds or a click.
   const [undoToast, setUndoToast] = useState<string>();
   const shownNotice = useRef('');
@@ -410,34 +411,43 @@ export default function App() {
     shownNotice.current = noticeKey; setUndoToast(undoNotice);
   }, [undoNotice, noticeKey, home, mode]);
   useEffect(() => { if (!undoToast) return; const timer = setTimeout(() => setUndoToast(undefined), 6000); return () => clearTimeout(timer); }, [undoToast]);
-  const undo = useCallback(() => {
+  /** Steps the shared playground history back (undo) or forward again (redo), offline or in the live room. */
+  const historyStep = useCallback((step: 'undo' | 'redo') => {
     if (sessionRef.current) {
-      void sessionRef.current.undo(actor).catch(error => notify(error instanceof Error ? error.message : String(error), true));
+      void sessionRef.current[step](actor).catch(error => notify(error instanceof Error ? error.message : String(error), true));
       return;
     }
     setWorkspace(current => {
       const source = current.archive.projects.find(p => p.id === projectId);
       if (!source) return current;
-      const result = undoPlayground(source, current.histories[projectId] ?? emptyPlaygroundHistory());
+      const history = current.histories[projectId] ?? emptyPlaygroundHistory();
+      const result = step === 'undo' ? undoPlayground(source, history) : redoPlayground(source, history);
       return {
         archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? result.project : p) },
         histories: { ...current.histories, [projectId]: result.history },
       };
     });
   }, [actor, projectId, notify]);
+  const undo = useCallback(() => historyStep('undo'), [historyStep]);
+  const redo = useCallback(() => historyStep('redo'), [historyStep]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
+      // Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z and Ctrl+Y redo.
+      const key = event.key.toLowerCase();
+      const redoing = key === 'y' && !event.shiftKey || key === 'z' && event.shiftKey;
       if (home || mode !== 'playground' || modal || curtain || event.defaultPrevented || event.isComposing || event.repeat ||
-        !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
+        !(event.ctrlKey || event.metaKey) || event.altKey || !(key === 'z' || redoing)) return;
       const target = event.target;
       if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], .floating-window')) return;
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
       event.preventDefault();
-      if (undoCount && !viewer) undo();
+      if (viewer) return;
+      if (redoing) { if (redoCount) redo(); }
+      else if (undoCount) undo();
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [home, mode, modal, curtain, undoCount, undo, viewer]);
+  }, [home, mode, modal, curtain, undoCount, redoCount, undo, redo, viewer]);
   const edit = (id: string) => { setComponentId(id); setMode('designer'); };
   const takeSeat = async (playerId: string) => {
     const live = sessionRef.current;
@@ -615,8 +625,17 @@ export default function App() {
       {!home && <>
       <div className="project-heading compact-project"><h1>{project.name}</h1></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
-      {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain || viewer} onClick={undo}><Undo2 size={18} /></button>}
-      <div className="header-actions"><HeaderMenu label="Visibility" title="Show or hide panels" icon={<Eye size={17} />} items={[
+
+      <div className="header-actions"><HeaderMenu label="Actions" title="Undo, redo, save and print" icon={<Menu size={17} />} items={[
+        ...mode === 'playground' ? [
+          { label: 'Undo', icon: <Undo2 size={16} />, onToggle: undo, shortcut: 'Ctrl Z', disabled: !undoCount || !!modal || !!curtain || viewer,
+            hint: undoNotice || `Undo the latest playground action for everyone · ${undoCount} available` },
+          { label: 'Redo', icon: <Redo2 size={16} />, onToggle: redo, shortcut: 'Ctrl Y', disabled: !redoCount || !!modal || !!curtain || viewer, divider: true,
+            hint: `Redo the latest undone action for everyone · ${redoCount} available` },
+        ] : [],
+        { label: 'Save playground', icon: <Save size={16} />, onToggle: () => { setSaveName(`${project.name} - playtest`); setModal('save'); }, hint: 'Save a named snapshot of this table' },
+        { label: 'Print to PDF', icon: <Printer size={16} />, onToggle: () => setModal('print'), hint: 'Print every piece, or save them as a PDF' },
+      ]} /><HeaderMenu label="Visibility" title="Show or hide panels" icon={<Eye size={17} />} items={[
         { label: 'Component library', icon: <LibraryBig size={16} />, checked: libraryVisible, onToggle: () => setLibraryVisible(!libraryVisible) },
         { label: mode === 'playground' ? 'Pieces panel' : 'Layers panel', icon: <PanelLeft size={16} />, checked: layersVisible, onToggle: () => setLayersVisible(!layersVisible) },
         ...mode === 'playground' ? [{ label: 'Hand panel', icon: <PanelBottom size={16} />, checked: handVisible, onToggle: () => setHandVisible(!handVisible) },
@@ -625,7 +644,7 @@ export default function App() {
       ]} /><HeaderMenu label="Scripting" title="Scripts and memory" icon={<FileCode2 size={17} />} items={[
         { label: 'Scripts', icon: <FileCode2 size={16} />, checked: scriptWindow, onToggle: () => setScriptWindow(!scriptWindow), hint: 'Lua that buttons and events run for everyone' },
         { label: 'Memory', icon: <Database size={16} />, checked: memoryWindow, onToggle: () => setMemoryWindow(!memoryWindow), hint: 'Values shared by scripts and players' },
-      ]} /><button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button compact-save" aria-label="Print to PDF" title="Print every piece, or save them as a PDF" onClick={() => setModal('print')}><Printer size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
+      ]} /><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
       </>}
             {home && <div className="header-actions">{settingsButton}</div>}
     </header>

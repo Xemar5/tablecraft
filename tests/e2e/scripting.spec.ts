@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { savedWorkspace } from './savedWorkspace';
 import { choose } from './searchSelect';
-import { toggleHeader } from './headerMenus';
+import { chooseHeader, expectHeaderEnabled, toggleHeader } from './headerMenus';
 
 const RULES = `function onLoad()
   memory.round = memory.round or 1
@@ -67,7 +67,7 @@ test('scripts run from the editor and from button pieces, with memory shown on c
   await expect(button).not.toHaveClass(/selected/);
 
   // One undo reverts the whole function.
-  await page.getByRole('button', { name: 'Undo playground action', exact: true }).click();
+  await chooseHeader(page, 'Undo');
   await expect(button).toHaveText('Round 2');
 
   // Memory edits show on the table at once.
@@ -103,5 +103,5 @@ test('a failing function reports its line and changes nothing', async ({ page })
   // The error links to its line.
   await error.getByRole('button').click();
   await expect(scripts.locator('.cm-activeLine')).toContainText('game.move');
-  await expect(page.getByRole('button', { name: 'Undo playground action', exact: true })).toBeDisabled();
+  await expectHeaderEnabled(page, 'Undo', false);
 });

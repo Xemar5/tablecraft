@@ -1,12 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Project } from '../../src/domain';
 import { setProfileName, settleJoin } from './liveSeat';
+import { chooseHeader, expectHeaderEnabled } from './headerMenus';
 
 async function state(page: Page): Promise<Project> {
   // Joining appends the remote project alongside this browser's original local workspace.
   return page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects.at(-1));
 }
-const undoButton = (page: Page) => page.getByRole('button', { name: 'Undo playground action', exact: true });
 
 const server = process.env.TABLECRAFT_TEST_SERVER ?? 'http://127.0.0.1:3000';
 const database = process.env.TABLECRAFT_TEST_DATABASE ?? 'tablecraft-studio';
@@ -27,12 +27,12 @@ async function connect(page: Page, code: string, host: boolean, name: string, se
 test('offline toolbar and Ctrl/Cmd+Z undo while typing, dialogs and Designer keep their own shortcuts', async ({ page }) => {
   await page.goto('/');
   const before = await state(page);
-  await expect(undoButton(page)).toBeDisabled();
+  await expectHeaderEnabled(page, 'Undo', false);
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 1);
-  await undoButton(page).click();
+  await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
-  await expect(undoButton(page)).toBeDisabled();
+  await expectHeaderEnabled(page, 'Undo', false);
 
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
   await page.getByLabel('Search components', { exact: true }).fill('Amber');
@@ -40,7 +40,7 @@ test('offline toolbar and Ctrl/Cmd+Z undo while typing, dialogs and Designer kee
   expect((await state(page)).instances).toHaveLength(before.instances.length + 1);
   await page.getByLabel('Search components', { exact: true }).fill('');
   // A modal and its input must not route undo to the table.
-  await page.getByRole('button', { name: 'Save playground', exact: true }).click();
+  await chooseHeader(page, 'Save playground');
   await page.getByLabel('Snapshot name').fill('Typing stays local');
   await page.keyboard.press('Control+z');
   expect((await state(page)).instances).toHaveLength(before.instances.length + 1);
@@ -57,10 +57,10 @@ test('offline toolbar and Ctrl/Cmd+Z undo while typing, dialogs and Designer kee
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
   await expect(page.locator('.hand-card')).toHaveCount(1);
-  await undoButton(page).click();
+  await chooseHeader(page, 'Undo');
   await expect(page.locator('.hand-card')).toHaveCount(0);
   await page.reload();
-  await expect(undoButton(page)).toBeDisabled();
+  await expectHeaderEnabled(page, 'Undo', false);
 });
 
 test('live undo is global, serialized, preserves joins, and rejects spoofed actors', async ({ browser, storageState }) => {
@@ -75,44 +75,44 @@ test('live undo is global, serialized, preserves joins, and rejects spoofed acto
     await expect.poll(async () => (await state(a)).players.length).toBe((await state(b)).players.length);
     const before = await state(a);
     await a.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
-    await expect(undoButton(b)).toBeEnabled();
+    await expectHeaderEnabled(b, 'Undo', true);
     await b.reload();
     await connect(b, code, false, 'Bob', { seat: 'Bob' });
-    await expect(undoButton(b)).toBeEnabled();
+    await expectHeaderEnabled(b, 'Undo', true);
     await expect.poll(async () => (await state(b)).players).toEqual(before.players);
     // A joining player must neither clear undo nor disappear when it is used.
     await connect(c, code, false, 'Carol');
     await expect(a.locator('.seat-marker')).toHaveCount(before.players.length + 1);
     const joined = await state(a);
-    await undoButton(b).click();
+    await chooseHeader(b, 'Undo');
     for (const page of [a, b, c]) {
       await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
       expect((await state(page)).players).toEqual(joined.players);
-      await expect(undoButton(page)).toBeDisabled();
+      await expectHeaderEnabled(page, 'Undo', false);
     }
 
     await b.locator('.table-piece').filter({ has: b.locator('.stack-count') }).dblclick();
     await expect(b.locator('.hand-card')).toHaveCount(1);
-    await expect(undoButton(a)).toBeEnabled();
-    await undoButton(a).click();
+    await expectHeaderEnabled(a, 'Undo', true);
+    await chooseHeader(a, 'Undo');
     await expect(b.locator('.hand-card')).toHaveCount(0);
     await expect.poll(async () => (await state(a)).instances).toEqual((await state(b)).instances);
 
     await Promise.all([a, b].map(page => page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click()));
     await expect.poll(async () => (await state(c)).instances.length).toBe(before.instances.length + 2);
-    await undoButton(c).click();
+    await chooseHeader(c, 'Undo');
     await expect.poll(async () => (await state(a)).instances.length).toBe(before.instances.length + 1);
-    await undoButton(c).click();
+    await chooseHeader(c, 'Undo');
     await expect.poll(async () => (await state(b)).instances.length).toBe(before.instances.length);
     expect((await state(c)).players).toEqual(joined.players);
 
     await Promise.all([a, b].map(page => page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click()));
     await expect.poll(async () => (await state(c)).instances.length).toBe(before.instances.length + 2);
-    await Promise.all([a, b].map(page => undoButton(page).click()));
+    await Promise.all([a, b].map(page => chooseHeader(page, 'Undo')));
     await expect.poll(async () => (await state(c)).instances.length).toBe(before.instances.length);
 
     await a.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
-    await expect(undoButton(b)).toBeEnabled();
+    await expectHeaderEnabled(b, 'Undo', true);
     const rejection = await b.evaluate(async ({ code, project, server, database }) => {
       // Use Bob's stored authenticated token, but claim Alice's actor ID.
       const modulePath = '/src/multiplayer.ts';
@@ -130,7 +130,7 @@ test('live undo is global, serialized, preserves joins, and rejects spoofed acto
     }, { code, project: await state(b), server, database });
     expect(rejection).toContain('Undo as your own seat');
     await expect.poll(async () => (await state(a)).instances.length).toBe(before.instances.length + 1);
-    await undoButton(b).click();
+    await chooseHeader(b, 'Undo');
     await expect.poll(async () => (await state(a)).instances.length).toBe(before.instances.length);
   } finally {
     await Promise.all(contexts.map(context => context.close()));
