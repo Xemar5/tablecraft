@@ -100,6 +100,9 @@ test('Home creates, reorders, exports, imports and deletes projects including th
   const exported: Archive = { format: 'tablecraft', version: 1, projects: [{ ...starterProject(), id: 'imported', name: 'Imported project' }] };
   await page.locator('input[type=file]').first().setInputFiles({ name: 'import.tablecraft.zip', mimeType: 'application/zip', buffer: Buffer.from(createPortableZip(exported)) });
   await expect(page.getByRole('button', { name: 'Open project Imported project', exact: true })).toBeVisible();
+  // New and imported projects are saved as snapshots of their initial state.
+  await expect.poll(() => page.evaluate(() => (JSON.parse(localStorage.getItem('tablecraft.snapshots') ?? '{"projects":[]}').projects as { name: string }[]).map(p => p.name)))
+    .toEqual(['My prototype - initial state', 'Imported project - initial state']);
   for (const name of ['My prototype', 'Wildwood', 'Imported project']) {
     await page.getByRole('button', { name: `Delete project ${name}`, exact: true }).click();
     await page.getByRole('button', { name: 'Delete project', exact: true }).click();

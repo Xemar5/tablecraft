@@ -24,9 +24,12 @@ test('the component library is a grid that fits the panel, with small-grid and l
   expect(await columns()).toBeGreaterThan(4);
   const tile = (await items.first().locator('.library-preview').boundingBox())!;
   expect(tile.height).toBeLessThan(60);
-  // A pencil in each tile's top right corner edits it.
+  // A pencil in a hovered tile's top right corner edits it.
   const pencil = items.first().locator('.library-edit');
-  await expect(pencil).toBeVisible();
+  await page.mouse.move(0, 0);
+  await expect(pencil).toHaveCSS('opacity', '0');
+  await items.first().hover();
+  await expect(pencil).toHaveCSS('opacity', '1');
   const corner = (await pencil.boundingBox())!;
   expect(corner.x + corner.width).toBeGreaterThan(tile.x + tile.width - 6);
   expect(corner.y).toBeLessThan(tile.y + 6);

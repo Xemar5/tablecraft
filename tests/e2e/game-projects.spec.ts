@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { chooseHeader } from './headerMenus';
 
 test('New project can start from a ready-to-play game, which fills in its name and description', async ({ page }) => {
   await page.goto('/');
@@ -28,8 +29,21 @@ test('New project can start from a ready-to-play game, which fills in its name a
   await expect(dialog.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Friday chess');
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ })).toHaveCount(32);
+  // Its initial state is saved as a snapshot: after a capture, loading it brings every piece back.
+  await page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ }).first().click();
+  await page.keyboard.press('Delete');
+  await expect(page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ })).toHaveCount(31);
+  await chooseHeader(page, 'Save/Load');
+  const saved = page.locator('.snapshot-list > div').filter({ hasText: 'Friday chess - initial state' });
+  await expect(saved).toContainText('33 pieces');
+  await saved.getByRole('button', { name: 'Load', exact: true }).click();
+  await expect(page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ })).toHaveCount(32);
   await page.getByRole('link', { name: 'Tablecraft home' }).click();
-  await expect(page.locator('.home-project').filter({ hasText: 'Friday chess' })).toContainText('2 components · 33 pieces · 2 players');
+  // Loading a snapshot opens it as a project of its own, beside the one that lost a piece.
+  const friday = page.locator('.home-project').filter({ hasText: 'Friday chess' });
+  await expect(friday).toHaveCount(2);
+  await expect(friday.filter({ hasText: '2 components · 33 pieces · 2 players' })).toHaveCount(1);
+  await expect(friday.filter({ hasText: '2 components · 32 pieces · 2 players' })).toHaveCount(1);
 });
 
 test('chess snaps pieces to square centres on a grid lined up with the board', async ({ page }) => {

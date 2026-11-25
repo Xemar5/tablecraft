@@ -553,7 +553,9 @@ export default function App() {
         setProjectId(projects[0].id); setActor(projects[0].players[0]?.id ?? ''); setSelected([]);
         setComponentId(projects[0].components[0]?.id); setMode('playground');
         if (!home) localStorage.setItem(LAST_PROJECT_KEY, projects[0].id);
-        setStorageError(null); notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.`);
+        setStorageError(null);
+        const saved = snapshotInitialStates(projects);
+        notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.${saved ? ` The initial state${projects.length === 1 ? ' is' : 's are'} saved in Save/Load.` : ''}`);
       } else {
         if (home) throw new Error('Open a project before importing a component.');
         const bundle = remapComponentBundle(imported.bundle);
@@ -609,6 +611,22 @@ export default function App() {
     if (sessionRef.current) { leave(); notify('Left the live session. The latest table is saved locally.'); }
     setHome(true); setModal(undefined); setCurtain(undefined); setSelected([]);
   };
+  /**
+   * Adds playground snapshots to the saved ones (Actions → Save/Load). Returns whether they were stored; it reports why
+   * not, for example when the browser's storage is full.
+   */
+  const storeSnapshots = (sources: { project: Project; name: string }[]) => {
+    if (snapshotError) { notify(`Snapshots aren't saved until the saved ones can be read: ${snapshotError}`, true); return false; }
+    if (snapshots.length + sources.length > 100) { notify('There are already 100 saved snapshots; delete some in Save/Load to save more.', true); return false; }
+    try {
+      const next = [...snapshots, ...sources.map(({ project, name }) => ({ ...structuredClone(project), id: uid('snapshot'), name: name.slice(0, 100) }))];
+      localStorage.setItem('tablecraft.snapshots', JSON.stringify({ format: 'tablecraft', version: 1, projects: next }));
+      setSnapshotStore({ projects: next, error: null });
+      return true;
+    } catch (error) { notify(`Snapshot not saved: ${String(error)}`, true); return false; }
+  };
+  /** A new or imported project starts with a snapshot of itself, so its table can be reset in Save/Load. */
+  const snapshotInitialStates = (projects: Project[]) => storeSnapshots(projects.map(project => ({ project, name: `${project.name} - initial state` })));
   const createProject = (name: string, description = '', game?: GameProjectId) => {
     if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
     if (!validName(settings.name)) {
@@ -620,6 +638,7 @@ export default function App() {
     const next = game ? gameProject(game, name, description, profile) : blankProject(name, description, profile);
     setProject(next); setActor(next.players[0].id); setComponentId(undefined); setSelected([]);
     setSearch(''); setFilter('all'); setMode('playground'); setModal(game ? undefined : 'templates');
+    snapshotInitialStates([next]);
   };
   const copyLinked = async (component: Component) => {
     try {
@@ -966,12 +985,7 @@ export default function App() {
           setSnapshotStore({ projects: [], error: null });
         }}>Download recovery & reset snapshots</button></Notice>
         <div className="button-row"><button className="button primary" disabled={!!snapshotError || snapshots.length >= 100} onClick={() => {
-          try {
-            const snapshot = { ...structuredClone(project), id: uid('snapshot'), name: saveName.trim() || project.name };
-            const next = [...snapshots, snapshot];
-            localStorage.setItem('tablecraft.snapshots', JSON.stringify({ format: 'tablecraft', version: 1, projects: next }));
-            setSnapshotStore({ projects: next, error: null }); notify('Playground snapshot saved.');
-          } catch (error) { notify(`Save failed: ${String(error)}`, true); }
+          if (storeSnapshots([{ project, name: saveName.trim() || project.name }])) notify('Playground snapshot saved.');
         }}><Save size={15} /> Save snapshot</button><button className="button" onClick={() => exportProject(project)}><Download size={15} /> Export ZIP</button></div>
         <h3 className="saved-heading">Saved playgrounds</h3>{!snapshots.length && <p className="help-text">No snapshots yet. Your workspace is also saved automatically.</p>}
         <div className="snapshot-list">{snapshots.map(snapshot => <div key={snapshot.id}><div><strong>{snapshot.name}</strong><small>{snapshot.instances.length} pieces · {snapshot.players.length} players</small></div><button className="button" disabled={!!session} onClick={() => {

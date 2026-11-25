@@ -28,6 +28,9 @@
 .component-library.library-small .library-item-label > button { pointer-events: auto; }
 .component-library.library-small .library-edit { width: 18px !important; height: 18px !important; margin-left: auto; border-radius: 4px; background: #ffffffd9; color: #4e6f3d; }
 .component-library.library-small .library-edit:hover { background: #fff; color: var(--green); }
+/* Like the grip, the pencil shows while the tile is hovered or the pencil is focused. */
+.component-library.library-small .library-edit { opacity: 0; transition: opacity .12s; }
+.component-library.library-small .library-item:hover .library-edit, .component-library.library-small .library-edit:focus-visible { opacity: 1; }
 .component-library.library-small .library-reorder { width: 18px !important; height: 18px !important; border-radius: 4px; background: #ffffffd9; opacity: 0; transition: opacity .12s; }
 .component-library.library-small .library-item:hover .library-reorder, .component-library.library-small .library-reorder:focus-visible { opacity: 1; }
 .component-library.library-small .library-link-note { display: none; }
