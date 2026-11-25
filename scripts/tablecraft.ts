@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, memoryAt, memoryValueSchema, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type MemoryPath, type Project } from '../src/domain';
 import { scriptFunctions } from '../src/scripting';
+import { gridSchema, projectGrids, type Grid } from '../src/grids';
 import { groupMembers, nextGroupName } from '../src/pieceGroups';
 import { exportComponentBundle, remapComponentBundle } from '../src/storage';
 import { createPortableZip, readPortableZip } from '../src/portable';
@@ -30,7 +31,11 @@ Usage: npm --silent run cli -- <command> [options]
   group move --file FILE [--pieces IDS] [--groups IDS] --parent GROUP_ID|root
   group lock|unlock --file FILE --group GROUP_IDS
   lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--actor PLAYER_ID]
-  grid --file FILE [--show on|off] [--snap on|off] [--size N] [--offset-x N] [--offset-y N]
+  grid [list] --file FILE [--show on|off] [--snap on|off] [--size N] [--offset-x N] [--offset-y N]
+  grid add --file FILE --shape square|hex|points [grid options]
+  grid set --file FILE --grid GRID_ID [grid options]
+  grid remove --file FILE --grid GRID_ID
+  grid point --file FILE --grid GRID_ID --x N --y N [--rotation DEG] [--label TEXT] [--id POINT_ID]
   script list --file FILE
   script set --file FILE --name NAME --source LUA_FILE
   script remove --file FILE --name NAME
@@ -50,8 +55,13 @@ Groups organise table pieces in the Pieces panel; IDS are comma-separated, piece
 bring their whole stack, and empty groups are removed. group lock/unlock lock the
 groups themselves: their pieces (and subgroups) stay put while each piece keeps its
 own lock. lock/unlock act on pieces (with their whole stacks) and every piece in the given groups; locked pieces stay
-put and can be dragged and box-selected over. grid prints the table grid settings and changes
-the ones given: snap points sit at offset + n × size (size 5–200 px). The chess, checkers, backgammon, go
+put and can be dragged and box-selected over. grid prints the table's grid layers (the first one
+wins where several take a piece); without a subcommand its options change the first grid. Grid
+options: --name, --show on|off, --snap on|off, --size N (square cell width, hex distance
+between cells), --size-y N (square cell height), --offset-x/--offset-y N, --orientation
+pointy|flat (hex), --rotation DEG (pieces snapped to it turn to it; "none" clears it), --radius
+N (points grids' snap distance), --tags A,B (it takes pieces with any of these grid tags;
+"none" takes every piece). grid point adds a snap point to a points grid. The chess, checkers, backgammon, go
 and tidewater templates are ready-to-play games with grouped, partly locked pieces. Book pages and dice faces
 step with {"type":"cycleVariant","ids":[...],"delta":1} in apply.
 Scripts are Lua 5.3, run in order by the shared command engine (onLoad runs when they
@@ -121,7 +131,7 @@ async function main(args: string[]) {
   const { positionals, options: o } = parseArgs(args);
   const [cmd, sub] = positionals;
   if (o.help || !cmd) { console.log(help); return; }
-  if (positionals.length > (cmd === 'live' || cmd === 'group' || cmd === 'script' ? 2 : 1)) throw new Error('Unexpected positional argument.');
+  if (positionals.length > (cmd === 'live' || cmd === 'group' || cmd === 'script' || cmd === 'grid' ? 2 : 1)) throw new Error('Unexpected positional argument.');
   let result: unknown;
   if (cmd === 'schema') {
     allowed(o, ['what']);
@@ -162,7 +172,7 @@ async function main(args: string[]) {
       export: [...common, 'out', 'component', 'force'],
       group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id'],
       lock: [...common, 'pieces', 'groups', 'actor'], unlock: [...common, 'pieces', 'groups', 'actor'],
-      grid: [...common, 'show', 'snap', 'size', 'offset-x', 'offset-y'],
+      grid: [...common, 'show', 'snap', 'size', 'size-y', 'offset-x', 'offset-y', 'shape', 'name', 'orientation', 'rotation', 'radius', 'tags', 'grid', 'x', 'y', 'label', 'id'],
       script: [...common, 'name', 'source'], call: [...common, 'function', 'piece', 'args', 'actor'], memory: [...common, 'path', 'set', 'remove'],
     };
     if (!(cmd in supported)) throw new Error(`Unknown command ${cmd}. Use --help.`);
@@ -232,22 +242,53 @@ async function main(args: string[]) {
       if (ids.length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'move', ids, patch: { locked: lock } }, o.actor as string | undefined));
       changed = ids.length > 0; result = { [lock ? 'locked' : 'unlocked']: ids };
     } else if (cmd === 'grid') {
+      if (sub && !['list', 'add', 'set', 'remove', 'point'].includes(sub)) throw new Error('Choose grid list, add, set, remove or point.');
       const toggle = (name: string) => {
         if (o[name] === undefined) return undefined;
         if (o[name] !== 'on' && o[name] !== 'off') throw new Error(`--${name} must be on or off.`);
         return o[name] === 'on';
       };
-      const patch: Partial<Project['settings']> = {};
-      const show = toggle('show'), snap = toggle('snap');
-      if (show !== undefined) patch.grid = show;
-      if (snap !== undefined) patch.snap = snap;
-      if (o.size !== undefined) patch.gridSize = numberOption(o, 'size', 25, 5, 200);
-      if (o['offset-x'] !== undefined) patch.gridOffsetX = numberOption(o, 'offset-x', 0, -2000, 2000);
-      if (o['offset-y'] !== undefined) patch.gridOffsetY = numberOption(o, 'offset-y', 0, -2000, 2000);
-      if (Object.keys(patch).length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'settings', patch }));
-      changed = Object.keys(patch).length > 0;
-      const { grid, snap: snapping, gridSize, gridOffsetX = 0, gridOffsetY = 0 } = project.settings;
-      result = { grid, snap: snapping, gridSize, gridOffsetX, gridOffsetY };
+      const grids = projectGrids(project);
+      const find = () => { const grid = grids.find(item => item.id === option(o, 'grid')); if (!grid) throw new Error(`Grid ${option(o, 'grid')} does not exist.`); return grid; };
+      // The options shared by add, set and the old flag-only form.
+      const patch = (): Partial<Grid> => {
+        const changes: Partial<Grid> = {};
+        const show = toggle('show'), snap = toggle('snap');
+        if (show !== undefined) changes.visible = show;
+        if (snap !== undefined) changes.snap = snap;
+        if (o.name !== undefined) changes.name = option(o, 'name');
+        if (o.shape !== undefined) changes.shape = gridSchema.shape.shape.parse(option(o, 'shape'));
+        if (o.size !== undefined) changes.size = numberOption(o, 'size', 50, 5, 2000);
+        if (o['size-y'] !== undefined) changes.sizeY = numberOption(o, 'size-y', 50, 5, 2000);
+        if (o['offset-x'] !== undefined) changes.offsetX = numberOption(o, 'offset-x', 0, -100000, 100000);
+        if (o['offset-y'] !== undefined) changes.offsetY = numberOption(o, 'offset-y', 0, -100000, 100000);
+        if (o.orientation !== undefined) changes.orientation = z.enum(['pointy', 'flat']).parse(option(o, 'orientation'));
+        if (o.rotation !== undefined) changes.rotation = o.rotation === 'none' ? undefined : numberOption(o, 'rotation', 0, -360, 360);
+        if (o.radius !== undefined) changes.radius = numberOption(o, 'radius', 50, 1, 2000);
+        if (o.tags !== undefined) changes.filter = o.tags === 'none' ? undefined : { anyOf: option(o, 'tags').split(',').map(tag => tag.trim()).filter(Boolean).map(tag => ({ has: [tag], lacks: [] })) };
+        return changes;
+      };
+      let command: Command | undefined;
+      if (sub === 'add') {
+        const shape = gridSchema.shape.shape.parse(option(o, 'shape'));
+        command = { type: 'grid', grid: gridSchema.parse({ id: typeof o.id === 'string' ? option(o, 'id') : uid('grid'), name: shape === 'hex' ? 'Hex grid' : shape === 'points' ? 'Snap points' : 'Square grid',
+          shape, visible: true, snap: true, size: shape === 'hex' ? 100 : 50, offsetX: 0, offsetY: 0, ...(shape === 'points' ? { points: [] } : {}), ...patch() }) };
+      } else if (sub === 'set') command = { type: 'grid', grid: gridSchema.parse({ ...find(), ...patch() }) };
+      else if (sub === 'remove') command = { type: 'removeGrid', id: find().id };
+      else if (sub === 'point') {
+        const grid = find();
+        if (grid.shape !== 'points') throw new Error(`${grid.name} is a ${grid.shape} grid; snap points go on points grids.`);
+        const point = { id: typeof o.id === 'string' ? option(o, 'id') : uid('point'), x: numberOption(o, 'x', 0, -100000, 100000), y: numberOption(o, 'y', 0, -100000, 100000),
+          ...(o.rotation !== undefined ? { rotation: numberOption(o, 'rotation', 0, -360, 360) } : {}), ...(o.label !== undefined ? { label: option(o, 'label') } : {}) };
+        command = { type: 'grid', grid: { ...grid, points: [...(grid.points ?? []).filter(item => item.id !== point.id), point] } };
+      } else if (sub !== 'list' && Object.keys(patch()).length) {
+        // The flag-only form of older versions changes the first grid.
+        if (!grids.length) throw new Error('The table has no grids. Use grid add.');
+        command = { type: 'grid', grid: gridSchema.parse({ ...grids[0], ...patch() }) };
+      }
+      if (command) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), command));
+      changed = !!command;
+      result = { grids: projectGrids(project) };
     } else if (cmd === 'script') {
       if (!['list', 'set', 'remove'].includes(sub)) throw new Error('Choose script list, set or remove.');
       const named = () => (project.scripts ?? []).find(script => script.name.toLowerCase() === option(o, 'name').toLowerCase());
