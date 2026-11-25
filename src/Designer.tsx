@@ -9,7 +9,7 @@ import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees
 import type { OrderMove } from './zOrder';
 import { componentZip, downloadZip } from './portable';
 import { FontPicker } from './FontPicker';
-import { ColorField, Field, HorizontalScroll, IconChoice, Modal, NumberField, ScrollArrows, SectionTitle, Toggle, useSmoothHorizontalWheel } from './ui';
+import { ColorField, Field, HorizontalScroll, IconChoice, InfoTip, Modal, NumberField, ScrollArrows, SectionTitle, Toggle, useSmoothHorizontalWheel } from './ui';
 import { closestSegmentParameter, expandPathBounds, fitPathBounds, segmentControls, splitPathSegment } from './vectorGeometry';
 import { resizeCenteredBox, resizeNode, rotateNode, snapTo, zoomPrecision } from './designTransform';
 import { SearchSelect } from './SearchSelect';
@@ -201,8 +201,10 @@ function transformBox(node: DesignNode, nodes: DesignNode[]) {
   return center && { ...center, angle: nodeAngle(node, nodes) + node.rotation * Math.PI / 180 };
 }
 
-export function Designer({ component: incoming, components, onChange, onDelete, notify, tab, setTab, panels, layersVisible = true, flushRef }: {
-  component: Component; components: Component[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
+export function Designer({ component: incoming, components, functions = [], onChange, onDelete, notify, tab, setTab, panels, layersVisible = true, flushRef }: {
+  component: Component; components: Component[];
+  /** Global functions in the project's scripts, for the component's script action. */
+  functions?: string[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
   tab: 'design' | 'behavior'; setTab: (tab: 'design' | 'behavior') => void; panels: ReturnType<typeof usePanelLayout>; layersVisible?: boolean;
   /** Set to a function that hands any held edit to `onChange` at once (the app calls it before its own commands). */
   flushRef?: { current: (() => void) | undefined };
@@ -1115,7 +1117,7 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
         {tab === 'behavior' ? <>
           <div className="inspector-section"><h3>Component behavior</h3>
             <Field label="Component type"><select value={component.kind} onChange={event => update({ kind: event.target.value as Component['kind'] })}>
-              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="book">Book</option><option value="artwork">Artwork</option>
+              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="book">Book</option><option value="artwork">Artwork</option><option value="button">Button</option>
             </select></Field>
             <p className="help-text">Changing type preserves artwork, dimensions, data and behavior settings.</p>
             <Toggle label="Flippable" description="Pieces can be turned over on the table (the back is printed either way)" checked={component.flippable} onChange={flippable => update({ flippable })} />
@@ -1126,6 +1128,11 @@ export function Designer({ component: incoming, components, onChange, onDelete, 
             <Toggle label="Preview when locked" description="Show the hover preview even while a piece is locked" checked={!!component.previewWhenLocked} onChange={previewWhenLocked => update({ previewWhenLocked })} />
             <NumberField deferred label="Rotation step (°)" hint="How far Q/E and the rotate buttons turn its pieces, for example 90, 60, 45, 30 or 15 degrees." value={component.rotationStep ?? 90} min={1} max={180}
               onChange={rotationStep => update({ rotationStep })} />
+            <SearchSelect label={component.kind === 'button' ? 'When pressed, run' : 'Script action'} value={component.action ?? ''} placeholder="No function"
+              options={[{ value: '', label: 'No function' }, ...[...new Set([...functions, ...component.action ? [component.action] : []])].map(name => ({ value: name, label: name, detail: functions.includes(name) ? undefined : 'not in the scripts' }))]}
+              onChange={action => update({ action: action || undefined })}
+              hint={<InfoTip text={component.kind === 'button' ? 'Pressing its pieces on the table calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'
+                : 'Selected pieces get a Run button that calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'} />} />
             {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
             <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
           </div>

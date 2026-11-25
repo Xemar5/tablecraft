@@ -1,5 +1,6 @@
 import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
 import { assetFontFamily, assetUrl, bind, resolveFontFamily, resolveImage, type Component, type DesignNode } from './domain';
+import { useMemoryFields } from './memoryBindings';
 import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
 
 type ViewProps = {
@@ -20,7 +21,10 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
   const [reveal, setReveal] = useState({ face, changed: false });
   if (reveal.face !== face) setReveal({ face, changed: true });
   const nodes = hidden ? c.back : back && c.flippable ? c.back : c.front;
-  const data = inheritedData ?? c.rows[row] ?? {};
+  // Layers can also bind script memory ({{memory.score}}); a row's own fields win over memory fields.
+  const memory = useMemoryFields(c);
+  const rowData = inheritedData ?? c.rows[row] ?? {};
+  const data = Object.keys(memory).length ? { ...memory, ...rowData } : rowData;
   const catalog = new Map(components.map(item => [item.id, item]));
   const compoundEditing = new Set<string>();
   const nodeMap = new Map(nodes.map(node => [node.id, node]));

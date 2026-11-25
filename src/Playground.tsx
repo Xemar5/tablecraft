@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, Ban, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
 import { canStack, fitsPersistentStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
@@ -13,6 +13,7 @@ import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
 import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft, snappedPositions, snapToGrid } from './playgroundPreview';
 import { cssPx } from './uiScale';
+import { scriptsMention } from './scripting';
 
 type Props = {
   project: Project; actor: string; owner: string; host?: boolean; selected: string[]; setSelected: (ids: string[]) => void;
@@ -230,7 +231,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const handClickSuppressed = useRef(false);
   const tableHandGesture = useRef<{ pointer: number; id: string; x: number; y: number }>(null);
   // `extract`: the top piece to take off its stack once the pointer starts moving (a plain click still selects the stack).
-  const gesture = useRef<{ pointer: number; x: number; y: number; startWorld?: { x: number; y: number }; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number }; extract?: string }>(null);
+  const gesture = useRef<{ pointer: number; x: number; y: number; startWorld?: { x: number; y: number }; positions: Record<string, { x: number; y: number }>; front?: string[]; pan?: { x: number; y: number }; extract?: string;
+    /** A button piece being pressed: releasing without moving calls its script function. */
+    press?: string }>(null);
+  const [pressed, setPressed] = useState<string>();
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
@@ -654,7 +658,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.isComposing || fullscreenItem) return;
-      if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"]') || document.querySelector('[role="dialog"],[aria-modal="true"]')) return;
+      // Keys typed in the script and memory windows stay there.
+      if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"],.floating-window') || document.querySelector('[role="dialog"],[aria-modal="true"]')) return;
       if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'z') {
         const target = p.instances.find(item => item.id === (hovered ?? selected.at(-1)));
         if (target) { e.preventDefault(); setFullscreen({ id: target.id, pointer: lastPointer.current }); setAltDown(false); }
@@ -730,9 +735,25 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   });
+  /** Calls a piece's script function (its component's action) for everyone. */
+  const runAction = (item: Instance) => {
+    const comp = table.components.get(item.componentId);
+    if (!comp?.action) { notify(`Choose a script function for ${comp?.name ?? 'this piece'} in its Behavior tab.`, true); return; }
+    void dispatch({ type: 'call', name: comp.action, piece: item.id, args: [], seed: crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff });
+  };
   const startPiece = (e: React.PointerEvent, item: Instance) => {
     if (tool === 'pan' || e.button === 1) return;
     if (e.button !== 0) return;
+    // A plain click on a button piece presses it (when released without moving). Locked buttons only press;
+    // unlocked ones can still be dragged, and Ctrl/Cmd or Shift-click selects them.
+    const press = !viewer && !item.holder && !e.ctrlKey && !e.metaKey && !e.shiftKey && table.components.get(item.componentId)?.kind === 'button' ? item.id : undefined;
+    if (press) setPressed(press);
+    if (press && item.locked) {
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      gesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions: {}, press };
+      return;
+    }
     // Locked pieces ignore plain clicks so a box selection can start over them; Ctrl/Cmd-click still selects them.
     if (item.locked && !e.ctrlKey && !e.metaKey) return;
     e.stopPropagation();
@@ -741,14 +762,14 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     const extracting = takeTop && e.shiftKey;
     const group = extracting ? [item.id] : stackMembers(p, item).map(i => i.id);
     const extending = !extracting && (e.ctrlKey || e.metaKey || (e.shiftKey && !item.stack));
-    const ids = extracting ? group : extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
-    setSelected(ids);
+    const ids = press ? [item.id] : extracting ? group : extending ? selected.includes(item.id) ? selected.filter(id => !group.includes(id)) : [...new Set([...selected, ...group])] : selected.includes(item.id) ? selected : group;
+    if (!press) setSelected(ids);
     if (viewer || !ids.includes(item.id)) return;
     // Selecting a locked piece (or one in a locked group) leaves it where it is in the table order.
     if (item.locked) return;
     const positions = Object.fromEntries(p.instances.filter(i => ids.includes(i.id) && !i.locked && !i.holder).map(i => [i.id, { x: i.x, y: i.y }]));
     const active = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld: worldPoint(e.clientX, e.clientY), positions, front: group,
-      ...(takeTop && !extracting ? { extract: item.id } : {}) };
+      ...(takeTop && !extracting ? { extract: item.id } : {}), ...(press ? { press } : {}) };
     gesture.current = active;
     if (extracting) {
       viewport.current?.setPointerCapture(e.pointerId);
@@ -764,7 +785,11 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   pieceEvents.current = {
     start: startPiece, enter: enterPiece, leave: leavePiece,
     focus: id => { setHovered(id); setPreviewItem(id); }, blur: () => { setHovered(undefined); setPreviewItem(undefined); },
-    select: (item, extend) => { const ids = stackMembers(p, item).map(i => i.id); setSelected(extend ? [...new Set([...selected, ...ids])] : ids); },
+    select: (item, extend) => {
+      // Enter or Space on a button piece presses it.
+      if (!extend && !viewer && table.components.get(item.componentId)?.kind === 'button') { runAction(item); return; }
+      const ids = stackMembers(p, item).map(i => i.id); setSelected(extend ? [...new Set([...selected, ...ids])] : ids);
+    },
     draw: (item, comp) => { if (item.locked || viewer || !currentPlayer) return false; if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); return true; },
   };
   const endGesture = (e: React.PointerEvent) => {
@@ -774,6 +799,13 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     }
     const g = gesture.current;
     if (!g || g.pointer !== e.pointerId) return;
+    setPressed(undefined);
+    if (g.press && Math.hypot(e.clientX - g.x, e.clientY - g.y) <= 3) {
+      gesture.current = null; setPreview({}); setDropHint(undefined);
+      const item = p.instances.find(i => i.id === g.press);
+      if (item) runAction(item);
+      return;
+    }
     const bounds = viewport.current?.getBoundingClientRect();
     if (bounds && (e.clientX < bounds.left || e.clientX > bounds.right || e.clientY < bounds.top || e.clientY > bounds.bottom)) {
       pointer.current = null; setHovered(undefined); setPreviewItem(undefined);
@@ -905,7 +937,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           }
         }}
         onPointerUp={endGesture}
-        onPointerCancel={() => { gesture.current = null; setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
+        onPointerCancel={() => { gesture.current = null; setPressed(undefined); setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
         <div ref={world} className={`table-world ${p.settings.grid ? 'show-grid' : ''}`} style={{
           // Each grid dot is centred in its background tile, so the tiles start half a cell before the snap points.
           backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`, '--table-zoom': zoom,
@@ -1060,7 +1092,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             return <TablePiece key={item.id} item={item} component={comp} components={p.components} x={position.x} y={position.y} count={count}
               zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handTarget}
               dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} shuffling={!!item.stack && shuffling.has(item.stack)} hovered={isHovered}
-              persistent={!!item.stack && persistentIds.has(item.stack)}
+              persistent={!!item.stack && persistentIds.has(item.stack)} pressed={pressed === item.id}
               {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
@@ -1289,6 +1321,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           <div className="action-grid">
             <button onClick={() => rotate(-1)}><RotateCcw size={17} /><span>{selectionStep ? `Rotate −${selectionStep}°` : 'Rotate back'}<kbd>Q</kbd></span></button>
             <button onClick={() => rotate(1)}><RotateCw size={17} /><span>{selectionStep ? `Rotate +${selectionStep}°` : 'Rotate on'}<kbd>E</kbd></span></button>
+            {c.action && <button title={`Run the script function ${c.action} for everyone`} onClick={() => runAction(piece)}><CirclePlay size={17} /><span>{c.kind === 'button' ? 'Press' : 'Run'} {c.action}</span></button>}
             {selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable) && <button onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>}
             {hasPages(c) && <>
               <button disabled={c.kind === 'book' && piece.row <= 0} onClick={() => turnPages(-1)}><ChevronLeft size={17} /><span>{c.kind === 'book' ? 'Previous page' : 'Previous face'}<kbd>Shift Q</kbd></span></button>
@@ -1344,6 +1377,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           </>}
           <Toggle label="Player hands" description="Keep a little mystery" checked={p.settings.hands} onChange={hands => dispatch({ type: 'settings', patch: { hands } })} />
           <Toggle label="Turn tracker" checked={p.settings.turns} onChange={turns => dispatch({ type: 'settings', patch: { turns } })} />
+          {online && <Toggle label="Players can edit scripts" description={host ? 'Otherwise only you, the host, can change scripts' : 'Only the host can change this'} checked={!!p.settings.scriptEditing} disabled={!host}
+            onChange={scriptEditing => dispatch({ type: 'settings', patch: { scriptEditing } })} />}
+          {scriptsMention(p.scripts, 'update') && <NumberField deferred label="Script update every (s)" hint="How often the scripts' update(dt) runs while players are at the table." value={p.settings.updateInterval ?? 1} min={.1} max={3600} step={.1}
+            onChange={updateInterval => dispatch({ type: 'settings', patch: { updateInterval } })} />}
           {p.settings.turns && <div className="turn-tracker"><span>UP NEXT</span><strong>{turnPlayer?.name ?? 'Add a player'}</strong><button className="button full primary" onClick={endTurn}>End turn <ChevronRight size={15} /></button></div>}
         </fieldset>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><button className="text-button" onClick={() => setPanel('players')}>Manage</button></div>
@@ -1459,7 +1496,7 @@ type PieceEvents = {
 };
 type TablePieceProps = {
   item: Instance; component: Component; components: Component[]; x: number; y: number; zIndex: number; count: number;
-  selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number; shuffling?: boolean;
+  selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number; shuffling?: boolean; pressed?: boolean;
   /** In a persistent stack, which keeps its label (with a pin) even with one piece. */
   persistent?: boolean;
   /** The table zoom times the piece's scale; only set for selected, hovered and drop-target pieces, whose order badge
@@ -1472,7 +1509,7 @@ type TablePieceProps = {
   compactLabel?: boolean;
   badgeIndex: number; badgeTotal: number; badgeError?: string; events: React.RefObject<PieceEvents>;
 };
-const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, persistent, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
+const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, persistent, pressed, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
   const slot = badgeIndex >= 0 ? stackSlot(badgeIndex, badgeTotal) : undefined;
   // A book is one piece whose pages are its rows; it looks like a stack but nothing can be taken from it.
   const pages = comp.kind === 'book' ? Math.max(1, comp.rows.length) : 0;
@@ -1505,7 +1542,7 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     void getComputedStyle(node).left;
     node.style.transition = '';
   }, [dragging]);
-  return <div ref={element} className={`table-piece ${rollingRow !== undefined ? 'rolling' : ''} ${shuffling ? 'shuffling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
+  return <div ref={element} className={`table-piece ${comp.kind === 'button' ? `button-piece${pressed ? ' pressed' : ''} ` : ''}${rollingRow !== undefined ? 'rolling' : ''} ${shuffling ? 'shuffling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
     data-testid="table-piece" data-piece-id={item.id}
     style={{ ...(pieceZoom !== undefined ? { '--piece-zoom': pieceZoom } : {}), '--piece-scale': item.scale, left: dragging ? item.x : x, top: dragging ? item.y : y, width: comp.width, height: comp.height, zIndex, transform } as React.CSSProperties}
     onPointerDown={e => events.current.start(e, item)}

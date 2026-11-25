@@ -56,6 +56,10 @@ export function template(kind: TemplateKind): Component {
       makeNode('shape', { name: 'Clearing', x: 12, y: 12, width: 616, height: 396, radius: 200, fill: '#304c3e', text: 'fern' }),
       makeNode('text', { name: 'Board title', x: 160, y: 34, width: 320, height: 44, text: 'THE CLEARING', font: 'Lora', fontSize: 25, color: '#d8d6b7', align: 'center' }),
     ];
+  } else if (kind === 'button') {
+    // Pressing a button on the table calls the script function chosen as its action.
+    Object.assign(base, { name: 'Button', width: 170, height: 56, color: '#365d46', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
+    base.front = [makeNode('text', { name: 'Label', x: 0, y: 0, width: 170, height: 56, text: 'Press me', color: '#eef6e2', fontSize: 18, font: 'DM Sans', fontWeight: 600, align: 'center' })];
   } else if (kind === 'book') {
     Object.assign(base, { name: 'Field guide', width: 300, height: 400, color: '#f3eedf', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
     base.rows = bookRows;

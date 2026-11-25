@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
-import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, Palette, Square, UnlockKeyhole } from 'lucide-react';
+import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, MousePointerClick, Palette, Square, UnlockKeyhole } from 'lucide-react';
 import { groupAncestors, type Command, type Component, type Project } from './domain';
 import { variantLabels } from './csv';
 import { groupSelection, pieceTree, type PieceTreeRow } from './pieceGroups';
 
 const kindIcon = (component?: Component) => component?.kind === 'card' ? <Layers size={14} /> : component?.kind === 'token' ? <Circle size={14} />
-  : component?.kind === 'artwork' ? <Palette size={14} /> : component?.kind === 'book' ? <BookOpen size={14} /> : <Square size={14} />;
+  : component?.kind === 'artwork' ? <Palette size={14} /> : component?.kind === 'book' ? <BookOpen size={14} /> : component?.kind === 'button' ? <MousePointerClick size={14} /> : <Square size={14} />;
 const DRAG_TYPE = 'application/x-tablecraft-pieces';
 
 type DropMode = 'above' | 'below' | 'inside';

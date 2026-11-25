@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Dices, Download, Eye, FilePlus2, GripVertical, HelpCircle, Layers, LayoutGrid, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Armchair, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Download, Eye, FileCode2, FilePlus2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
@@ -22,11 +22,19 @@ import { linkComponent, localComponentCopy, refreshProjectLinks } from './projec
 import { LibraryVariants } from './LibraryVariants';
 import { PrintDialog } from './PrintProject';
 import { startLibraryDrag } from './libraryDrag';
+import { FloatingWindow } from './FloatingWindow';
+import { createMemoryStore, MemoryBindings } from './memoryBindings';
+import { scriptFunctions, scriptsMention } from './scripting';
 import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, saveSettings, validName, watchTheme, type UserSettings } from './settings';
+
+// The code editor is large; it loads the first time the window opens.
+const ScriptEditor = lazy(() => import('./ScriptEditor').then(module => ({ default: module.ScriptEditor })));
+const MemoryEditor = lazy(() => import('./MemoryEditor').then(module => ({ default: module.MemoryEditor })));
+const loadingWindow = <div className="script-empty" role="status">Loading…</div>;
 
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
   : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} />
-  : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : <Square size={size} />;
+  : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : kind === 'button' ? <MousePointerClick size={size} /> : <Square size={size} />;
 const LAST_PROJECT_KEY = 'tablecraft.last-project';
 function boot(): { archive: Archive; error: string | null; lastProjectId: string | null; draftNotice?: string; draftStored: boolean } {
   const draft = loadDesignDraft();
@@ -98,6 +106,10 @@ export default function App() {
     };
   }, []);
   const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link' | 'seat' | 'print'>();
+  // The script editor and memory windows float over the workspace and stay open while you play.
+  const [scriptWindow, setScriptWindow] = useState(false);
+  const [memoryWindow, setMemoryWindow] = useState(false);
+  const memoryStore = useMemo(createMemoryStore, []);
   const [removeLink, setRemoveLink] = useState<Component>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number } | undefined>(() => initial.draftNotice ? { message: initial.draftNotice, error: false, id: Date.now() } : undefined);
   const [session, setSession] = useState<LiveSession>();
@@ -354,6 +366,34 @@ export default function App() {
     if (!draft && draftStored.current && savedArchive.current === archive) { clearDesignDraft(); draftStored.current = false; }
   }, [draft, archive]);
   const viewer = !!session && !actor;
+  useLayoutEffect(() => memoryStore.set(project.memory), [memoryStore, project.memory]);
+  const functions = useMemo(() => scriptFunctions(project.scripts), [project.scripts]);
+  // Live rooms leave script editing to the host unless the host lets players edit them.
+  const scriptEditor = !session || session.host === session.identity || (!!project.settings.scriptEditing && !viewer);
+  const seenLog = useRef<{ project: string; seq: number }>(undefined);
+  useEffect(() => {
+    const log = project.scriptLog ?? [], latest = log.at(-1)?.seq ?? 0, seen = seenLog.current;
+    seenLog.current = { project: project.id, seq: latest };
+    if (!seen || seen.project !== project.id || latest <= seen.seq) return;
+    const fresh = log.filter(line => line.seq > seen.seq);
+    // Errors from your own actions (or, offline, the first of a repeating update error); announcements for everyone.
+    const error = fresh.filter(line => line.level === 'error' && (line.player ? line.player === actor : !session && !line.count)).at(-1);
+    const announcement = fresh.filter(line => line.level === 'announce').at(-1);
+    if (error) notify(`Script error: ${error.text}`, true);
+    else if (announcement) notify(announcement.text);
+  }, [project.scriptLog, project.id, actor, session, notify]);
+  const hasUpdate = useMemo(() => scriptsMention(project.scripts, 'update'), [project.scripts]);
+  const updateInterval = project.settings.updateInterval ?? 1;
+  const sendRef = useRef(send);
+  sendRef.current = send;
+  useEffect(() => {
+    // Live rooms get update ticks from the server; offline, the open table runs them while the page is visible.
+    if (session || home || mode !== 'playground' || !hasUpdate) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void sendRef.current({ type: 'tick', dt: updateInterval, seed: crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff });
+    }, updateInterval * 1000);
+    return () => window.clearInterval(timer);
+  }, [session, home, mode, hasUpdate, updateInterval, project.id]);
   const undoCount = session ? liveUndo.count : workspace.histories[project.id]?.entries.length ?? 0;
   const undoNotice = session ? liveUndo.notice : workspace.histories[project.id]?.notice ?? '';
   // Each new undo notice pops up once as a toast when the table is visible, then hides after a few seconds or a click.
@@ -387,7 +427,7 @@ export default function App() {
       if (home || mode !== 'playground' || modal || curtain || event.defaultPrevented || event.isComposing || event.repeat ||
         !(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== 'z') return;
       const target = event.target;
-      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"]')) return;
+      if (target instanceof HTMLElement && target.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="dialog"], .floating-window')) return;
       if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
       event.preventDefault();
       if (undoCount && !viewer) undo();
@@ -565,7 +605,7 @@ export default function App() {
   const visible = project.components.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || c.kind === filter));
   const selectedComponent = mode === 'designer' ? activeComponent : project.components.find(c => c.id === project.instances.find(i => i.id === selected.at(-1))?.componentId);
   const settingsButton = <button className="profile-button" aria-label="Settings" title="Settings" onClick={() => setModal('settings')}>{settings.name.trim() ? settings.name.trim()[0].toUpperCase() : <Settings size={15} />}</button>;
-  return <div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
+  return <MemoryBindings.Provider value={memoryStore}><div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
     <AssetFonts components={fontCatalog} notify={notify} />
     <header className="app-header">
       <a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
@@ -573,7 +613,7 @@ export default function App() {
       <div className="project-heading compact-project"><h1>{project.name}</h1></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
       {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain || viewer} onClick={undo}><Undo2 size={18} /></button>}
-      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-label={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button compact-save" aria-label="Print to PDF" title="Print every piece, or save them as a PDF" onClick={() => setModal('print')}><Printer size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
+      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-label={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="icon-button" title="Scripts: Lua that buttons and events run for everyone" aria-label="Toggle scripts window" aria-pressed={scriptWindow} onClick={() => setScriptWindow(!scriptWindow)}><FileCode2 size={17} /></button><button className="icon-button" title="Memory: values shared by scripts and players" aria-label="Toggle memory window" aria-pressed={memoryWindow} onClick={() => setMemoryWindow(!memoryWindow)}><Database size={17} /></button><button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button compact-save" aria-label="Print to PDF" title="Print every piece, or save them as a PDF" onClick={() => setModal('print')}><Printer size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
       </>}
             {home && <div className="header-actions">{settingsButton}</div>}
     </header>
@@ -679,13 +719,21 @@ export default function App() {
         activeComponent && isAsset(activeComponent) ? <AssetInspector key={activeComponent.id} component={activeComponent} components={project.components} notify={notify} onChange={component => dispatch({ type: 'component', component })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} /> :
-        activeComponent ? <Designer key={activeComponent.id} flushRef={designerFlush} component={activeComponent} components={project.components} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={editDesign} onDelete={async () => {
+        activeComponent ? <Designer key={activeComponent.id} flushRef={designerFlush} component={activeComponent} components={project.components} functions={functions} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={editDesign} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>
     <input ref={fileInput} type="file" accept=".zip,application/zip" hidden onChange={e => { void importFile(e.target.files?.[0]); e.target.value = ''; }} />
     <input ref={textureInput} type="file" accept={TEXTURE_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files, 'texture'); e.target.value = ''; }} />
     <input ref={fontInput} type="file" accept={FONT_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files, 'font'); e.target.value = ''; }} />
+    {!home && scriptWindow && <FloatingWindow id="scripts" title="Scripts" icon={<FileCode2 size={15} />} onClose={() => setScriptWindow(false)} minWidth={480} minHeight={300}
+      initial={page => ({ width: Math.min(820, page.width - 80), height: Math.min(560, page.height - 140), x: Math.max(16, page.width - Math.min(820, page.width - 80) - 300), y: 90 })}>
+      <Suspense fallback={loadingWindow}><ScriptEditor project={project} canEdit={scriptEditor} canRun={!viewer} dispatch={dispatch} notify={notify} /></Suspense>
+    </FloatingWindow>}
+    {!home && memoryWindow && <FloatingWindow id="memory" title="Memory" icon={<Database size={15} />} onClose={() => setMemoryWindow(false)} minWidth={380} minHeight={220}
+      initial={page => ({ width: Math.min(520, page.width - 80), height: Math.min(440, page.height - 160), x: Math.max(16, page.width - Math.min(520, page.width - 80) - 40), y: 130 })}>
+      <Suspense fallback={loadingWindow}><MemoryEditor memory={project.memory} canEdit={!viewer} dispatch={dispatch} notify={notify} projectName={project.name} /></Suspense>
+    </FloatingWindow>}
     {toast && <div className={`toast ${toast.error ? 'toast-error' : ''}`} role={toast.error ? 'alert' : 'status'}>{toast.error ? <WifiOff size={17} /> : <Check size={17} />}<span>{toast.message}</span><button onClick={() => setToast(undefined)} aria-label="Dismiss notification"><X size={14} /></button></div>}
     {modal === 'seat' && session && <Modal title="Pick your seat" subtitle="Take an empty seat to play, or watch the table as a viewer. You can switch any time from the Players tab." wide onClose={() => setModal(undefined)}>
       <div className="seat-picker">
@@ -738,6 +786,7 @@ export default function App() {
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
         ['board', 'Boards', 'Build a world to play in.'], ['dice', 'Dice', 'Leave a little to chance.'],
         ['book', 'Books', 'Rules, journals and lore. Turn pages with Shift+Q/E.'], ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
+        ['button', 'Buttons', 'Press to run a script for everyone at the table.'],
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kindIcon(kind, 48)}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
         <button className="template-card template-texture" onClick={() => textureInput.current?.click()}><div className="template-art"><ImageIcon size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Textures<ArrowRight size={15} /></strong><small>Import PNG, JPEG, WebP or GIF images. Embedded in your ZIP save.</small></button>
         <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><Type size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>
@@ -844,6 +893,6 @@ export default function App() {
       <div className="help-footer"><Leaf size={18} /><p>Your work stays in this browser. Export ZIP to back it up or move it to another device. Imported textures and fonts travel with your save; external texture URLs and Google Fonts need internet access.</p></div>
     </Modal>}
     {curtain && <div className="privacy-curtain"><span className="brand-mark"><Layers size={32} /></span><p>PASS THE SCREEN TO</p><h1>{curtain.name}</h1><span className="curtain-avatar" style={{ background: curtain.color }}>{curtain.name[0]}</span><p className="curtain-description">{curtain.endsTurn ? `It's ${curtain.name}'s turn. A little privacy for the next big move.` : 'A little privacy for your next big move.'}</p><button className="button primary" onClick={() => { setActor(curtain.id); if (curtain.endsTurn) void dispatch({ type: 'endTurn' }); setCurtain(undefined); }}>I'm {curtain.name}. Let's play. <ArrowRight size={17} /></button><button className="text-button" onClick={() => setCurtain(undefined)}>{curtain.endsTurn ? 'Back to the current player (keep the turn)' : 'Back to the current player'}</button></div>}
-  </div>;
+  </div></MemoryBindings.Provider>;
 }
 function CopyIcon() { return <Square size={14} />; }

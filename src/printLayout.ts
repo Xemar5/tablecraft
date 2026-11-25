@@ -44,8 +44,8 @@ export type PrintItem = PrintCopy & {
 export type Oversized = { name: string; parts?: number; shrunkTo?: number };
 export type PrintPage = { side: 'front' | 'back'; items: PrintItem[] };
 
-/** Components that are printed as physical pieces (not artwork, textures or fonts). */
-const printable = (component: Component) => !['artwork', 'texture', 'font'].includes(component.kind);
+/** Components that are printed as physical pieces (not artwork, textures, fonts or on-screen script buttons). */
+const printable = (component: Component) => !['artwork', 'texture', 'font', 'button'].includes(component.kind);
 /**
  * Every printed piece gets a back on the reverse of the sheet: its back design, or just its background colour when it
  * has none. Book pages and die faces are printed as separate pieces and have no backs.
