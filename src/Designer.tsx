@@ -5,6 +5,7 @@ import Papa from 'papaparse';
 import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
 import { componentTags, hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
 import { TagListField } from './TagEditors';
+import { componentGridTags } from './grids';
 import { normalizeTags } from './tags';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees, reorderLayers, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
@@ -1141,6 +1142,11 @@ export function Designer({ component: incoming, components, functions = [], onCh
               suggestions={normalizeTags(components.flatMap(componentTags)).sort((a, b) => a.localeCompare(b))}
               hint="Pieces with a stack tag in common can stack, and a new stack takes the tags they share as its filter (editable when the stack is selected). Pieces without tags stack with anything."
               onChange={stackTags => update({ stackTags, stackTag: '' })} />}
+            <Toggle label="Can snap to grids" description="Its pieces snap to the table's grids when dropped" checked={component.snapToGrid !== false} onChange={snapToGrid => update({ snapToGrid: snapToGrid ? undefined : false })} />
+            {component.snapToGrid !== false && <TagListField label="Grid tags" tags={componentGridTags(component)}
+              suggestions={normalizeTags(components.flatMap(componentGridTags)).sort((a, b) => a.localeCompare(b))}
+              hint="Each grid's filter decides by these tags whether its pieces snap to it (edit grids with the Grids tool on the table). Without grid tags, its pieces snap to every grid."
+              onChange={gridTags => update({ gridTags: gridTags.length ? gridTags : undefined })} />}
           </div>
           {hasPages(component) && <div className="inspector-section"><h3>{component.kind === 'book' ? 'Book pages' : 'Dice variants'}</h3>
             <p className="help-text">{component.kind === 'book'

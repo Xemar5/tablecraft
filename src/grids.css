@@ -1,0 +1,48 @@
+/* Table grids (GridLayers.tsx) and the grid tool's panel (GridEditor.tsx). Sizes divide by --table-zoom to stay
+   the same on screen at any zoom. */
+.grid-layers, .grid-handles { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
+.grid-layers { z-index: 0; }
+.grid-fill { opacity: .55; }
+.grid-fill.grid-fill-hex { opacity: .4; }
+.grid-fill.hidden-grid, .grid-points.hidden-grid { opacity: .25; }
+.grid-fill.selected-grid { opacity: .95; }
+.grid-dot { r: calc(1.6px / var(--table-zoom, 1)); fill: currentColor; }
+.grid-hex { fill: none; stroke: currentColor; stroke-width: calc(1px / var(--table-zoom, 1)); }
+.grid-points { opacity: .8; }
+.grid-points.selected-grid { opacity: 1; }
+.grid-point-ring { r: calc(6px / var(--table-zoom, 1)); fill: none; stroke: currentColor; stroke-width: calc(1.5px / var(--table-zoom, 1)); }
+.grid-point-tick { x: calc(-1px / var(--table-zoom, 1)); y: calc(-15px / var(--table-zoom, 1)); width: calc(2px / var(--table-zoom, 1)); height: calc(15px / var(--table-zoom, 1)); fill: currentColor; }
+.grid-point-label { font: 600 calc(11px / var(--table-zoom, 1)) 'DM Sans', sans-serif; fill: currentColor; transform: translate(calc(9px / var(--table-zoom, 1)), calc(-8px / var(--table-zoom, 1))); }
+/* The edited points grid's handles sit above the pieces. */
+.grid-handles { z-index: 100000; }
+.grid-handle { pointer-events: all; cursor: grab; }
+.grid-handle-hit { r: calc(12px / var(--table-zoom, 1)); fill: transparent; }
+.grid-handle-dot { r: calc(6px / var(--table-zoom, 1)); fill: #fff; stroke: currentColor; stroke-width: calc(2px / var(--table-zoom, 1)); }
+.grid-handle.selected .grid-handle-dot { fill: currentColor; stroke: #fff; r: calc(7px / var(--table-zoom, 1)); }
+.table-viewport.grid-mode { cursor: crosshair; }
+.table-viewport.grid-mode .table-piece { pointer-events: none; }
+
+.grid-editor .section-title h3 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-done { display: inline-flex; align-items: center; gap: 4px; min-height: 26px; padding: 3px 9px; }
+.grid-intro { margin: 0 0 10px; }
+.grid-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+.grid-list li { display: flex; align-items: center; gap: 2px; border-radius: 7px; padding-right: 2px; }
+.grid-list li.active { background: #e6efd9; }
+.grid-list li:hover:not(.active) { background: #f1f5ea; }
+.grid-row { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 8px; border: 0; background: none; color: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.grid-swatch { display: inline-flex; flex-shrink: 0; }
+.grid-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-row-actions { display: flex; align-items: center; }
+.grid-row-actions .icon-button { width: 22px; height: 24px; color: #8a9b7d; }
+.grid-row-actions .icon-button[aria-pressed="false"] { opacity: .5; }
+.grid-add { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.grid-add .button { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 4px 9px; }
+.grid-point-editor { margin: 4px 0 14px; padding: 10px; border: 1px solid #e1e8d8; border-radius: 8px; background: #f8faf4; }
+.grid-point-editor .section-title { margin-bottom: 8px; }
+.grid-settings { border: 0; margin: 0; min-width: 0; }
+.grid-settings .help-text { margin: 0 0 12px; }
+.grid-settings .toggle-row { margin-bottom: 10px; }
+.grid-summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 2px 0 12px; font-size: 12px; }
+.grid-summary > span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.grid-summary small { color: #9ca990; font-size: 10px; }
+.grid-summary .button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; min-height: 28px; padding: 4px 10px; }

@@ -121,19 +121,18 @@ test('shuffling a stack plays the shuffle animation once', async ({ page }) => {
   void id;
 });
 
-test('the grid and snapping toggles look like the active tool when on', async ({ page }) => {
+test('the grid tool looks like the other tools when it is on', async ({ page }) => {
   await page.goto('/');
   const tools = page.locator('.floating-tools');
-  const active = tools.locator('button.active').first();
-  const grid = tools.getByRole('button', { name: 'Toggle grid' }), snap = tools.getByRole('button', { name: 'Toggle snapping' });
-  if ((await snap.getAttribute('aria-pressed')) !== 'true') await snap.click();
-  if ((await grid.getAttribute('aria-pressed')) !== 'true') await grid.click();
+  const select = tools.getByRole('button', { name: 'Select and move' }), grid = tools.getByRole('button', { name: 'Grid tool' });
   const background = (locator: typeof grid) => locator.evaluate(element => getComputedStyle(element).backgroundColor);
-  const tool = await background(active);
+  const tool = await background(select);
+  await grid.click();
+  await expect(grid).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(() => background(grid)).toBe(tool);
-  await expect.poll(() => background(snap)).toBe(tool);
-  await snap.click();
-  await expect.poll(() => background(snap)).not.toBe(tool);
+  await expect.poll(() => background(select)).not.toBe(tool);
+  await grid.click();
+  await expect.poll(() => background(grid)).not.toBe(tool);
 });
 
 test('pieces dropped over a hand they can’t go into still stack onto what lies under it', async ({ page }) => {

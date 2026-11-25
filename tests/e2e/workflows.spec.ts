@@ -470,8 +470,13 @@ test('dragging layers and pieces uses actual coordinates and respects grid snapp
   expect(state.projects[0].components[0].front.find(n => n.name === 'Card name')).toMatchObject({ x: 38, y: 203 });
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await page.getByRole('button', { name: 'Table', exact: true }).click();
-  await page.getByLabel('Snap to grid', { exact: true }).check();
-  await page.getByLabel('Grid size (px)', { exact: true }).fill('50');
+  // Turn the table's grid's snapping on and make its cells 50px with the grid tool.
+  await page.getByRole('button', { name: 'Edit grids', exact: true }).click();
+  await page.getByRole('button', { name: 'Snap to Grid', exact: true }).click();
+  await page.getByLabel('Cell width (px)', { exact: true }).fill('50');
+  await page.getByLabel('Cell width (px)', { exact: true }).press('Enter');
+  await expect.poll(async () => (await workspace(page)).projects[0].grids?.[0]).toMatchObject({ snap: true, size: 50 });
+  await page.locator('.grid-editor').getByRole('button', { name: 'Done', exact: true }).click();
   state = await workspace(page);
   const token = state.projects[0].instances.find(i => i.componentId === state.projects[0].components[1].id)!;
   const tokenElement = page.locator(`[data-piece-id="${token.id}"]`);

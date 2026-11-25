@@ -11,7 +11,10 @@ import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
 import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
-import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft, snappedPositions, snapToGrid } from './playgroundPreview';
+import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgroundPreview';
+import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids';
+import { gridColor, GridLayers, GridPointHandles } from './GridLayers';
+import { GridEditor } from './GridEditor';
 import { cssPx } from './uiScale';
 import { scriptsMention } from './scripting';
 import { TagFilterEditor } from './TagEditors';
@@ -45,6 +48,8 @@ const ROLL_MS = 650;
 const SHUFFLE_MS = 700;
 const DRAW_MS = 480;
 const MAX_ZOOM = 3;
+/** The table's size in table pixels (see .table-world in styles.css); grids are drawn across it. */
+const TABLE_WIDTH = 4000, TABLE_HEIGHT = 2600;
 const VIEWER_NOTICE = 'You are watching as a viewer. Take a seat in Players to play.';
 const CLEARED = 'Undo history cleared because ';
 const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo history cleared' : 'Undo';
@@ -64,7 +69,12 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const world = useRef<HTMLDivElement>(null);
   // The table settles into a plain transform once zooming and panning stop, so it is redrawn sharp at the new zoom.
   useCompositedTransform(world, `translate(${pan.x}px, ${pan.y}px) rotate(${camera}deg) scale(${zoom})`, 150);
-  const [tool, setTool] = useState<'select' | 'pan'>('select');
+  const [tool, setTool] = useState<'select' | 'pan' | 'grid'>('select');
+  // The grid tool: which grid (and snap point) the panel edits, and a grid being dragged on the table before it's saved.
+  const [gridId, setGridId] = useState<string>();
+  const [gridPoint, setGridPoint] = useState<string>();
+  const [gridDraft, setGridDraft] = useState<Grid>();
+  const gridGesture = useRef<{ pointer: number; x: number; y: number; startWorld: { x: number; y: number }; grid: Grid; point?: string; added?: boolean; moved: boolean } | null>(null);
   const [preview, setPreview] = useState<Record<string, { x: number; y: number }>>({});
   const [search, setSearch] = useState<string[]>();
   const [query, setQuery] = useState('');
@@ -72,7 +82,11 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const [removingSeat, setRemovingSeat] = useState<Player>();
   const [playerDrag, setPlayerDrag] = useState<string>();
   const [playerDrop, setPlayerDrop] = useState<{ id: string; position: 'before' | 'after' }>();
-  const gridOffset = { x: p.settings.gridOffsetX ?? 0, y: p.settings.gridOffsetY ?? 0 };
+  const grids = useMemo(() => projectGrids(p), [p]);
+  const shownGrids = useMemo(() => gridDraft ? grids.map(grid => grid.id === gridDraft.id ? gridDraft : grid) : grids, [grids, gridDraft]);
+  const editedGrid = tool === 'grid' ? shownGrids.find(grid => grid.id === gridId) ?? shownGrids[0] : undefined;
+  const gridTags = useMemo(() => [...new Set(p.components.flatMap(componentGridTags))].sort((a, b) => a.localeCompare(b)), [p.components]);
+  const snappingGrids = grids.filter(grid => grid.snap).length;
   const turnPlayer = p.players.length ? p.players[p.settings.turn % p.players.length] : undefined;
   const nextTurnPlayer = p.players.length ? p.players[(p.settings.turn + 1) % p.players.length] : undefined;
   const endTurn = () => { if (onEndTurn) onEndTurn(nextTurnPlayer); else void dispatch({ type: 'endTurn' }); };
@@ -665,6 +679,15 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       if (e.defaultPrevented || e.isComposing || fullscreenItem) return;
       // Keys typed in the script and memory windows stay there.
       if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"],.floating-window') || document.querySelector('[role="dialog"],[aria-modal="true"]')) return;
+      if (tool === 'grid') {
+        if (e.key === 'Escape') { if (gridPoint) setGridPoint(undefined); else setTool('select'); }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && editedGrid?.shape === 'points' && gridPoint && !viewer) {
+          e.preventDefault();
+          void dispatch({ type: 'grid', grid: { ...editedGrid, points: (editedGrid.points ?? []).filter(point => point.id !== gridPoint) } });
+          setGridPoint(undefined);
+        }
+        return;
+      }
       if (!e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'z') {
         const target = p.instances.find(item => item.id === (hovered ?? selected.at(-1)));
         if (target) { e.preventDefault(); setFullscreen({ id: target.id, pointer: lastPointer.current }); setAltDown(false); }
@@ -747,7 +770,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     void dispatch({ type: 'call', name: comp.action, piece: item.id, args: [], seed: crypto.getRandomValues(new Uint32Array(1))[0] & 0x7fffffff });
   };
   const startPiece = (e: React.PointerEvent, item: Instance) => {
-    if (tool === 'pan' || e.button === 1) return;
+    if (tool === 'pan' || tool === 'grid' || e.button === 1) return;
     if (e.button !== 0) return;
     // A plain click on a button piece presses it (when released without moving). Locked buttons only press;
     // unlocked ones can still be dragged, and Ctrl/Cmd or Shift-click selects them.
@@ -798,6 +821,14 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     draw: (item, comp) => { if (item.locked || viewer || !currentPlayer) return false; if (p.settings.hands && comp.hand) void dispatch({ type: 'draw', id: item.id, playerId: actor }); return true; },
   };
   const endGesture = (e: React.PointerEvent) => {
+    const edit = gridGesture.current;
+    if (edit && edit.pointer === e.pointerId) {
+      gridGesture.current = null;
+      const changed = edit.added || edit.moved ? gridDraft : undefined;
+      if (changed) void dispatch({ type: 'grid', grid: changed }).finally(() => setGridDraft(undefined));
+      else setGridDraft(undefined);
+      return;
+    }
     setHandDrop(undefined);
     if (marqueeGesture.current) {
       marqueeGesture.current = null; setMarquee(undefined);
@@ -844,10 +875,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       const delta = dragDelta(g, e.clientX, e.clientY);
       if (moving.length) {
         // One atomic command, including all stack members; each piece snaps from its own final position.
-        const command = p.settings.snap
-          ? { type: 'transform' as const, ids: moving.map(i => i.id), positions: snappedPositions(g.positions, delta, p.settings.gridSize, gridOffset) }
-          : { type: 'transform' as const, ids: moving.map(i => i.id), dx: delta.x, dy: delta.y };
-        void dispatch(command);
+        // The shared engine snaps each moved stack or piece to the first grid that takes it.
+        void dispatch({ type: 'transform', ids: moving.map(i => i.id), dx: delta.x, dy: delta.y, snap: true });
       }
     }
     gesture.current = null; setPreview({}); setDropHint(undefined);
@@ -867,7 +896,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     <section className="table-section" onPointerMoveCapture={e => {
       if (e.target instanceof Element && e.target.closest('[data-piece-id],[data-hand-id],[data-mini-id]')) positionPreview(e.clientX);
     }}>
-      <div ref={viewport} className={`table-viewport ${tool === 'pan' ? 'pan-mode' : ''}`}
+      <div ref={viewport} className={`table-viewport ${tool === 'pan' ? 'pan-mode' : tool === 'grid' ? 'grid-mode' : ''}`}
         onDragOver={e => {
           if (Array.from(e.dataTransfer.types).includes(LIBRARY_DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
         }}
@@ -894,6 +923,23 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           if (e.button === 1 || tool === 'pan') {
             gesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, positions: {}, pan };
             e.currentTarget.setPointerCapture(e.pointerId);
+          } else if (tool === 'grid') {
+            // The grid tool moves the edited grid, or on a points grid picks, drags and adds snap points.
+            if (e.button !== 0 || viewer || !editedGrid) return;
+            const startWorld = worldPoint(e.clientX, e.clientY);
+            const handle = (e.target as Element).closest<SVGElement>('[data-grid-point]')?.dataset.gridPoint;
+            let grid = editedGrid, point: string | undefined, added = false;
+            if (grid.shape === 'points') {
+              point = handle;
+              if (!point) {
+                point = uid('point'); added = true;
+                grid = { ...grid, points: [...grid.points ?? [], { id: point, x: Math.round(startWorld.x), y: Math.round(startWorld.y) }] };
+                setGridDraft(grid);
+              }
+              setGridPoint(point);
+            }
+            gridGesture.current = { pointer: e.pointerId, x: e.clientX, y: e.clientY, startWorld, grid, point, added, moved: false };
+            e.currentTarget.setPointerCapture(e.pointerId);
           } else if (e.button === 0) {
             marqueeGesture.current = { x: e.clientX, y: e.clientY, ids: e.shiftKey ? selected : [] };
             if (!e.shiftKey) { setSelected([]); setSelectedSeatId(undefined); }
@@ -902,6 +948,16 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         }}
         onPointerMove={e => {
           pointer.current = { x: e.clientX, y: e.clientY };
+          const edit = gridGesture.current;
+          if (edit && edit.pointer === e.pointerId) {
+            if (!edit.moved && Math.hypot(e.clientX - edit.x, e.clientY - edit.y) <= 3) return;
+            edit.moved = true;
+            const at = worldPoint(e.clientX, e.clientY), dx = Math.round(at.x - edit.startWorld.x), dy = Math.round(at.y - edit.startWorld.y);
+            setGridDraft(edit.point
+              ? { ...edit.grid, points: (edit.grid.points ?? []).map(point => point.id === edit.point ? { ...point, x: point.x + dx, y: point.y + dy } : point) }
+              : { ...edit.grid, offsetX: edit.grid.offsetX + dx, offsetY: edit.grid.offsetY + dy });
+            return;
+          }
           const box = marqueeGesture.current;
           if (box) {
             const rect = boxRect(box.x, box.y, e);
@@ -942,13 +998,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           }
         }}
         onPointerUp={endGesture}
-        onPointerCancel={() => { gesture.current = null; setPressed(undefined); setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
-        <div ref={world} className={`table-world ${p.settings.grid ? 'show-grid' : ''}`} style={{
-          // Each grid dot is centred in its background tile, so the tiles start half a cell before the snap points.
-          backgroundSize: `${p.settings.gridSize}px ${p.settings.gridSize}px`, '--table-zoom': zoom,
-          backgroundPosition: `${gridOffset.x - p.settings.gridSize / 2}px ${gridOffset.y - p.settings.gridSize / 2}px`,
-        } as React.CSSProperties}>
+        onPointerCancel={() => { gesture.current = null; gridGesture.current = null; setGridDraft(undefined); setPressed(undefined); setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
+        <div ref={world} className="table-world" style={{ '--table-zoom': zoom } as React.CSSProperties}>
           <div className="table-watermark" aria-hidden="true"><span><Layers size={34} strokeWidth={1.4} /></span><p>TABLECRAFT</p><small>MAKE SOMETHING WORTH PLAYING</small></div>
+          <GridLayers grids={shownGrids} width={TABLE_WIDTH} height={TABLE_HEIGHT} editing={tool === 'grid'} selected={editedGrid?.id} />
           {p.settings.hands && p.players.map(player => {
             const seatSpot = seatPosition?.id === player.id ? seatPosition : player;
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);
@@ -1030,9 +1083,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                     if (i.holder === actor) {
                       void dispatch(!bypass && target && compatible(target, [i])
                         ? { type: 'dropFromHand', id: i.id, targetId: target.id, stackId: uid('stack') }
-                        : { type: 'release', id: i.id, ...point });
+                        : { type: 'release', id: i.id, ...point, snap: true });
                     } else {
-                      void dispatch({ type: 'playVisibleHand', id: i.id, ...point,
+                      void dispatch({ type: 'playVisibleHand', id: i.id, ...point, snap: true,
                         ...(!bypass && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
                     }
                   }}
@@ -1071,7 +1124,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                 if (!drag || drag.pointer !== e.pointerId) return;
                 const point = worldPoint(e.clientX, e.clientY);
                 let x = drag.origin.x + point.x - drag.startWorld.x, y = drag.origin.y + point.y - drag.startWorld.y;
-                if (p.settings.snap) { x = snapToGrid(x, p.settings.gridSize, gridOffset.x); y = snapToGrid(y, p.settings.gridSize, gridOffset.y); }
+                const snapped = snapTarget(p, p.components.find(c => c.id === emptySlots.find(record => record.id === drag.id)?.componentId) ?? {}, x, y);
+                if (snapped) ({ x, y } = snapped);
                 setSlotPreview({ id: drag.id, x, y });
               }}
               onPointerUp={e => {
@@ -1101,12 +1155,13 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
+          {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={gridColor(editedGrid, shownGrids.indexOf(editedGrid))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT} />}
         </div>
         <div className="floating-tools" onPointerDown={e => e.stopPropagation()}>
           <button className={tool === 'select' ? 'active' : ''} title="Select & move" aria-label="Select and move" onClick={() => setTool('select')}><MousePointer2 size={19} /></button>
           <button className={tool === 'pan' ? 'active' : ''} title="Pan table" aria-label="Pan table" onClick={() => setTool('pan')}><Hand size={19} /></button>
-          <span /><button className={p.settings.grid ? 'active' : ''} aria-pressed={p.settings.grid} title="Toggle grid" aria-label="Toggle grid" onClick={() => dispatch({ type: 'settings', patch: { grid: !p.settings.grid } })}><Grid2X2 size={18} /></button>
-          <button className={p.settings.snap ? 'active' : ''} aria-pressed={p.settings.snap} title="Toggle snapping" aria-label="Toggle snapping" onClick={() => dispatch({ type: 'settings', patch: { snap: !p.settings.snap } })}><Maximize size={17} /></button>
+          <span /><button className={tool === 'grid' ? 'active' : ''} aria-pressed={tool === 'grid'} title="Grids: add and edit grids and snap points" aria-label="Grid tool"
+            onClick={() => { if (tool === 'grid') setTool('select'); else { setTool('grid'); onShowInspector(); } }}><Grid2X2 size={18} /></button>
         </div>
         {(plan?.error || notice) && <div className="table-warnings" onPointerDown={e => e.stopPropagation()}>
           {notice && <div className="warning-card undo-toast" role="status" title="Click to dismiss" onClick={onDismissNotice}>
@@ -1201,13 +1256,12 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             } else {
               const rect = viewport.current?.getBoundingClientRect();
               if (!rect || e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
-              let { x, y } = worldPoint(e.clientX, e.clientY);
-              if (p.settings.snap) { x = snapToGrid(x, p.settings.gridSize, gridOffset.x); y = snapToGrid(y, p.settings.gridSize, gridOffset.y); }
+              const { x, y } = worldPoint(e.clientX, e.clientY);
               const slot = !bypass ? slotAt(e.clientX, e.clientY) : undefined;
               const target = targetAt(e.clientX, e.clientY, []);
               if (slot && fitsSlot(slot, moving)) dispatch({ type: 'dropIntoStack', ids: movingIds, stackId: slot.id });
               else if (!bypass && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
-              else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y });
+              else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y, snap: true });
             }
           }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}
             onKeyDown={e => {
@@ -1228,7 +1282,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         const comp = p.components.find(c => c.id === item?.componentId);
         return item && comp ? <div className="hand-drag-preview" style={{ left: cssPx(handDrag.x), top: cssPx(handDrag.y) }} aria-hidden="true"><ComponentThumbnail component={comp} components={p.components} row={item.row} back={item.flipped} hidden={!!item.holder && item.holder !== actor && comp.hideInHand} height={handCardHeight} /></div> : null;
       })()}
-      <footer className="table-status"><span>{p.instances.length} pieces on the table</span><span>{p.settings.snap ? `Snapping to ${p.settings.gridSize}px` : 'Free movement'}<span className="status-divider">/</span>{p.players.length} players<span className="status-divider">/</span>2D playground</span></footer>
+      <footer className="table-status"><span>{p.instances.length} pieces on the table</span><span>{snappingGrids ? `Snapping to ${snappingGrids === 1 ? grids.find(grid => grid.snap)!.name : `${snappingGrids} grids`}` : 'Free movement'}<span className="status-divider">/</span>{p.players.length} players<span className="status-divider">/</span>2D playground</span></footer>
     </section>
     {createPortal(<>
       {handTarget && (() => {
@@ -1267,6 +1321,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     </>, document.body)}
     {inspectorVisible && <PanelSeparator label="Resize table inspector" controls="playground-inspector-panel" value={panels.sizes.playgroundInspector} {...panels.limits.playgroundInspector} direction={-1} onResize={value => panels.resize('playgroundInspector', value)} />}
     <aside id="playground-inspector-panel" className="inspector playground-inspector" style={{ width: panels.sizes.playgroundInspector, minWidth: 0, flex: `0 0 ${panels.sizes.playgroundInspector}px` }} hidden={!inspectorVisible}>
+      {tool === 'grid' ? <div className="inspector-scroll"><GridEditor grids={shownGrids} selected={editedGrid} onSelect={setGridId} point={gridPoint} onSelectPoint={setGridPoint}
+        dispatch={dispatch} disabled={viewer} tags={gridTags} onDone={() => setTool('select')} /></div> : <>
       <HorizontalScroll contentClassName="inspector-tabs" label="Table inspector tabs"><button className={panel === 'selection' ? 'active' : ''} onClick={() => setPanel('selection')}><MousePointer2 size={14} /> Selection</button><button className={panel === 'table' ? 'active' : ''} onClick={() => setPanel('table')}><Settings2 size={14} /> Table</button><button className={panel === 'players' ? 'active' : ''} onClick={() => setPanel('players')}><Users size={14} /> Players <span>{p.players.length}</span></button></HorizontalScroll>
       <div className="inspector-scroll">{panel === 'players' ? <>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">{online ? viewer ? 'Watching' : 'Live' : 'Hotseat'}</span></div>
@@ -1375,15 +1431,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         </div> : <div className="inspector-section table-intro"><div className="intro-icon"><MousePointer2 size={23} /></div><h3>No component selected</h3><p>Select a component on the table or in your hand to see its settings and actions.</p></div>}
       </> : <>
         <fieldset className="inspector-section table-settings" disabled={viewer}><div className="section-title"><h3>Table settings</h3><Settings2 size={14} /></div>
-          <Toggle label="Show grid" checked={p.settings.grid} onChange={grid => dispatch({ type: 'settings', patch: { grid } })} />
-          <Toggle label="Snap to grid" checked={p.settings.snap} onChange={snap => dispatch({ type: 'settings', patch: { snap } })} />
-          {(p.settings.snap || p.settings.grid) && <>
-            <NumberField deferred label="Grid size (px)" value={p.settings.gridSize} min={5} max={200} onChange={gridSize => dispatch({ type: 'settings', patch: { gridSize } })} />
-            <div className="field-grid">
-              <NumberField deferred label="Grid offset X (px)" hint="Moves the grid's points, for example onto a board's squares." value={gridOffset.x} min={-2000} max={2000} onChange={gridOffsetX => dispatch({ type: 'settings', patch: { gridOffsetX } })} />
-              <NumberField deferred label="Grid offset Y (px)" value={gridOffset.y} min={-2000} max={2000} onChange={gridOffsetY => dispatch({ type: 'settings', patch: { gridOffsetY } })} />
-            </div>
-          </>}
+          <div className="grid-summary"><span>{grids.length ? `${grids.length} ${grids.length === 1 ? 'grid' : 'grids'}: ${grids.map(grid => grid.name).join(', ')}` : 'No grids'}<small>{snappingGrids ? `${snappingGrids} snapping` : 'Pieces move freely'}</small></span>
+            <button type="button" className="button" onClick={() => { setTool('grid'); onShowInspector(); }}><Grid2X2 size={14} /> Edit grids</button></div>
           <Toggle label="Player hands" description="Keep a little mystery" checked={p.settings.hands} onChange={hands => dispatch({ type: 'settings', patch: { hands } })} />
           <Toggle label="Turn tracker" checked={p.settings.turns} onChange={turns => dispatch({ type: 'settings', patch: { turns } })} />
           {online && <Toggle label="Players can edit scripts" description={host ? 'Otherwise only you, the host, can change scripts' : 'Only the host can change this'} checked={!!p.settings.scriptEditing} disabled={!host}
@@ -1397,7 +1446,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           <p className="help-text">{p.players.length} players. One shared imagination.</p>
         </div>
         <div className="table-tip"><span>MADE FOR THE MESSY MIDDLE</span><p>Try a rule. Break a rule.<br />Make something worth playing.</p><span className="tip-sparkle">✳</span></div>
-      </>}</div>
+      </>}</div></>}
     </aside>
     {search && <Modal title="Inside the stack" subtitle="Search, draw a specific card, or reorder from bottom to top." wide onClose={() => setSearch(undefined)}>
       <div className="stack-search"><div className="search-input"><Search size={16} /><input placeholder="Find a component..." value={query} onChange={e => setQuery(e.target.value)} /></div>

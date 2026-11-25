@@ -17,7 +17,7 @@ test('Selection and Table isolate object controls and shared settings', async ({
   await expectConsistentInsets();
   await expect(inspector.getByRole('heading', { name: 'No component selected' })).toBeVisible();
   await expect(inspector).toContainText('Select a component on the table or in your hand');
-  await expect(inspector.getByLabel('Show grid', { exact: true })).toHaveCount(0);
+  await expect(inspector.getByRole('button', { name: 'Edit grids', exact: true })).toHaveCount(0);
 
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') });
   await stack.click();
@@ -29,10 +29,11 @@ test('Selection and Table isolate object controls and shared settings', async ({
   await expect(inspector.getByRole('heading', { name: 'Table settings' })).toBeVisible();
   await expectConsistentInsets();
   await expect(inspector.getByLabel('Rotation', { exact: true })).toHaveCount(0);
-  const grid = inspector.getByLabel('Show grid', { exact: true });
-  const wasChecked = await grid.isChecked();
-  await grid.setChecked(!wasChecked);
-  await expect(grid).toBeChecked({ checked: !wasChecked });
+  await expect(inspector.getByRole('button', { name: 'Edit grids', exact: true })).toBeVisible();
+  const turns = inspector.getByLabel('Turn tracker', { exact: true });
+  const wasChecked = await turns.isChecked();
+  await turns.setChecked(!wasChecked);
+  await expect(turns).toBeChecked({ checked: !wasChecked });
   await expect(stack).toHaveClass(/selected/);
 
   await selection.click();

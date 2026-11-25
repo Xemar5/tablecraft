@@ -38,9 +38,12 @@ test('chess snaps pieces to square centres on a grid lined up with the board', a
   await page.getByRole('button', { name: 'New project', exact: true }).click();
   await page.getByRole('radio', { name: /^Chess/ }).check();
   await page.getByRole('button', { name: 'Create project', exact: true }).click();
-  await expect(page.locator('.table-status')).toContainText('Snapping to 60px');
-  // Grid dots sit on the snap points: tiles start half a cell before them.
-  await expect(page.locator('.table-world')).toHaveCSS('background-position', '20px 10px');
+  await expect(page.locator('.table-status')).toContainText('Snapping to Grid');
+  // The grid's dots sit on the snap points, at the grid's offset plus whole 60px cells.
+  const pattern = page.locator('.grid-layers pattern').first();
+  await expect(pattern).toHaveAttribute('x', '50');
+  await expect(pattern).toHaveAttribute('y', '40');
+  await expect(pattern).toHaveAttribute('width', '60');
   const pieces = page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ });
   const saved = () => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects.find((project: { name: string }) => project.name === 'Chess'));
   const before = await saved();
