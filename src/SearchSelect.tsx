@@ -53,8 +53,13 @@ export function SearchSelect({ label, value, options, onChange, placeholder = 'C
     search.current?.focus();
     const inside = (target: EventTarget | null) => target instanceof Node && (root.current?.contains(target) || popover.current?.contains(target));
     const close = (event: PointerEvent) => { if (!inside(event.target)) setOpen(false); };
-    // Scrolling a panel would leave the list behind its trigger; scrolling the list itself is fine.
-    const scrolled = (event: Event) => { if (!inside(event.target)) setOpen(false); };
+    // Scrolling a panel moves the list along with its trigger (a panel can scroll just as the list opens, to bring its
+    // trigger into view), and closes it once the trigger has scrolled out of sight; scrolling the list itself is fine.
+    const scrolled = (event: Event) => {
+      if (inside(event.target)) return;
+      const rect = trigger.current?.getBoundingClientRect();
+      if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) setOpen(false); else place();
+    };
     document.addEventListener('pointerdown', close);
     window.addEventListener('scroll', scrolled, true);
     window.addEventListener('resize', place);

@@ -1,15 +1,18 @@
-import { useId, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Plus, X } from 'lucide-react';
 import { InfoTip } from './ui';
+import { SearchSelect } from './SearchSelect';
 import { describeFilter, normalizeTags, tagKey, type TagFilter, type TagRule } from './tags';
 import './tags.css';
 
-/** A small field that adds a tag on Enter (or a comma), offering known tags as suggestions. */
+/**
+ * A small field that adds a new tag on Enter (or a comma), beside a dropdown of the project's existing tags with a search
+ * box to find one.
+ */
 function TagInput({ label, suggestions, exclude, onAdd, disabled, autoFocus, onCancel }: {
   label: string; suggestions: string[]; exclude: string[]; onAdd: (tag: string) => void; disabled?: boolean; autoFocus?: boolean; onCancel?: () => void;
 }) {
   const [value, setValue] = useState('');
-  const list = useId();
   const taken = new Set(exclude.map(tagKey));
   const add = () => {
     const tag = value.replace(/,/g, ' ').trim();
@@ -21,10 +24,11 @@ function TagInput({ label, suggestions, exclude, onAdd, disabled, autoFocus, onC
     else if (event.key === 'Escape') { setValue(''); onCancel?.(); }
   };
   return <>
-    <input className="tag-input" aria-label={label} placeholder="Add a tag…" value={value} disabled={disabled} list={list} maxLength={60} autoFocus={autoFocus}
+    <input className="tag-input" aria-label={label} placeholder="Add a tag…" value={value} disabled={disabled} maxLength={60} autoFocus={autoFocus}
       // Leaving the field adds what was typed but keeps it open: closing it on blur would shift the layout under the click that moved focus.
       onChange={event => setValue(event.target.value)} onKeyDown={keyDown} onBlur={() => { if (value.trim()) add(); }} />
-    <datalist id={list}>{suggestions.filter(tag => !taken.has(tagKey(tag))).map(tag => <option key={tag} value={tag} />)}</datalist>
+    {suggestions.some(tag => !taken.has(tagKey(tag))) && <SearchSelect label={`${label}: existing tags`} hideLabel className="tag-picker" value={undefined} placeholder="Choose…" disabled={disabled}
+      options={suggestions.filter(tag => !taken.has(tagKey(tag))).map(tag => ({ value: tag, label: tag }))} onChange={tag => { setValue(''); onAdd(tag); }} />}
   </>;
 }
 

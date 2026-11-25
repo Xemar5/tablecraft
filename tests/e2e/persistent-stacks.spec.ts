@@ -44,8 +44,8 @@ test('a single piece becomes a persistent stack that keeps its filter, editable 
   const filter = page.getByRole('group', { name: 'Stack filter', exact: true });
   await expect(filter.locator('.filter-summary')).toContainText('Takes amber.');
   await filter.getByRole('button', { name: 'Or pieces with…', exact: true }).click();
-  await filter.getByRole('combobox', { name: 'Tag pieces must have for rule 2', exact: true }).fill('gold');
-  await filter.getByRole('combobox', { name: 'Tag pieces must have for rule 2', exact: true }).press('Enter');
+  await filter.getByRole('textbox', { name: 'Tag pieces must have for rule 2', exact: true }).fill('gold');
+  await filter.getByRole('textbox', { name: 'Tag pieces must have for rule 2', exact: true }).press('Enter');
   await expect(filter.locator('.filter-summary')).toContainText('Takes amber or gold.');
   await expect.poll(async () => (await saved(page)).stacks?.[0].filter).toEqual({ anyOf: [{ has: ['amber'], lacks: [] }, { has: ['gold'], lacks: [] }] });
 });
