@@ -269,10 +269,20 @@ describe('game projects', () => {
       return marker ? Number(componentNamed(p, 'Tide marker').rows[marker.row].number) : undefined;
     };
     const call = (name: string, seed: number): Parameters<typeof applyCommand>[1] => ({ type: 'call', name, args: [], seed });
+    /** Moves the top piece of a colour's pile of a component to a point. */
+    const placeFrom = (p: Project, component: string, color: string, at: { x: number; y: number }) => {
+      const top = piecesOf(p, component).filter(item => item.stack && p.components.find(c => c.id === item.componentId)!.rows[item.row].color === color)
+        .sort((a, b) => b.order - a.order)[0];
+      return { p: applyCommand(p, { type: 'extractMove', id: top.id, x: at.x, y: at.y }), id: top.id };
+    };
+    /** The edge points of the island beside a corner. */
+    const edgesBeside = (p: Project, at: { x: number; y: number }) =>
+      p.grids!.find(grid => grid.id === 'grid-edges')!.points!.filter(point => Math.abs(Math.hypot(point.x - at.x, point.y - at.y) - 28) < 1);
     // Crimson (seat 1) builds two huts on corners of the island, the second on a corner between three producing tiles.
+    // The other seats haven't set up, so these games skip Start game's setup check.
     const setup = () => {
       let p = build('tidewater');
-      p = { ...p, memory: { ...p.memory, autoRoll: false } };
+      p = { ...p, memory: { ...p.memory, autoRoll: false, checkSetup: false } };
       const corners = p.grids!.find(grid => grid.id === 'grid-corners')!.points!;
       const inland = corners.filter(point => tilesAt(p, point).length === 3);
       const [first, second] = [inland[0], inland.find(point => Math.hypot(point.x - inland[0].x, point.y - inland[0].y) > 150)!];
@@ -290,9 +300,52 @@ describe('game projects', () => {
       // The buttons' functions, and the events it handles.
       expect(scriptFunctions(game.scripts)).toEqual(expect.arrayContaining(['startGame', 'rollDice']));
       for (const event of ['onTurnStart', 'onSnap', 'onMove']) expect(TIDEWATER_SCRIPT).toMatch(new RegExp(`^function ${event}\\(`, 'm'));
-      expect(game.memory).toMatchObject({ colors: ['crimson', 'azure', 'ivory', 'amber'], autoRoll: true, started: false, round: 0 });
+      expect(game.memory).toMatchObject({ colors: ['crimson', 'azure', 'ivory', 'amber'], checkSetup: true, autoRoll: true, started: false, round: 0 });
       expect(componentNamed(game, 'Start game')).toMatchObject({ kind: 'button', action: 'startGame' });
       expect(componentNamed(game, 'Roll dice')).toMatchObject({ kind: 'button', action: 'rollDice' });
+    });
+
+    it('starts only once every seat has set up its huts and boardwalks, pointing out what is wrong', () => {
+      let p = build('tidewater');
+      p = { ...p, memory: { ...p.memory, autoRoll: false } };
+      const seat = p.players[0].id, names = p.players.map(player => player.name);
+      const start = (project: Project) => applyCommand(project, call('startGame', 3), seat);
+      const refused = start(p);
+      expect(errors(refused)).toEqual([]);
+      expect(refused.memory!.started).toBe(false);
+      expect(announcements(refused).at(-1)).toBe(`Not ready to start: ${names.map(name => `${name} has 0 huts on the island instead of 2, 0 boardwalks on the island instead of 2`).join('; ')}.`);
+      // Every colour places two huts on corners well apart, each with a boardwalk beside it.
+      const corners = p.grids!.find(grid => grid.id === 'grid-corners')!.points!, chosen: { x: number; y: number }[] = [];
+      for (const corner of corners) if (chosen.length < 8 && chosen.every(other => Math.hypot(other.x - corner.x, other.y - corner.y) > 120)) chosen.push(corner);
+      const walks: Record<string, string[]> = {};
+      ['crimson', 'azure', 'ivory', 'amber'].forEach((color, index) => {
+        for (const corner of chosen.slice(index * 2, index * 2 + 2)) {
+          p = placeFrom(p, 'Hut', color, corner).p;
+          const placed = placeFrom(p, 'Boardwalk', color, edgesBeside(p, corner)[0]);
+          p = placed.p; (walks[color] ??= []).push(placed.id);
+        }
+      });
+      expect(errors(p)).toEqual([]);
+      const ready = start(p);
+      expect(errors(ready)).toEqual([]);
+      expect(ready.memory!.started).toBe(true);
+      expect(announcements(ready).some(text => text.startsWith('Not ready'))).toBe(false);
+      // Azure's boardwalk moved away from its huts, and an ivory hut beside a crimson one, are pointed out (pinged).
+      const far = p.grids!.find(grid => grid.id === 'grid-edges')!.points!.find(point => chosen.every(corner => Math.hypot(point.x - corner.x, point.y - corner.y) > 90))!;
+      let broken = applyCommand(p, { type: 'move', ids: [walks.azure[0]], patch: { x: far.x, y: far.y } });
+      const crowding = corners.find(corner => Math.abs(Math.hypot(corner.x - chosen[0].x, corner.y - chosen[0].y) - 56) < 1)!;
+      const ivoryHut = piecesOf(broken, 'Hut').find(item => Math.hypot(item.x - chosen[4].x, item.y - chosen[4].y) < 1)!;
+      broken = applyCommand(broken, { type: 'move', ids: [ivoryHut.id], patch: { x: crowding.x, y: crowding.y } });
+      const blocked = start(broken);
+      expect(errors(blocked)).toEqual([]);
+      expect(blocked.memory!.started).toBe(false);
+      const text = announcements(blocked).at(-1)!;
+      expect(text).toContain(`${names[1]} has 1 hut without a boardwalk beside it, 1 boardwalk away from their huts`);
+      expect(text).toContain(`${names[2]} has 1 hut without a boardwalk beside it, 1 boardwalk away from their huts`);
+      expect(text).toContain(`huts of ${names[0]} and ${names[2]} stand on neighbouring corners`);
+      expect(blocked.instances.find(item => item.id === walks.azure[0])!.pings).toBe(1);
+      // With checkSetup off, it starts anyway.
+      expect(start({ ...broken, memory: { ...broken.memory, checkSetup: false } }).memory!.started).toBe(true);
     });
 
     it('records the huts placed before the game, keeps building points, and deals starting resources for the second hut', () => {

@@ -6,14 +6,18 @@
  * It also hides the buttons that don't apply yet (or any more) from every seat: Start game once the game is under way,
  * and Roll dice until then and while the dice roll by themselves.
  *
- * Memory it uses: `colors` (the colour each seat plays, in seat order), `autoRoll`, `started`, `round`, `lastRoll`,
+ * Start game first checks that every seat has set up correctly (two huts and two boardwalks on the island, each hut
+ * beside one of its boardwalks, no huts on neighbouring corners), points out what's wrong and doesn't start otherwise.
+ *
+ * Memory it uses: `colors` (the colour each seat plays, in seat order), `checkSetup`, `autoRoll`, `started`, `round`, `lastRoll`,
  * `points` (building points per colour) and `placed` (each colour's huts in the order they were placed, before the
  * game starts).
  */
 export const TIDEWATER_SCRIPT = String.raw`-- Tidewater Isles: rolls, resources and the squall.
 --
 -- Seats play the colours in memory.colors, in seat order (seat 1 crimson, 2 azure, 3 ivory, 4 amber); change the list in
--- the Memory window to match your table. Place the huts and boardwalks of the setup rounds, then press Start game: each
+-- the Memory window to match your table. Place the huts and boardwalks of the setup rounds, then press Start game. It
+-- checks everyone's setup first and points out what's missing (set memory.checkSetup to false to skip that); then each
 -- player takes one resource for every tile touching the second hut they placed. From then on the dice roll by
 -- themselves whenever a turn starts (set memory.autoRoll to false to roll with the Roll dice button instead, which only
 -- shows while it's needed). Every
@@ -21,6 +25,7 @@ export const TIDEWATER_SCRIPT = String.raw`-- Tidewater Isles: rolls, resources 
 -- squall is on that tile. A 7 brings the squall instead.
 
 local CORNER = 56        -- from a tile's centre to its corners
+local HALF_EDGE = 28     -- from the middle of a tile edge (a boardwalk) to its corners (huts)
 local ON_TILE = 45       -- a tide marker or the squall this close to a tile's centre is on that tile
 local TERRAINS = { "reed", "clay", "salt", "fish", "stone" }
 local PRODUCES = { reed = true, clay = true, salt = true, fish = true, stone = true }
@@ -193,19 +198,100 @@ local function showButtons()
   shownWhen(memory.started and memory.autoRoll == false, "Roll dice")
 end
 
+-- Each colour's pieces standing on one of a grid's points (huts on the corner grid, boardwalks on the edge grid).
+local function snappedTo(component, grid)
+  local byColor = {}
+  for _, piece in ipairs(onTable(component)) do
+    if piece.snap and piece.snap.grid == grid then
+      local list = byColor[piece.data.color] or {}
+      table.insert(list, piece)
+      byColor[piece.data.color] = list
+    end
+  end
+  return byColor
+end
+
+local function plural(count, word) return count .. " " .. word .. (count == 1 and "" or "s") end
+
+-- What's wrong with the setup, as text for each problem, and the pieces to point out. Every seated colour needs two
+-- huts on corners of the island and two boardwalks on its edges, each hut with one of its boardwalks beside it and
+-- each boardwalk beside one of its huts; no two huts may stand on neighbouring corners, and lighthouses come later.
+local function setupProblems()
+  local huts, walks = snappedTo("Hut", "grid-corners"), snappedTo("Boardwalk", "grid-edges")
+  local towers = snappedTo("Lighthouse", "grid-corners")
+  local problems, flagged = {}, {}
+  local function beside(a, b) return math.abs(distance(a, b) - HALF_EDGE) < 4 end
+  for _, color in ipairs(colors()) do
+    local seat = seatFor(color)
+    if seat then
+      local mine, ways, issues = huts[color] or {}, walks[color] or {}, {}
+      if #mine ~= 2 then table.insert(issues, plural(#mine, "hut") .. " on the island instead of 2") end
+      if #ways ~= 2 then table.insert(issues, plural(#ways, "boardwalk") .. " on the island instead of 2") end
+      local lonely, loose = 0, 0
+      for _, hut in ipairs(mine) do
+        local ok = false
+        for _, walk in ipairs(ways) do if beside(hut, walk) then ok = true end end
+        if not ok then lonely = lonely + 1; table.insert(flagged, hut) end
+      end
+      for _, walk in ipairs(ways) do
+        local ok = false
+        for _, hut in ipairs(mine) do if beside(hut, walk) then ok = true end end
+        if not ok then loose = loose + 1; table.insert(flagged, walk) end
+      end
+      if lonely > 0 then table.insert(issues, plural(lonely, "hut") .. " without a boardwalk beside it") end
+      if loose > 0 then table.insert(issues, plural(loose, "boardwalk") .. " away from their huts") end
+      local early = towers[color] or {}
+      for _, lighthouse in ipairs(early) do table.insert(flagged, lighthouse) end
+      if #early > 0 then table.insert(issues, plural(#early, "lighthouse") .. " on the island before the game") end
+      if #issues > 0 then table.insert(problems, seat.name .. " has " .. table.concat(issues, ", ")) end
+    end
+  end
+  -- The distance rule, between every pair of huts on the island.
+  local all = {}
+  for _, color in ipairs(colors()) do
+    if seatFor(color) then for _, hut in ipairs(huts[color] or {}) do table.insert(all, hut) end end
+  end
+  for i = 1, #all do
+    for j = i + 1, #all do
+      if distance(all[i], all[j]) < CORNER + 4 then
+        table.insert(problems, "huts of " .. seatName(all[i].data.color) .. " and " .. seatName(all[j].data.color) .. " stand on neighbouring corners")
+        table.insert(flagged, all[i])
+        table.insert(flagged, all[j])
+      end
+    end
+  end
+  return problems, flagged
+end
+
+-- The colour's hut on the island placed last of its huts (the one that earns starting resources), or nil.
+local function secondHut(color, onIsland)
+  local placed, best, bestAt = (memory.placed or {})[color] or {}, nil, 0
+  for _, hut in ipairs(onIsland) do
+    for index, id in ipairs(placed) do
+      if id == hut.id and index > bestAt then best, bestAt = hut, index end
+    end
+  end
+  return best
+end
+
 function startGame(piece, player)
   if memory.started then
     game.announce("The game is already under way: end your turn to roll, or press Roll dice.")
     return
   end
-  local gains, tiles, missing = {}, islandTiles(), {}
-  local huts = onTable("Hut")
-  for _, color in ipairs(colors()) do
-    local placed = (memory.placed or {})[color] or {}
-    local second
-    for _, hut in ipairs(huts) do
-      if hut.id == placed[2] then second = hut end
+  -- Everyone must have set up correctly first (set memory.checkSetup to false to start anyway).
+  if memory.checkSetup ~= false then
+    local problems, flagged = setupProblems()
+    if #problems > 0 then
+      if #flagged > 0 then game.ping(flagged) end
+      game.announce("Not ready to start: " .. table.concat(problems, "; ") .. ".")
+      return
     end
+  end
+  local gains, tiles, missing = {}, islandTiles(), {}
+  local huts = snappedTo("Hut", "grid-corners")
+  for _, color in ipairs(colors()) do
+    local second = secondHut(color, huts[color] or {})
     if second then
       for _, tile in ipairs(tiles) do
         local terrain = tile.data.terrain

@@ -612,7 +612,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     .map(item => item.gridTags ? item : { ...item, snapToGrid: false });
   // The rules script rolls and hands out resources; its memory starts here, since onLoad only runs when scripts are saved.
   const memory = {
-    colors: PLAYER_COLORS.map(item => item.color), autoRoll: true, started: false, round: 0, lastRoll: '–',
+    colors: PLAYER_COLORS.map(item => item.color), checkSetup: true, autoRoll: true, started: false, round: 0, lastRoll: '–',
     points: Object.fromEntries(PLAYER_COLORS.map(item => [item.color, 0])), placed: {},
   };
   return { ...project(name, description, components, instances, players, groups, true), grids: islandGrids(),
