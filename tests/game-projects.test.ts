@@ -3,6 +3,7 @@ import { applyCommand, projectSchema, validateProject, withGroupLocks, type Inst
 import { GAME_PROJECTS, gameProject } from '../src/gameProjects';
 import { hasOpenFace } from '../src/ComponentView';
 import { snapToGrid } from '../src/playgroundPreview';
+import { snapOf, snapTarget } from '../src/grids';
 import { groupMembers } from '../src/pieceGroups';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
@@ -203,6 +204,9 @@ describe('game projects', () => {
       for (const record of project.stacks ?? []) {
         const bottom = project.instances.filter(item => item.stack === record.id).sort((a, b) => a.order - b.order)[0];
         expect(record).toMatchObject({ tag: '', x: bottom.x, y: bottom.y, rotation: bottom.rotation, componentId: bottom.componentId });
+        // Its filter takes its own component's stack tags, so an empty pile only takes its own kind back.
+        const tags = project.components.find(component => component.id === bottom.componentId)!.stackTags ?? [];
+        expect(record.filter, record.id).toEqual({ anyOf: tags.map(tag => ({ has: [tag], lacks: [] })) });
       }
     }
     expect([build('chess'), build('checkers'), build('backgammon')].map(project => project.stacks)).toEqual([undefined, undefined, undefined]);
@@ -220,6 +224,33 @@ describe('game projects', () => {
     next = applyCommand(next, { type: 'dropIntoStack', ids: [huts[0].id], stackId: slot.id });
     expect(next.instances.find(item => item.id === huts[0].id)).toMatchObject({ stack: slot.id, x: slot.x, y: slot.y });
     expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [piecesOf(game, 'Lighthouse')[0].id], stackId: slot.id })).toThrow();
+  });
+
+  it("snaps Tidewater's tide markers and the squall to the tiles' number slots, and nothing else to them", () => {
+    const game = build('tidewater');
+    const slots = game.grids!.find(grid => grid.id === 'grid-slots')!;
+    const tiles = piecesOf(game, 'Island tile');
+    expect(slots.points).toHaveLength(tiles.length);
+    // Every marker and the squall start snapped to a slot.
+    for (const piece of [...piecesOf(game, 'Tide marker'), ...piecesOf(game, 'Squall')]) expect(snapOf(game, piece)?.grid).toBe('grid-slots');
+    // Dropped near a slot, the squall lands on it; huts and resources ignore the slots.
+    const point = slots.points![4];
+    expect(snapTarget(game, componentNamed(game, 'Squall'), point.x + 12, point.y - 10)).toMatchObject({ grid: 'grid-slots', point: point.id, x: point.x, y: point.y });
+    expect(snapTarget(game, componentNamed(game, 'Hut'), point.x, point.y)?.grid).not.toBe('grid-slots');
+    expect(snapTarget(game, componentNamed(game, 'Resource'), point.x, point.y)).toBeUndefined();
+  });
+
+  it('snaps backgammon checkers to spots along the points and on the bar', () => {
+    const game = build('backgammon');
+    const spots = game.grids!.find(grid => grid.id === 'grid-spots')!;
+    expect(spots.points).toHaveLength(24 * 5 + 2 * 5);
+    // The starting checkers all sit on spots.
+    for (const piece of piecesOf(game, 'Backgammon checker')) expect(snapOf(game, piece)?.grid).toBe('grid-spots');
+    const checker = componentNamed(game, 'Backgammon checker'), first = spots.points![0];
+    expect(snapTarget(game, checker, first.x + 15, first.y + 10)).toMatchObject({ point: first.id, x: first.x, y: first.y });
+    // Far from every spot (the bear-off tray), and for the dice and cube, nothing snaps.
+    expect(snapTarget(game, checker, 980 + 330, 550)).toBeUndefined();
+    for (const name of ['Die', 'Doubling cube', 'Backgammon board']) expect(snapTarget(game, componentNamed(game, name), first.x, first.y), name).toBeUndefined();
   });
 
   it('gives every component with a transparent background a back design, so no printed back comes out blank', () => {

@@ -1,5 +1,6 @@
-import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PersistentStack, type PieceGroup, type Player, type Project } from './domain';
+import { componentTags, makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PersistentStack, type PieceGroup, type Player, type Project } from './domain';
 import { hexCorners, type Grid } from './grids';
+import { filterFromTags } from './tags';
 
 /**
  * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
@@ -72,24 +73,31 @@ function grouping() {
 const boardGrid = (size: number, at: { x: number; y: number }): Partial<Project['settings']> =>
   ({ grid: true, snap: true, gridSize: size, gridOffsetX: ((at.x % size) + size) % size, gridOffsetY: ((at.y % size) + size) % size });
 /**
- * Every starting pile (decks, supply piles, each player's pieces, stones) is a persistent stack, untagged, so it takes
- * back its own component and keeps its place on the table as a slot when it runs down to one piece or none.
+ * Every starting pile (decks, supply piles, each player's pieces, stones) is a persistent stack that keeps its place on
+ * the table as a slot when it runs down to one piece or none. Its filter takes its own component's stack tags, so an
+ * empty hut pile only takes huts back, a resource pile only resources, and so on.
  */
-function persistentStacks(instances: Instance[]): PersistentStack[] {
+function persistentStacks(instances: Instance[], components: Component[]): PersistentStack[] {
   const bottoms = new Map<string, Instance>();
   for (const item of instances) if (item.stack && (bottoms.get(item.stack)?.order ?? Infinity) > item.order) bottoms.set(item.stack, item);
-  return [...bottoms].map(([id, { x, y, rotation, scale, componentId }]) => ({ id, tag: '', x, y, rotation, scale, componentId }));
+  return [...bottoms].map(([id, { x, y, rotation, scale, componentId }]) => {
+    const tags = componentTags(components.find(component => component.id === componentId)!);
+    return { id, tag: '', ...tags.length ? { filter: filterFromTags(tags) } : {}, x, y, rotation, scale, componentId };
+  });
 }
+/** A grid filter that takes only pieces with this grid tag. */
+const onlyTag = (tag: string) => ({ anyOf: [{ has: [tag], lacks: [] }] });
 function project(name: string, description: string, components: Component[], instances: Instance[], players: Player[], groups: PieceGroup[], hands = false,
   grid: Partial<Project['settings']> = {}): Project {
-  const stacks = persistentStacks(instances);
+  const stacks = persistentStacks(instances, components);
   return { id: uid('project'), name, description, components, instances, players, groups, ...stacks.length ? { stacks } : {},
     settings: { grid: false, snap: false, gridSize: 25, hands, turns: true, turn: 0, ...grid } };
 }
 
 /**
- * Tidewater's grids: tiles snap to the island's hex cells, huts and lighthouses to the cells' corners, and boardwalks
- * to their edges, turned along them. Each grid takes only its pieces (by grid tags).
+ * Tidewater's grids: tiles snap to the island's hex cells, huts and lighthouses to the cells' corners, boardwalks to
+ * their edges (turned along them), and tide markers and the squall to the tiles' number slots. Each grid takes only its
+ * pieces (by grid tags).
  */
 function islandGrids(): Grid[] {
   const cells = ISLAND.flat().map(cell => ({ x: CENTER.x + cell.x, y: CENTER.y + cell.y }));
@@ -104,12 +112,14 @@ function islandGrids(): Grid[] {
         rotation: Math.round(((Math.atan2(next.y - corner.y, next.x - corner.x) * 180 / Math.PI) + 360) % 180) });
     });
   }
-  const only = (tag: string) => ({ anyOf: [{ has: [tag], lacks: [] }] });
+  const only = onlyTag;
   return [
     { id: 'grid-corners', name: 'Corners', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 24, filter: only('corner'),
       points: [...corners.values()].map((at, n) => ({ id: `corner-${n + 1}`, ...at })) },
     { id: 'grid-edges', name: 'Edges', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 24, filter: only('edge'),
       points: [...edges.values()].map((at, n) => ({ id: `edge-${n + 1}`, ...at })) },
+    { id: 'grid-slots', name: 'Number slots', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 30, filter: only('slot'),
+      points: cells.map((cell, n) => ({ id: `slot-${n + 1}`, x: cell.x + SLOT.x - HEX.width / 2, y: cell.y + SLOT.y - HEX.height / 2 })) },
     { id: 'grid-island', name: 'Island', shape: 'hex', orientation: 'pointy', visible: false, snap: true, size: HEX.width, offsetX: CENTER.x, offsetY: CENTER.y, filter: only('tile') },
   ];
 }
@@ -230,7 +240,7 @@ export function backgammonProject(name: string, description: string, profile: Pr
   const board = component('Backgammon board', 'board', 760, 560, { color: '#5c3a24', front, rotationStep: 180 });
   const checkerSides = [{ side: 'light', fill: '#f2e8d0', edge: '#9d8a5f' }, { side: 'dark', fill: '#2d2a28', edge: '#8e8576' }];
   const checker = component('Backgammon checker', 'token', 40, 40, {
-    rows: [{ name: 'Light checker', side: 'light' }, { name: 'Dark checker', side: 'dark' }],
+    gridTags: ['checker'], rows: [{ name: 'Light checker', side: 'light' }, { name: 'Dark checker', side: 'dark' }],
     front: checkerFaces(40, checkerSides, false), back: checkerFaces(40, checkerSides, false),
   });
   const die = pipDie('Die', '#f4efe2', '#2b2622');
@@ -238,8 +248,16 @@ export function backgammonProject(name: string, description: string, profile: Pr
     rows: ['64', '2', '4', '8', '16', '32'].map(value => ({ value })),
     front: [label('Value', { x: 0, y: 0, width: 48, height: 48, text: '{{value}}', fontSize: 20, font: 'Lora', color: '#3b2a1c' })] });
   const left = CENTER.x - 380, top = CENTER.y - 280;
-  const stackOn = (point: number, count: number, row: number) => Array.from({ length: count }, (_, index) =>
-    place(checker, row, left + pointX(point), point >= 13 ? top + 30 + 20 + index * 40 : top + 530 - 20 - index * 40));
+  /** Where the `index`th checker on a point sits: lined up from the point's outer edge towards the middle. */
+  const spot = (point: number, index: number) => ({ x: left + pointX(point), y: point >= 13 ? top + 30 + 20 + index * 40 : top + 530 - 20 - index * 40 });
+  const stackOn = (point: number, count: number, row: number) => Array.from({ length: count }, (_, index) => place(checker, row, spot(point, index).x, spot(point, index).y));
+  // Checkers snap to five spots on each point and five on each half of the bar (hit checkers), within 22 px. Checkers
+  // dropped elsewhere (a sixth on a point, the bear-off tray) stay where they land.
+  const spots = [
+    ...Array.from({ length: 24 }, (_, n) => Array.from({ length: 5 }, (__, index) => ({ id: `point-${n + 1}-${index + 1}`, ...spot(n + 1, index) }))).flat(),
+    ...Array.from({ length: 5 }, (_, index) => [{ id: `bar-top-${index + 1}`, x: left + 340, y: top + 50 + index * 40 }, { id: `bar-bottom-${index + 1}`, x: left + 340, y: top + 510 - index * 40 }]).flat(),
+  ];
+  const grids: Grid[] = [{ id: 'grid-spots', name: 'Checker spots', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 22, filter: onlyTag('checker'), points: spots }];
   const { groups, add, into } = grouping();
   const instances = [
     ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
@@ -248,7 +266,9 @@ export function backgammonProject(name: string, description: string, profile: Pr
     ...into(add('Dice and doubling cube'), [place(die, 2, CENTER.x + 440, CENTER.y - 40, { rotation: 8 }), place(die, 4, CENTER.x + 445, CENTER.y + 30, { rotation: -6 }),
       place(cube, 0, left + 340, CENTER.y)]),
   ];
-  return project(name, description, [board, checker, die, cube], instances, seats(profile, ['#f2e8d0', '#2d2a28']), groups);
+  // Only checkers snap; the board, dice and cube move freely.
+  const components = [board, checker, die, cube].map(item => item.gridTags ? item : { ...item, snapToGrid: false });
+  return { ...project(name, description, components, instances, seats(profile, ['#f2e8d0', '#2d2a28']), groups), grids };
 }
 
 export function goProject(name: string, description: string, profile: Profile): Project {
@@ -378,7 +398,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   });
   const numbers = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
   const marker = component('Tide marker', 'token', 38, 38, {
-    color: '#efe3c4', stackable: true, stackTags: ['marker'], shufflable: true, previewWhenLocked: true,
+    color: '#efe3c4', stackable: true, stackTags: ['marker'], gridTags: ['slot'], shufflable: true, previewWhenLocked: true,
     rows: numbers.map(number => ({ number: String(number), pips: '•'.repeat(6 - Math.abs(7 - number)), hot: number === 6 || number === 8 ? 'yes' : 'no' })),
     front: [
       label('Number', { x: 0, y: 4, width: 38, height: 20, text: '{{number}}', font: 'Lora', fontSize: 17, fontWeight: 700, color: '#2c2a24', ...when('hot', 'no') }),
@@ -480,7 +500,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ],
   });
   const squall = component('Squall', 'token', 46, 46, {
-    color: '#4b5560',
+    color: '#4b5560', gridTags: ['slot'],
     front: [
       shape('Cloud left', { shapeKind: 'ellipse', x: 7, y: 16, width: 18, height: 14, fill: '#d6dde3' }),
       shape('Cloud top', { shapeKind: 'ellipse', x: 14, y: 10, width: 20, height: 18, fill: '#e7ecf0' }),
@@ -560,7 +580,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // The top and bottom seats sit a little further out than the default ring, so the cards fanned out above their
   // table hands stay clear of the pieces laid out in front of them.
   for (const seat of players) if (Math.abs(seat.rotation) % 180 === 0) seat.y += Math.sign(seat.y - CENTER.y) * 60;
-  // Only tiles, buildings and boardwalks snap; everything else moves freely.
+  // Only tiles, buildings, boardwalks, tide markers and the squall snap; everything else moves freely.
   const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book].map(item => item.gridTags ? item : { ...item, snapToGrid: false });
   return { ...project(name, description, components, instances, players, groups, true), grids: islandGrids() };
 }
