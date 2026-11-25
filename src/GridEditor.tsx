@@ -74,10 +74,16 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
         onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></Field>
       <IconChoice label="Shape" value={selected.shape} options={SHAPES} disabled={disabled}
         onChange={shape => update({ shape, ...(shape === 'points' ? { points: selected.points ?? [] } : {}), ...(shape === 'hex' && !selected.orientation ? { orientation: 'pointy' as const } : {}) })} />
-      {selected.shape === 'square' && <div className="field-grid">
-        <NumberField deferred label="Cell width (px)" value={selected.size} min={5} max={2000} onChange={size => update({ size })} />
-        <NumberField deferred label="Cell height (px)" value={selected.sizeY ?? selected.size} min={5} max={2000} onChange={sizeY => update({ sizeY })} />
-      </div>}
+      {/* Linked square cells have no height of their own (sizeY), so the height follows the width either way it's edited. */}
+      {selected.shape === 'square' && <>
+        <div className="field-grid">
+          <NumberField deferred label="Cell width (px)" value={selected.size} min={5} max={2000} onChange={size => update({ size })} />
+          <NumberField deferred label="Cell height (px)" value={selected.sizeY ?? selected.size} min={5} max={2000}
+            onChange={sizeY => update(selected.sizeY === undefined ? { size: sizeY } : { sizeY })} />
+        </div>
+        <Toggle label="Link width and height" description="Square cells: changing one changes the other" checked={selected.sizeY === undefined} disabled={disabled}
+          onChange={linked => { const { sizeY: _height, ...rest } = selected; save(linked ? rest : { ...rest, sizeY: selected.size }); }} />
+      </>}
       {selected.shape === 'hex' && <>
         <NumberField deferred label="Cell size (px)" hint="The distance between the centres of neighbouring cells (a cell's width across its flat sides)." value={selected.size} min={5} max={2000} onChange={size => update({ size })} />
         <Field label="Cells"><select value={selected.orientation ?? 'pointy'} onChange={event => update({ orientation: event.target.value as 'pointy' | 'flat' })}>
