@@ -105,3 +105,20 @@ test('a failing function reports its line and changes nothing', async ({ page })
   await expect(scripts.locator('.cm-activeLine')).toContainText('game.move');
   await expectHeaderEnabled(page, 'Undo', false);
 });
+
+test('scripts are listed in the component library and can be created from Add component', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Add component', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /^Scripts Lua that buttons/ }).click();
+  const scripts = page.getByRole('region', { name: 'Scripts', exact: true });
+  await expect(scripts.locator('.script-list li.active')).toContainText('Rules');
+  await page.getByRole('button', { name: 'Close Scripts', exact: true }).click();
+  const entry = page.getByRole('button', { name: 'Open script Rules', exact: true });
+  await expect(entry).toContainText('1 line · 0 functions');
+  // The library search finds scripts too.
+  await page.getByLabel('Search components', { exact: true }).fill('rul');
+  await expect(entry).toBeVisible();
+  await page.getByLabel('Search components', { exact: true }).fill('');
+  await entry.click();
+  await expect(scripts.locator('.script-list li.active')).toContainText('Rules');
+});

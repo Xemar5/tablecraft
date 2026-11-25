@@ -113,6 +113,9 @@ export default function App() {
   const [scriptWindow, setScriptWindow] = useState(false);
   const [memoryWindow, setMemoryWindow] = useState(false);
   const memoryStore = useMemo(createMemoryStore, []);
+  // Asks the script editor to show a script (from the component library); `n` makes repeated requests count.
+  const [scriptFocus, setScriptFocus] = useState<{ id: string; n: number }>();
+  const openScript = (id: string) => { setScriptWindow(true); setScriptFocus({ id, n: Date.now() }); };
   const [removeLink, setRemoveLink] = useState<Component>();
   const [toast, setToast] = useState<{ message: string; error: boolean; id: number } | undefined>(() => initial.draftNotice ? { message: initial.draftNotice, error: false, id: Date.now() } : undefined);
   const [session, setSession] = useState<LiveSession>();
@@ -616,6 +619,16 @@ export default function App() {
     } catch (error) { notify(`Unable to copy component: ${String(error)}`, true); }
   };
   const visible = project.components.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || c.kind === filter));
+  // Scripts are listed below the components (under All), and found by the library search too.
+  const visibleScripts = filter === 'all' ? (project.scripts ?? []).filter(script => script.name.toLowerCase().includes(search.toLowerCase())) : [];
+  const createScript = async () => {
+    const taken = new Set((project.scripts ?? []).map(script => script.name.toLowerCase()));
+    let name = project.scripts?.length ? 'Script' : 'Rules';
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `Script ${n}`;
+    const script = { id: uid('script'), name, source: `-- ${name}: functions defined here can be pressed as buttons; see the Reference tab for the game API.\n` };
+    setModal(undefined);
+    if (await dispatch({ type: 'script', script })) openScript(script.id);
+  };
   const selectedComponent = mode === 'designer' ? activeComponent : project.components.find(c => c.id === project.instances.find(i => i.id === selected.at(-1))?.componentId);
   const settingsButton = <button className="profile-button" aria-label="Settings" title="Settings" onClick={() => setModal('settings')}>{settings.name.trim() ? settings.name.trim()[0].toUpperCase() : <Settings size={15} />}</button>;
   return <MemoryBindings.Provider value={memoryStore}><div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
@@ -739,7 +752,17 @@ export default function App() {
             {hasVariants(comp) && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} open={openVariants.includes(comp.id)} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)} />}
           </>}
         </div>)}
-          {!visible.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
+          {!visible.length && !visibleScripts.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
+        {!!visibleScripts.length && <>
+          <div className="library-section-label">SCRIPTS <span>{visibleScripts.length}</span></div>
+          <div className="library-scripts">{visibleScripts.map(script => {
+            const count = scriptFunctions([script]).length, lines = script.source.replace(/\n$/, '').split('\n').length;
+            return <button key={script.id} className="library-script" aria-label={`Open script ${script.name}`} title={`Open ${script.name} in the Scripts window`} onClick={() => openScript(script.id)}>
+              <span className="library-script-icon" aria-hidden="true"><FileCode2 size={18} /></span>
+              <span className="library-script-text"><strong>{script.name}</strong><small>{lines} {lines === 1 ? 'line' : 'lines'} · {count} {count === 1 ? 'function' : 'functions'}</small></span>
+            </button>;
+          })}</div>
+        </>}
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
@@ -759,7 +782,7 @@ export default function App() {
     <input ref={fontInput} type="file" accept={FONT_ACCEPT} multiple hidden onChange={e => { void importAssets(e.target.files, 'font'); e.target.value = ''; }} />
     {!home && scriptWindow && <FloatingWindow id="scripts" title="Scripts" icon={<FileCode2 size={15} />} onClose={() => setScriptWindow(false)} minWidth={480} minHeight={300}
       initial={page => ({ width: Math.min(820, page.width - 80), height: Math.min(560, page.height - 140), x: Math.max(16, page.width - Math.min(820, page.width - 80) - 300), y: 90 })}>
-      <Suspense fallback={loadingWindow}><ScriptEditor project={project} canEdit={scriptEditor} canRun={!viewer} dispatch={dispatch} notify={notify} /></Suspense>
+      <Suspense fallback={loadingWindow}><ScriptEditor project={project} canEdit={scriptEditor} canRun={!viewer} dispatch={dispatch} notify={notify} focus={scriptFocus} /></Suspense>
     </FloatingWindow>}
     {!home && memoryWindow && <FloatingWindow id="memory" title="Memory" icon={<Database size={15} />} onClose={() => setMemoryWindow(false)} minWidth={380} minHeight={220}
       initial={page => ({ width: Math.min(520, page.width - 80), height: Math.min(440, page.height - 160), x: Math.max(16, page.width - Math.min(520, page.width - 80) - 40), y: 130 })}>
@@ -820,6 +843,7 @@ export default function App() {
         ['button', 'Buttons', 'Press to run a script for everyone at the table.'],
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kindIcon(kind, 48)}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
         <button className="template-card template-texture" onClick={() => textureInput.current?.click()}><div className="template-art"><ImageIcon size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Textures<ArrowRight size={15} /></strong><small>Import PNG, JPEG, WebP or GIF images. Embedded in your ZIP save.</small></button>
+        <button className="template-card template-script" disabled={!scriptEditor} title={scriptEditor ? undefined : 'Only the host can add scripts in this room'} onClick={() => void createScript()}><div className="template-art"><FileCode2 size={48} /></div><strong>Scripts<ArrowRight size={15} /></strong><small>Lua that buttons and events run for everyone at the table.</small></button>
         <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><Type size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>
       </div>
       <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>

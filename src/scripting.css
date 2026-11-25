@@ -140,3 +140,12 @@
 .table-piece.button-piece { cursor: pointer; }
 .table-piece.button-piece.pressed .piece-face { transform: scale(.96); filter: brightness(.94); transition: transform .06s ease; }
 .table-piece.button-piece .piece-face { transition: transform .12s ease; }
+
+/* Scripts in the component library (App.tsx). */
+.library-scripts { display: grid; gap: 6px; padding: 0 0 14px; }
+.library-script { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: inherit; text-align: left; cursor: pointer; }
+.library-script:hover { border-color: #c9d8b8; background: #f7faf2; }
+.library-script-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 8px; background: #eaf1df; color: #4e6f3d; flex-shrink: 0; }
+.library-script-text { display: grid; gap: 2px; min-width: 0; }
+.library-script-text strong { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.library-script-text small { font-size: 10px; color: #8f9c86; }

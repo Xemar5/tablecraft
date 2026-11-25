@@ -39,11 +39,14 @@ const LUA_LIBRARY = ['assert', 'error', 'ipairs', 'next', 'pairs', 'pcall', 'pri
  * The script editor window: the project's Lua scripts with a code editor (highlighting, completion, search and
  * replace, folding, multiple cursors, syntax checks as you type), the shared console and the API reference.
  */
-export function ScriptEditor({ project, canEdit, canRun, dispatch, notify }: {
+export function ScriptEditor({ project, canEdit, canRun, dispatch, notify, focus }: {
   project: Project; canEdit: boolean; canRun: boolean; dispatch: (command: Command) => Promise<boolean>; notify: (message: string, error?: boolean) => void;
+  /** A script to show, as asked by the component library (`n` changes with each request). */
+  focus?: { id: string; n: number };
 }) {
   const scripts = useMemo(() => project.scripts ?? [], [project.scripts]);
-  const [selectedId, setSelectedId] = useState(scripts[0]?.id);
+  const [selectedId, setSelectedId] = useState(focus?.id ?? scripts[0]?.id);
+  useEffect(() => { if (focus) setSelectedId(focus.id); }, [focus]);
   const selected = scripts.find(script => script.id === selectedId) ?? scripts[0];
   const [drafts, setDrafts] = useState<Record<string, true>>({});
   const [conflict, setConflict] = useState<string>();
