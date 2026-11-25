@@ -83,3 +83,52 @@ test('the grid tool adds grid layers and snap points, and pieces snap to the fir
   await page.keyboard.press('Delete');
   await expect.poll(async () => (await project(page)).grids?.[0].points?.length).toBe(0);
 });
+
+test('editing a points grid swaps the Pieces panel for a Points panel with point groups', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Grid tool', exact: true }).click();
+  const editor = page.locator('.grid-editor');
+  await editor.getByRole('group', { name: 'Add a grid' }).getByRole('button', { name: /Points/ }).click();
+  const panel = page.locator('#playground-pieces-panel');
+  await expect(panel).toHaveAttribute('aria-label', 'Points');
+  const tree = panel.getByRole('tree', { name: 'Snap points' });
+  await expect(tree).toContainText('No snap points yet');
+
+  const viewport = (await page.locator('.table-viewport').boundingBox())!;
+  const click = (x: number, y: number) => page.mouse.click(viewport.x + viewport.width * x, viewport.y + viewport.height * y);
+  await click(.2, .8);
+  await click(.3, .8);
+  await expect(tree.getByRole('button', { name: /^Point Point \d$/ })).toHaveCount(2);
+  // Selecting a row selects the point on the table and in the grid panel.
+  await tree.getByRole('button', { name: 'Point Point 1', exact: true }).click();
+  await expect(page.locator('.grid-handles .grid-handle.selected')).toHaveCount(1);
+  await expect(editor.getByRole('group', { name: 'Selected point' })).toBeVisible();
+
+  // A new group takes the selected point, and is named right away.
+  await tree.getByRole('button', { name: 'Point Point 2', exact: true }).click();
+  await panel.getByRole('button', { name: 'New point group', exact: true }).click();
+  await panel.getByRole('textbox', { name: 'Group name', exact: true }).fill('Start area');
+  await panel.getByRole('textbox', { name: 'Group name', exact: true }).press('Enter');
+  const group = tree.getByRole('button', { name: /^Point group Start area/ });
+  await expect(group).toHaveAccessibleName('Point group Start area, 1 point');
+  // With the group selected, new points go into it and its points are highlighted on the table.
+  await group.click();
+  await click(.4, .8);
+  await expect(group).toHaveAccessibleName('Point group Start area, 2 points');
+  await expect(page.locator('.grid-handles .grid-handle.highlighted')).toHaveCount(2);
+  // Dragging a row onto the group moves it inside.
+  const box = (await group.boundingBox())!;
+  await tree.getByRole('button', { name: 'Point Point 1', exact: true }).dragTo(group, { targetPosition: { x: box.width / 2, y: box.height / 2 } });
+  await expect(group).toHaveAccessibleName('Point group Start area, 3 points');
+  const saved = (await savedWorkspace(page)).projects[0].grids!.find(grid => grid.shape === 'points')!;
+  expect(saved.pointGroups).toEqual([expect.objectContaining({ name: 'Start area', parent: null })]);
+  expect(saved.points!.every(point => point.group === saved.pointGroups![0].id)).toBe(true);
+
+  // Other grids, and leaving the tool, bring the pieces back.
+  await editor.getByRole('button', { name: 'Grid', exact: true }).click();
+  await expect(panel).toHaveAttribute('aria-label', 'Pieces');
+  await editor.getByRole('button', { name: 'Snap points', exact: true }).click();
+  await expect(panel).toHaveAttribute('aria-label', 'Points');
+  await editor.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(panel).toHaveAttribute('aria-label', 'Pieces');
+});

@@ -163,7 +163,7 @@ export function PlaygroundPieces({ project: p, selected, onSelect, dispatch, rea
   </div>;
 }
 
-function GroupNameEditor({ name, onDone }: { name: string; onDone: (name?: string) => void }) {
+export function GroupNameEditor({ name, onDone }: { name: string; onDone: (name?: string) => void }) {
   const [value, setValue] = useState(name);
   const finished = useRef(false);
   const finish = (next?: string) => { if (!finished.current) { finished.current = true; onDone(next); } };

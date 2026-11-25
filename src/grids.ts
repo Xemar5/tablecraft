@@ -19,8 +19,13 @@ export const gridPointSchema = z.object({
   /** The rotation pieces get when they snap here (overrides the grid's). */
   rotation: z.number().finite().min(-360).max(360).optional(),
   label: z.string().max(60).optional(),
+  /** The point group (in the grid's `pointGroups`) it sits in, for the Points panel. */
+  group: id.optional(),
 });
 export type GridPoint = z.infer<typeof gridPointSchema>;
+/** Nestable groups organising a points grid's points in the Points panel. They don't change snapping. */
+export const pointGroupSchema = z.object({ id, name: z.string().trim().min(1).max(60), parent: id.nullable() });
+export type PointGroup = z.infer<typeof pointGroupSchema>;
 export const gridSchema = z.object({
   id, name: z.string().trim().min(1).max(60), shape: z.enum(['square', 'hex', 'points']),
   visible: z.boolean(), snap: z.boolean(),
@@ -34,6 +39,7 @@ export const gridSchema = z.object({
   /** The rotation pieces get when they snap to this grid. */
   rotation: z.number().finite().min(-360).max(360).optional(),
   points: z.array(gridPointSchema).max(2000).optional(),
+  pointGroups: z.array(pointGroupSchema).max(500).optional(),
   /** Points grids: how close (px) a piece's centre must come to a point to snap (50 when absent). */
   radius: z.number().finite().min(1).max(2000).optional(),
   /** Which components snap here, by their grid tags. */
@@ -146,7 +152,62 @@ export function validateGrids(grids: Grid[] | undefined) {
   for (const grid of grids) {
     const points = grid.points ?? [];
     if (new Set(points.map(point => point.id)).size !== points.length) throw new Error(`Grid “${grid.name}” has duplicate point identifiers.`);
+    const groups = new Map((grid.pointGroups ?? []).map(group => [group.id, group]));
+    if (groups.size !== (grid.pointGroups ?? []).length) throw new Error(`Grid “${grid.name}” has duplicate point group identifiers.`);
+    for (const group of groups.values()) {
+      let depth = 0;
+      for (let parent = group.parent; parent; parent = groups.get(parent)!.parent) {
+        if (!groups.has(parent)) throw new Error(`A point group in “${grid.name}” references a missing parent group.`);
+        if (parent === group.id || ++depth > 32) throw new Error('Point groups cannot contain themselves or nest more than 32 levels deep.');
+      }
+    }
+    if (points.some(point => point.group && !groups.has(point.group))) throw new Error(`A point in “${grid.name}” references a missing point group.`);
   }
+}
+
+export type PointTreeRow =
+  | { kind: 'group'; key: string; depth: number; group: PointGroup; points: string[]; expanded: boolean }
+  | { kind: 'point'; key: string; depth: number; point: GridPoint; index: number };
+
+/** A points grid's points as the Points panel shows them: each group (groups first, then points, in list order) and its contents. */
+export function pointTree(grid: Pick<Grid, 'points' | 'pointGroups'>, collapsed: ReadonlySet<string> = new Set()): PointTreeRow[] {
+  const groups = grid.pointGroups ?? [], points = grid.points ?? [];
+  const known = new Set(groups.map(group => group.id));
+  const inside = (parent: string | null): string[] => [
+    ...points.filter(point => (point.group && known.has(point.group) ? point.group : null) === parent).map(point => point.id),
+    ...groups.filter(group => group.parent === parent).flatMap(group => inside(group.id)),
+  ];
+  const rows: PointTreeRow[] = [];
+  const visit = (parent: string | null, depth: number, seen: Set<string>) => {
+    for (const group of groups.filter(item => item.parent === parent && !seen.has(item.id))) {
+      const expanded = !collapsed.has(group.id);
+      rows.push({ kind: 'group', key: `group:${group.id}`, depth, group, points: inside(group.id), expanded });
+      if (expanded) visit(group.id, depth + 1, new Set([...seen, group.id]));
+    }
+    points.forEach((point, index) => {
+      if ((point.group && known.has(point.group) ? point.group : null) === parent) rows.push({ kind: 'point', key: `point:${point.id}`, depth, point, index });
+    });
+  };
+  visit(null, 0, new Set());
+  return rows;
+}
+
+/** Point group ids containing `id` (inclusive), from the group itself up to its top-level ancestor. */
+export function pointGroupAncestors(groups: PointGroup[], id: string | null | undefined): string[] {
+  const byId = new Map(groups.map(group => [group.id, group])), chain: string[] = [];
+  for (let current = id ? byId.get(id) : undefined; current && !chain.includes(current.id); current = current.parent ? byId.get(current.parent) : undefined) chain.push(current.id);
+  return chain;
+}
+
+/** Removes a point group, moving its points and subgroups up into its parent. */
+export function ungroupPoints(grid: Grid, groupId: string): Grid {
+  const group = grid.pointGroups?.find(item => item.id === groupId);
+  if (!group) return grid;
+  return {
+    ...grid,
+    pointGroups: grid.pointGroups!.filter(item => item.id !== groupId).map(item => item.parent === groupId ? { ...item, parent: group.parent } : item),
+    points: (grid.points ?? []).map(point => point.group === groupId ? (({ group: _, ...rest }) => group.parent ? { ...rest, group: group.parent } : rest)(point) : point),
+  };
 }
 
 /** The corners of a hex cell centred at (x, y), for drawing. */

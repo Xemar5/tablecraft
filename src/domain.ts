@@ -1551,7 +1551,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       const grids = projectGrids(p);
       const index = grids.findIndex(grid => grid.id === command.grid.id);
       if (index < 0 && grids.length >= 50) throw new Error('A table can have at most 50 grids.');
-      if (command.grid.shape !== 'points') delete command.grid.points;
+      if (command.grid.shape !== 'points') { delete command.grid.points; delete command.grid.pointGroups; }
       p.grids = index < 0 ? [...grids, command.grid] : grids.map(grid => grid.id === command.grid.id ? command.grid : grid);
       break;
     }

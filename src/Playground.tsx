@@ -15,6 +15,8 @@ import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgr
 import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids';
 import { gridColor, GridLayers, GridPointHandles } from './GridLayers';
 import { GridEditor } from './GridEditor';
+import { PointsPanel } from './GridPoints';
+import { pointGroupAncestors } from './grids';
 import { cssPx } from './uiScale';
 import { scriptsMention } from './scripting';
 import { TagFilterEditor } from './TagEditors';
@@ -73,6 +75,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   // The grid tool: which grid (and snap point) the panel edits, and a grid being dragged on the table before it's saved.
   const [gridId, setGridId] = useState<string>();
   const [gridPoint, setGridPoint] = useState<string>();
+  // The Points panel's selected point group: new snap points go into it.
+  const [pointGroup, setPointGroup] = useState<string>();
   const [gridDraft, setGridDraft] = useState<Grid>();
   const gridGesture = useRef<{ pointer: number; x: number; y: number; startWorld: { x: number; y: number }; grid: Grid; point?: string; added?: boolean; moved: boolean } | null>(null);
   const [preview, setPreview] = useState<Record<string, { x: number; y: number }>>({});
@@ -680,7 +684,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
       // Keys typed in the script and memory windows stay there.
       if ((e.target as HTMLElement).closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="dialog"],.floating-window') || document.querySelector('[role="dialog"],[aria-modal="true"]')) return;
       if (tool === 'grid') {
-        if (e.key === 'Escape') { if (gridPoint) setGridPoint(undefined); else setTool('select'); }
+        if (e.key === 'Escape') { if (gridPoint || pointGroup) { setGridPoint(undefined); setPointGroup(undefined); } else setTool('select'); }
         if ((e.key === 'Delete' || e.key === 'Backspace') && editedGrid?.shape === 'points' && gridPoint && !viewer) {
           e.preventDefault();
           void dispatch({ type: 'grid', grid: { ...editedGrid, points: (editedGrid.points ?? []).filter(point => point.id !== gridPoint) } });
@@ -884,13 +888,17 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     if (g.pan && pointer.current) hoverAt(e.clientX, e.clientY);
   };
   return <div className="playground-layout">
-    {layersVisible && <><aside id="playground-pieces-panel" aria-label="Pieces" className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}
+    {layersVisible && <><aside id="playground-pieces-panel" aria-label={editedGrid?.shape === 'points' ? 'Points' : 'Pieces'} className="layers-panel" style={{ width: panels.sizes.layers, minWidth: 0, flex: `0 0 ${panels.sizes.layers}px` }}
       onPointerEnter={() => { piecesHovered.current = true; }} onPointerLeave={() => { piecesHovered.current = false; }}>
+      {/* While the Grids tool edits a points grid, its snap points take the pieces' place. */}
+      {editedGrid?.shape === 'points' ? <PointsPanel grid={editedGrid} point={gridPoint} onSelectPoint={setGridPoint} group={pointGroup} onSelectGroup={setPointGroup}
+        onChange={grid => dispatch({ type: 'grid', grid })} readOnly={viewer} /> : <>
       <div className="panel-heading"><span><Shapes size={15} /> Pieces</span><span className="panel-heading-actions">
         <button className="icon-button" title="Group selected pieces (G while pointing at this panel)" aria-label="Group selected pieces" disabled={viewer || !canGroup} onClick={groupSelected}><FolderPlus size={14} /></button>
         <button className="icon-button" title="Ungroup selected groups (Shift+G while pointing at this panel)" aria-label="Ungroup selected groups" disabled={viewer || !fullGroups.length} onClick={ungroupSelected}><Ungroup size={14} /></button>
         <span className="subtle">{topPieces.length}</span></span></div>
       <PlaygroundPieces project={source} selected={selected} dispatch={dispatch} readOnly={viewer} onSelect={ids => { setSelected(ids); setSelectedSeatId(undefined); setPanel('selection'); }} />
+      </>}
     </aside>
     <PanelSeparator label="Resize pieces panel" controls="playground-pieces-panel" value={panels.sizes.layers} {...panels.limits.layers} onResize={value => panels.resize('layers', value)} /></>}
     <section className="table-section" onPointerMoveCapture={e => {
@@ -933,7 +941,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               point = handle;
               if (!point) {
                 point = uid('point'); added = true;
-                grid = { ...grid, points: [...grid.points ?? [], { id: point, x: Math.round(startWorld.x), y: Math.round(startWorld.y) }] };
+                const group = grid.pointGroups?.some(item => item.id === pointGroup) ? pointGroup : undefined;
+                grid = { ...grid, points: [...grid.points ?? [], { id: point, x: Math.round(startWorld.x), y: Math.round(startWorld.y), ...(group ? { group } : {}) }] };
                 setGridDraft(grid);
               }
               setGridPoint(point);
@@ -1155,7 +1164,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
-          {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={gridColor(editedGrid, shownGrids.indexOf(editedGrid))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT} />}
+          {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={gridColor(editedGrid, shownGrids.indexOf(editedGrid))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT}
+            highlighted={pointGroup ? (editedGrid.points ?? []).filter(point => pointGroupAncestors(editedGrid.pointGroups ?? [], point.group).includes(pointGroup)).map(point => point.id) : undefined} />}
         </div>
         <div className="floating-tools" onPointerDown={e => e.stopPropagation()}>
           <button className={tool === 'select' ? 'active' : ''} title="Select & move" aria-label="Select and move" onClick={() => setTool('select')}><MousePointer2 size={19} /></button>

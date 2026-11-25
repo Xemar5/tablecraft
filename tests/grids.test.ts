@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, makeInstance, type Component, type Project } from '../src/domain';
-import { gridPointPosition, legacyGrid, nearestGridPoint, projectGrids, snapOf, snapTarget, type Grid } from '../src/grids';
+import { gridPointPosition, legacyGrid, nearestGridPoint, pointTree, projectGrids, snapOf, snapTarget, ungroupPoints, type Grid } from '../src/grids';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { blankProject, template } from '../src/templates';
 import { gameProject } from '../src/gameProjects';
@@ -111,6 +111,28 @@ describe('grids', () => {
     p = applyCommand(p, { type: 'transform', ids: hut.stack ? p.instances.filter(i => i.stack === hut.stack).map(i => i.id) : [hut.id], dx: corner.x + 9 - hut.x, dy: corner.y - 6 - hut.y, snap: true }, p.players[0].id);
     expect(p.instances.find(i => i.id === hut.id)).toMatchObject({ x: corner.x, y: corner.y });
     expect(snapTarget(p, kind('Resource'), corner.x, corner.y)).toBeUndefined();
+  });
+
+  it('organise snap points in nestable point groups for the Points panel', () => {
+    const grid = points({
+      pointGroups: [{ id: 'board', name: 'Board', parent: null }, { id: 'track', name: 'Track', parent: 'board' }],
+      points: [{ id: 'a', x: 0, y: 0 }, { id: 'b', x: 10, y: 0, group: 'track' }, { id: 'c', x: 20, y: 0, group: 'board' }],
+    });
+    const rows = pointTree(grid);
+    expect(rows.map(row => [row.kind, row.kind === 'group' ? row.group.id : row.point.id, row.depth])).toEqual([
+      ['group', 'board', 0], ['group', 'track', 1], ['point', 'b', 2], ['point', 'c', 1], ['point', 'a', 0]]);
+    expect(rows[0].kind === 'group' && rows[0].points).toEqual(['c', 'b']);
+    // Collapsed groups hide their contents; ungrouping moves them up a level.
+    expect(pointTree(grid, new Set(['board'])).map(row => row.key)).toEqual(['group:board', 'point:a']);
+    const flat = ungroupPoints(grid, 'board');
+    expect(flat.pointGroups).toEqual([{ id: 'track', name: 'Track', parent: null }]);
+    expect(flat.points?.find(point => point.id === 'c')?.group).toBeUndefined();
+    // Groups are validated with the grid: no missing parents, cycles or unknown groups on points.
+    const p = table([grid], token('x'));
+    expect(() => applyCommand(p, { type: 'grid', grid: { ...grid, pointGroups: [{ id: 'loop', name: 'Loop', parent: 'loop' }], points: [] } })).toThrow('contain themselves');
+    expect(() => applyCommand(p, { type: 'grid', grid: { ...grid, points: [{ id: 'z', x: 0, y: 0, group: 'nope' }] } })).toThrow('missing point group');
+    // A grid that stops being a points grid drops its points and groups.
+    expect(applyCommand(p, { type: 'grid', grid: { ...grid, shape: 'square' } }).grids?.[0]).not.toHaveProperty('pointGroups');
   });
 
   it('edit grid layers as undoable table actions, materializing the grid from older settings', () => {

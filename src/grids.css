@@ -48,3 +48,8 @@
 .grid-summary > span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .grid-summary small { color: #9ca990; font-size: 10px; }
 .grid-summary .button { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; min-height: 28px; padding: 4px 10px; }
+.grid-handle.highlighted .grid-handle-dot { fill: currentColor; fill-opacity: .45; }
+/* The Points panel (GridPoints.tsx), in the Pieces panel's place. */
+.points-panel-grid { margin: 0; padding: 6px 14px 2px; font-size: 10px; color: #9ca990; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.points-tree .point-row-detail { margin-left: auto; padding-left: 6px; font-size: 10px; color: #9ca990; white-space: nowrap; }
+.points-tree .in-selected-group:not(.active) .layer-row { background: #f1f6ea; }

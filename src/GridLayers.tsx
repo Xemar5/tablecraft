@@ -57,9 +57,13 @@ function PointMarker({ x, y, rotation, label }: { x: number; y: number; rotation
 }
 
 /** The edited points grid's points as handles above the pieces, to select and drag them with the grid tool. */
-export function GridPointHandles({ grid, color, selected, width, height }: { grid: Grid; color: string; selected?: string; width: number; height: number }) {
+export function GridPointHandles({ grid, color, selected, highlighted, width, height }: {
+  grid: Grid; color: string; selected?: string; width: number; height: number;
+  /** Points of the Points panel's selected group. */
+  highlighted?: string[];
+}) {
   return <svg className="grid-handles" width={width} height={height} style={{ color }}>
-    {(grid.points ?? []).map(point => <g key={point.id} data-grid-point={point.id} className={`grid-handle${point.id === selected ? ' selected' : ''}`} transform={`translate(${point.x} ${point.y})`}
+    {(grid.points ?? []).map(point => <g key={point.id} data-grid-point={point.id} className={`grid-handle${point.id === selected ? ' selected' : ''}${highlighted?.includes(point.id) ? ' highlighted' : ''}`} transform={`translate(${point.x} ${point.y})`}
       role="button" aria-label={`Point ${point.label || point.id}`}>
       <circle className="grid-handle-hit" />
       <circle className="grid-handle-dot" />
