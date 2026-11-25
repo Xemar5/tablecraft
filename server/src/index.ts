@@ -1,5 +1,6 @@
-import { schema, table, t, SenderError } from 'spacetimedb/server';
-import { commandSchema, nextSeatPlacement, projectSchema, validateProject, type Player, type Project } from '../../src/domain';
+import { schema, table, t, SenderError, ScheduleAt, type InferSchema, type ReducerCtx } from 'spacetimedb/server';
+import { applyCommand, commandSchema, nextSeatPlacement, projectSchema, validateProject, type Player, type Project } from '../../src/domain';
+import { scriptsMention } from '../../src/scripting';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, playgroundHistorySchema, undoPlayground } from '../../src/playgroundHistory';
 import { upgradeLegacyArtworkProject } from '../../src/templates';
 
@@ -22,8 +23,22 @@ const room_host = table({ name: 'room_host' }, {
 const live_connection = table({ name: 'live_connection' }, {
   connection: t.string().primaryKey(), identity: t.string(),
 });
-const db = schema({ room, membership, playground_history, room_host, live_connection });
+// Rooms whose scripts define update(dt) get a repeating timer, so the server runs it for everyone (see room_update).
+const room_tick = table({ name: 'room_tick' }, {
+  scheduledId: t.u64().primaryKey().autoInc(), scheduledAt: t.scheduleAt(), code: t.string().unique(), interval: t.f64(),
+});
+const db = schema({ room, membership, playground_history, room_host, live_connection, room_tick });
 export default db;
+type Ctx = ReducerCtx<InferSchema<typeof db>>;
+
+/** Starts, restarts (when the interval changed) or stops a room's update timer to match its scripts. */
+function syncUpdates(ctx: Ctx, code: string, project: Project) {
+  const interval = scriptsMention(project.scripts, 'update') ? project.settings.updateInterval ?? 1 : 0;
+  const existing = ctx.db.room_tick.code.find(code);
+  if (existing?.interval === interval) return;
+  if (existing) ctx.db.room_tick.code.delete(code);
+  if (interval) ctx.db.room_tick.insert({ scheduledId: 0n, scheduledAt: ScheduleAt.interval(BigInt(Math.round(interval * 1_000_000))), code, interval });
+}
 
 // Keep the persisted room schema stable; additive history is a private table.
 export const room_state = db.view({ public: true }, t.array(t.object('PlaygroundRoomSnapshot', {
@@ -50,6 +65,7 @@ const releaseSeats = (project: Project, identity: string) => {
 
 const designCommands = new Set(['component', 'addComponents', 'syncLinkedComponents', 'removeComponent', 'reorderComponent', 'rename']);
 const seatCommands = new Set(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
+const scriptCommands = new Set(['script', 'removeScript', 'reorderScripts', 'reloadScripts']);
 
 export const join_room = db.reducer({
   code: t.string(), initialState: t.string(), playerId: t.string(), name: t.string(), color: t.string(),
@@ -87,6 +103,7 @@ export const join_room = db.reducer({
     const member = { identity: ctx.sender, code: args.code };
     if (ctx.db.membership.identity.find(ctx.sender)) ctx.db.membership.identity.update(member);
     else ctx.db.membership.insert(member);
+    syncUpdates(ctx, args.code, project);
   } catch (error) {
     throw new SenderError(error instanceof Error ? error.message : 'Unable to join room.');
   }
@@ -105,10 +122,14 @@ export const dispatch = db.reducer({ command: t.string(), actor: t.string() }, (
     if (args.actor && (!actor || actor.owner !== identity)) throw new Error('Take this seat before acting as it.');
     const command = commandSchema.parse(JSON.parse(args.command));
     const host = ctx.db.room_host.code.find(member.code)?.identity === identity;
-    // Viewers (no seat) only inspect the table. They may still edit designs, and the host may still manage seats.
-    if (!actor && !designCommands.has(command.type) && !(host && seatCommands.has(command.type))) {
+    // Viewers (no seat) only inspect the table. They may still edit designs, and the host may still manage seats and scripts.
+    if (!actor && !designCommands.has(command.type) && !(host && (seatCommands.has(command.type) || scriptCommands.has(command.type)))) {
       throw new Error('Take a seat to play. Viewers can only inspect the table.');
     }
+    // Scripts change for everyone, so the host decides who may edit them; updates come only from the server's timer.
+    if (scriptCommands.has(command.type) && !host && !project.settings.scriptEditing) throw new Error('Only the host can change scripts in this room.');
+    if (command.type === 'settings' && command.patch.scriptEditing !== undefined && !host) throw new Error('Only the host can choose who may edit scripts.');
+    if (command.type === 'tick') throw new Error('In a live room, the server runs update(dt) by itself.');
     // Seats belong to their occupant; empty seats are shared, and the room host may change or remove any seat but never reassign one.
     const manages = (playerId: string) => {
       const owner = project.players.find(p => p.id === playerId)?.owner;
@@ -129,9 +150,25 @@ export const dispatch = db.reducer({ command: t.string(), actor: t.string() }, (
     ctx.db.room.code.update({
       ...current, state: JSON.stringify(next.project), revision: current.revision + 1,
     });
+    if (scriptCommands.has(command.type) || command.type === 'settings') syncUpdates(ctx, member.code, next.project);
   } catch (error) {
     throw new SenderError(error instanceof Error ? error.message : 'Command failed.');
   }
+});
+
+/** Runs a room's update(dt) on its timer while anyone in the room is connected. */
+export const room_update = db.reducer({ onSchedule: room_tick }, { tick: room_tick.rowType }, (ctx, { tick }) => {
+  if (!ctx.sender.isEqual(ctx.databaseIdentity)) throw new SenderError('Only the server runs room updates.');
+  const current = ctx.db.room.code.find(tick.code);
+  if (!current) { ctx.db.room_tick.code.delete(tick.code); return; }
+  const online = new Set([...ctx.db.live_connection.iter()].map(connection => connection.identity));
+  if (![...ctx.db.membership.iter()].some(member => member.code === tick.code && online.has(member.identity.toHexString()))) return;
+  try {
+    const project = validateProject(projectSchema.parse(JSON.parse(current.state)));
+    if (!scriptsMention(project.scripts, 'update')) { ctx.db.room_tick.code.delete(tick.code); return; }
+    const next = applyCommand(project, { type: 'tick', dt: tick.interval, seed: Number(ctx.timestamp.microsSinceUnixEpoch % 2147483647n) });
+    if (next !== project) ctx.db.room.code.update({ ...current, state: JSON.stringify(next), revision: current.revision + 1 });
+  } catch { /* A room that can't be read (or a failing update, which logs itself) is left as it is. */ }
 });
 
 // Reducer transactions serialize dispatch and undo against the same authoritative history.

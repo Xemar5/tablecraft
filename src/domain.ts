@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { reorder } from './zOrder';
+import { runCommand } from './scripting';
 
 const id = z.string().min(1).max(100);
 const num = z.number().finite();
@@ -73,7 +74,7 @@ export const nodeSchema = z.object({
 });
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
-  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'book', 'artwork', 'texture', 'font']),
+  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'book', 'artwork', 'texture', 'font', 'button']),
   width: num.min(20).max(2000), height: num.min(20).max(2000), color,
   front: z.array(nodeSchema).max(300), back: z.array(nodeSchema).max(300),
   csv: z.string().max(1_000_000),
@@ -84,6 +85,8 @@ export const componentSchema = z.object({
   previewWhenLocked: z.boolean().optional(),
   /** Degrees each Q/E press or rotate button turns its pieces (90 when absent). */
   rotationStep: z.number().int().min(1).max(180).optional(),
+  /** The global script function its pieces run: pressing a button piece, or Run on any selected piece. */
+  action: z.string().max(100).optional(),
   source: z.object({ projectId: id, componentId: id, projectName: z.string().min(1).max(100) }).optional(),
   asset: assetSchema.optional(),
 });
@@ -186,6 +189,34 @@ export const playerSchema = z.object({
   handFaceUp: z.boolean().optional(), tableHandHidden: z.boolean().optional(), tableHandUnlocked: z.boolean().optional(),
 });
 export type Player = z.infer<typeof playerSchema>;
+/** A Lua script. A project's scripts run in order, sharing their globals, in every browser and on the server. */
+export const scriptSchema = z.object({ id, name: z.string().trim().min(1).max(100), source: z.string().max(200_000) });
+export type Script = z.infer<typeof scriptSchema>;
+/** Values kept in memory: JSON without null, which Lua tables can't hold. Lists index from 1, as in Lua. */
+// Interfaces keep the recursion lazy, so generic types that walk projects (Playwright's evaluate arguments) stay shallow.
+export type MemoryValue = string | number | boolean | MemoryList | MemoryTable;
+export interface MemoryList extends Array<MemoryValue> {}
+export interface MemoryTable { [key: string]: MemoryValue }
+export const memoryValueSchema: z.ZodType<MemoryValue> = z.lazy(() => z.union([
+  z.string().max(100_000), num, z.boolean(), z.array(memoryValueSchema).max(10_000), z.record(z.string().max(200), memoryValueSchema),
+]));
+export const memorySchema = z.record(z.string().max(200), memoryValueSchema);
+export type Memory = z.infer<typeof memorySchema>;
+export const MAX_MEMORY_BYTES = 512 * 1024;
+/** A memory path: keys of tables and (from 1) positions in lists. */
+export const memoryPathSchema = z.array(z.union([z.string().max(200), z.number().int().min(1).max(100_000)])).max(64);
+export type MemoryPath = z.infer<typeof memoryPathSchema>;
+/** Lines scripts print, their errors and announcements, shared by everyone at the table. */
+export const scriptLogEntrySchema = z.object({
+  seq: z.number().int().min(0), level: z.enum(['info', 'error', 'announce']), text: z.string().max(4000),
+  /** The seat whose action ran the script. */
+  player: id.optional(),
+  /** How many times in a row the same line was logged. */
+  count: z.number().int().min(2).optional(),
+});
+export type ScriptLogEntry = z.infer<typeof scriptLogEntrySchema>;
+export const SCRIPT_LOG_LIMIT = 200;
+const scriptName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/, 'Use the name of a global function.').max(100);
 export const projectSchema = z.object({
   id, name: z.string().min(1).max(100), description: z.string().max(1000),
   components: z.array(componentSchema).max(500),
@@ -195,6 +226,10 @@ export const projectSchema = z.object({
   groups: z.array(pieceGroupSchema).max(2000).optional(),
   /** Stacks that stay on the table when they're down to one piece or none. */
   stacks: z.array(persistentStackSchema).max(2000).optional(),
+  scripts: z.array(scriptSchema).max(50).optional(),
+  /** JSON values shared by scripts and players (absent when empty). */
+  memory: memorySchema.optional(),
+  scriptLog: z.array(scriptLogEntrySchema).max(SCRIPT_LOG_LIMIT).optional(),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
     /** Where the grid's points sit: snap points are offset + n × gridSize on each axis (0 when absent). */
@@ -202,6 +237,10 @@ export const projectSchema = z.object({
     hands: z.boolean(), allowOtherHands: z.boolean().optional(),
     allowHandInsert: z.boolean().optional(), allowHandTake: z.boolean().optional(),
     turns: z.boolean(), turn: z.number().int().min(0),
+    /** In a live room, whether players other than the host may change scripts. */
+    scriptEditing: z.boolean().optional(),
+    /** Seconds between calls of the scripts' update(dt) (1 when absent). */
+    updateInterval: num.min(0.1).max(3600).optional(),
   }),
 });
 export type Project = z.infer<typeof projectSchema>;
@@ -283,6 +322,21 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('handSettings'), playerId: id, patch: playerSchema.pick({ allowHandInsert: true, allowHandTake: true, handFaceUp: true, tableHandHidden: true, tableHandUnlocked: true }) }),
   z.object({ type: z.literal('settings'), patch: projectSchema.shape.settings.partial() }),
   z.object({ type: z.literal('rename'), name: z.string().min(1).max(100) }),
+  /** Sets pieces to a variant, page or face (zero-based row). */
+  z.object({ type: z.literal('setRow'), ids: z.array(id).min(1), row: z.number().int().min(0) }),
+  /** Adds a script, or replaces the one with its id in place. Scripts then reload (onUnload, then onLoad). */
+  z.object({ type: z.literal('script'), script: scriptSchema }),
+  z.object({ type: z.literal('removeScript'), id }),
+  z.object({ type: z.literal('reorderScripts'), ids: z.array(id).max(50) }),
+  /** Runs the scripts' onUnload and onLoad again, as if they had just been saved. */
+  z.object({ type: z.literal('reloadScripts') }),
+  /** Sets values in memory (or removes them, without a value). An empty path replaces all of memory. */
+  z.object({ type: z.literal('memory'), changes: z.array(z.object({ path: memoryPathSchema, value: memoryValueSchema.optional() })).min(1).max(1000) }),
+  /** Calls a global script function: a button press (with its piece), Run on a piece, or the script editor's Run. */
+  z.object({ type: z.literal('call'), name: scriptName, piece: id.optional(), args: z.array(memoryValueSchema).max(20).default([]), seed: z.number().int() }),
+  /** Runs the scripts' update(dt). Live rooms get these from the server's timer, offline tables from the app's. */
+  z.object({ type: z.literal('tick'), dt: num.min(0).max(3600), seed: z.number().int() }),
+  z.object({ type: z.literal('clearScriptLog') }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
@@ -409,8 +463,86 @@ export function validateProject(project: Project): Project {
   }
   if (project.instances.some(i => !i.stack && i.stackReversed)) throw new Error('Only stacks can have a stack orientation.');
   validateGroups(project);
+  validateScripting(project);
   validatedComponents.add(project.components);
   return project;
+}
+
+function validateScripting(project: Project) {
+  if (new Set((project.scripts ?? []).map(script => script.id)).size !== (project.scripts ?? []).length) throw new Error('Duplicate script identifiers.');
+  if (project.memory) {
+    const depth = (value: MemoryValue, level: number): void => {
+      if (level > 64) throw new Error('Memory nests more than 64 levels deep.');
+      if (value && typeof value === 'object') for (const item of Array.isArray(value) ? value : Object.values(value)) depth(item, level + 1);
+    };
+    depth(project.memory, 0);
+    if (JSON.stringify(project.memory).length > MAX_MEMORY_BYTES) throw new Error('Memory can hold at most 512 KB of JSON.');
+  }
+}
+
+/** Reads the value at a memory path (lists index from 1). */
+export function memoryAt(memory: Memory | undefined, path: MemoryPath): MemoryValue | undefined {
+  let current: MemoryValue | undefined = memory;
+  for (const key of path) {
+    if (current === undefined || typeof current !== 'object') return undefined;
+    current = Array.isArray(current) ? typeof key === 'number' ? current[key - 1] : undefined : typeof key === 'string' ? current[key] : current[String(key)];
+  }
+  return current;
+}
+
+/**
+ * Sets (or, without a value, removes) the value at a memory path, creating tables on the way. Positions in lists count
+ * from 1; setting the position after the last appends, and removing one closes the gap.
+ */
+export function setMemory(memory: Memory | undefined, path: MemoryPath, value: MemoryValue | undefined): Memory | undefined {
+  if (!path.length) {
+    if (value === undefined) return undefined;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Memory must be a table of named values.');
+    return Object.keys(value).length ? structuredClone(value) as Memory : undefined;
+  }
+  const root: Memory = structuredClone(memory ?? {});
+  let parent: MemoryValue = root;
+  for (let index = 0; index < path.length - 1; index++) {
+    const key = path[index], next = path[index + 1];
+    const container = parent as Record<string, MemoryValue> | MemoryValue[];
+    let child: MemoryValue | undefined = Array.isArray(container) ? typeof key === 'number' ? container[key - 1] : undefined : container[String(key)];
+    if (child === undefined || typeof child !== 'object') {
+      if (value === undefined) return Object.keys(root).length ? root : undefined;
+      child = typeof next === 'number' ? [] : {};
+      if (Array.isArray(container)) {
+        if (typeof key !== 'number' || key > container.length + 1) throw new Error(`Memory path ${memoryPathText(path)} skips positions in a list.`);
+        container[key - 1] = child;
+      } else container[String(key)] = child;
+    }
+    parent = child;
+  }
+  const key = path.at(-1)!;
+  if (Array.isArray(parent)) {
+    if (typeof key !== 'number') throw new Error(`Memory path ${memoryPathText(path)} names a key in a list.`);
+    if (value === undefined) { if (key <= parent.length) parent.splice(key - 1, 1); }
+    else if (key > parent.length + 1) throw new Error(`Memory path ${memoryPathText(path)} skips positions in a list.`);
+    else parent[key - 1] = structuredClone(value);
+  } else if (value === undefined) delete (parent as Record<string, MemoryValue>)[String(key)];
+  else (parent as Record<string, MemoryValue>)[String(key)] = structuredClone(value);
+  return Object.keys(root).length ? root : undefined;
+}
+
+/** A memory path as Lua would write it, such as `score.red` or `log[2]`. */
+export function memoryPathText(path: MemoryPath): string {
+  return path.map((key, index) => typeof key === 'number' ? `[${key}]` : /^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? `${index ? '.' : ''}${key}` : `[${JSON.stringify(key)}]`).join('') || 'memory';
+}
+
+/** Adds lines to the script log, merging repeats of the last line and keeping the newest entries. */
+export function appendScriptLog(log: ScriptLogEntry[] | undefined, entries: Omit<ScriptLogEntry, 'seq'>[]): ScriptLogEntry[] | undefined {
+  if (!entries.length) return log;
+  const next = [...log ?? []];
+  let seq = next.at(-1)?.seq ?? 0;
+  for (const entry of entries) {
+    const last = next.at(-1), text = entry.text.slice(0, 4000);
+    if (last && last.text === text && last.level === entry.level && last.player === entry.player) next[next.length - 1] = { ...last, seq: ++seq, count: (last.count ?? 1) + 1 };
+    else next.push({ ...entry, text, seq: ++seq });
+  }
+  return next.slice(-SCRIPT_LOG_LIMIT);
 }
 
 /** Whether pieces of these components may form (or join) a persistent stack, by its stack tag. */
@@ -590,7 +722,19 @@ export function visibleBack(instance: Instance): boolean {
 
 const designCommands = new Set<Command['type']>(['component', 'addComponents', 'syncLinkedComponents', 'removeComponent', 'reorderComponent']);
 
+/**
+ * Applies a command, with the project's scripts: `call`, `tick` and script changes run Lua, and other commands give
+ * scripts' event handlers (onDraw, onMove, ...) a chance to react. See src/scripting.ts.
+ */
 export function applyCommand(source: Project, raw: Command, actor?: string): Project {
+  return runCommand(source, commandSchema.parse(raw), actor, applyTableCommand);
+}
+
+/** The state undo should go back to after `project`, when a script kept some of its changes out of undo. */
+export { undoBaseOf } from './scripting';
+
+/** Applies one command to the table alone, without running scripts. Scripts' own actions go through here. */
+export function applyTableCommand(source: Project, raw: Command, actor?: string): Project {
   const command = commandSchema.parse(raw);
   // Only design commands change components. Other commands keep the source component objects, so memoized
   // faces skip re-rendering and callers can detect design changes by reference; validateProject still checks them.
@@ -1249,6 +1393,39 @@ export function applyCommand(source: Project, raw: Command, actor?: string): Pro
       if (p.players.length) p.settings.turn %= p.players.length;
       break;
     case 'rename': p.name = command.name; break;
+    case 'setRow':
+      for (const key of new Set(command.ids)) {
+        const item = get(key), c = component(item);
+        if (command.row >= Math.max(1, c.rows.length)) throw new Error(`${c.name} has ${Math.max(1, c.rows.length)} variant${c.rows.length === 1 ? '' : 's'}.`);
+        item.row = command.row;
+      }
+      break;
+    case 'script': {
+      const scripts = p.scripts ?? [];
+      const index = scripts.findIndex(script => script.id === command.script.id);
+      if (index < 0 && scripts.length >= 50) throw new Error('A project can have at most 50 scripts.');
+      if (scripts.some(script => script.id !== command.script.id && script.name.toLowerCase() === command.script.name.toLowerCase())) throw new Error(`There is already a script called ${command.script.name}.`);
+      p.scripts = index < 0 ? [...scripts, command.script] : scripts.map(script => script.id === command.script.id ? command.script : script);
+      break;
+    }
+    case 'removeScript':
+      if (!p.scripts?.some(script => script.id === command.id)) throw new Error('Script no longer exists.');
+      p.scripts = p.scripts.filter(script => script.id !== command.id);
+      if (!p.scripts.length) delete p.scripts;
+      break;
+    case 'reorderScripts': {
+      const scripts = command.ids.map(key => p.scripts?.find(script => script.id === key));
+      if (scripts.length !== (p.scripts ?? []).length || new Set(command.ids).size !== scripts.length || scripts.some(script => !script)) throw new Error('Reorder must contain every script once.');
+      if (scripts.length) p.scripts = scripts as Script[];
+      break;
+    }
+    case 'memory':
+      for (const change of command.changes) p.memory = setMemory(p.memory, change.path, change.value);
+      if (!p.memory) delete p.memory;
+      break;
+    case 'clearScriptLog': delete p.scriptLog; break;
+    // Script runs are handled around the table engine (runCommand); on their own they change nothing.
+    case 'reloadScripts': case 'call': case 'tick': break;
   }
   keepPersistentStacks(source, p);
   const persistent = new Set((p.stacks ?? []).map(record => record.id));

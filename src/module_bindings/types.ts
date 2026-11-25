@@ -54,3 +54,11 @@ export type RoomHost = __Infer<typeof RoomHost>;
 export const RoomState = __t.object("RoomState", {});
 export type RoomState = __Infer<typeof RoomState>;
 
+export const RoomTick = __t.object("RoomTick", {
+  scheduledId: __t.u64(),
+  scheduledAt: __t.scheduleAt(),
+  code: __t.string(),
+  interval: __t.f64(),
+});
+export type RoomTick = __Infer<typeof RoomTick>;
+

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { applyCommand, commandSchema, instanceSchema, pieceGroupSchema, projectSchema, validateProject, type Command, type Project } from './domain';
+import { applyCommand, commandSchema, instanceSchema, memorySchema, pieceGroupSchema, projectSchema, undoBaseOf, validateProject, type Command, type Project } from './domain';
 
 export const PLAYGROUND_HISTORY_LIMIT = 50;
 const seatPresentation = z.object({
@@ -10,6 +10,8 @@ const entrySchema = z.object({
   settings: projectSchema.shape.settings,
   /** Pieces panel groups; omitted when the table had none. */
   groups: z.array(pieceGroupSchema).optional(),
+  /** Script memory (null when empty). Entries recorded before scripting have none, and undo keeps memory as it is. */
+  memory: memorySchema.nullable().optional(),
   seat: seatPresentation.optional(),
 });
 export const playgroundHistorySchema = z.object({
@@ -20,6 +22,10 @@ export type PlaygroundHistory = z.infer<typeof playgroundHistorySchema>;
 export const emptyPlaygroundHistory = (): PlaygroundHistory => ({ entries: [], notice: '' });
 
 // Designs are the bulk of a project; skip serializing them when a command kept the same component objects.
+// Script runs that only logged (or kept every change out of undo) leave nothing to undo.
+const scriptCommands = new Set<Command['type']>(['call', 'tick', 'script', 'removeScript', 'reorderScripts', 'reloadScripts', 'clearScriptLog']);
+const sameTable = (a: Project, b: Project) => a.instances === b.instances && a.settings === b.settings && a.groups === b.groups && a.memory === b.memory ||
+  JSON.stringify([a.instances, a.settings, a.groups, a.memory]) === JSON.stringify([b.instances, b.settings, b.groups, b.memory]);
 const sameProject = (a: Project, b: Project) => (a.components === b.components || JSON.stringify(a.components) === JSON.stringify(b.components)) &&
   JSON.stringify({ ...a, components: [] }) === JSON.stringify({ ...b, components: [] });
 
@@ -39,9 +45,12 @@ export function applyPlaygroundCommand(
   }
   if (command.type === 'removePlayer') return { project: next, history: { entries: [], notice: 'Undo history cleared because a seat was removed.' } };
   if (command.type === 'rename' || command.type === 'reorderComponent' || command.type === 'handSettings' || command.type === 'reorderPlayers') return { project: next, history };
+  // A script may keep some changes out of undo: undo then goes back to its base rather than to the table before.
+  const base = undoBaseOf(next) ?? project;
+  if ((base !== project || scriptCommands.has(command.type)) && sameTable(base, next)) return { project: next, history };
   const player = command.type === 'player' ? project.players.find(player => player.id === command.player.id) : undefined;
   const entry = entrySchema.parse({
-    instances: project.instances, settings: project.settings, ...(project.groups?.length ? { groups: project.groups } : {}),
+    instances: base.instances, settings: base.settings, ...(base.groups?.length ? { groups: base.groups } : {}), memory: base.memory ?? null,
     seat: player && { id: player.id, name: player.name, color: player.color, x: player.x, y: player.y, rotation: player.rotation },
   });
   return {
@@ -62,6 +71,7 @@ export function undoPlayground(
     // Entries without groups were recorded when the table had none.
     const next = validateProject({ ...projectSchema.omit({ components: true }).parse({
       ...project, instances: entry.instances, settings: entry.settings, groups: entry.groups?.length ? entry.groups : undefined,
+      ...(entry.memory !== undefined ? { memory: entry.memory ?? undefined } : {}),
       players: project.players.map(player => player.id === entry.seat?.id ? { ...player, ...entry.seat } : player),
     }), components: project.components });
     return { project: next, history: { entries: history.entries.slice(0, -1), notice: '' }, undone: true };
