@@ -46,9 +46,10 @@ test('fullscreen preview is local, starts at 100%, zooms, rotates, flips and clo
   expect(await saved(page)).toEqual(before);
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
+  // The next preview opens at the zoom this one was left at.
   await stack.hover();
   await page.keyboard.press('z');
-  await expect(dialog).toContainText('100%');
+  await expect(dialog).toContainText('800%');
   await page.keyboard.press('z');
   await expect(dialog).toHaveCount(0);
   await stack.hover();
@@ -82,11 +83,14 @@ test('fullscreen preview keeps following the pointer while zooming, rotating and
   await expect.poll(async () => { const b = await box(); return [Math.round(1280 - (b.x + b.width)), Math.round(help.y - (b.y + b.height))]; }).toEqual([24, 24]);
   await page.mouse.move(2, 400);
   await expect.poll(async () => Math.round((await box()).x)).toBe(24);
+  // Zoomed back out to 100%, the next preview (which opens at the last zoom) fits.
+  for (let n = 0; n < 15; n++) await page.mouse.wheel(0, 100);
   await page.keyboard.press('Escape');
 
   // A piece that fits stays centred in the space between the bars, wherever the pointer is.
   await stack.hover();
   await page.keyboard.press('z');
+  await expect(dialog).not.toContainText('418%');
   const fitting = await box(), bands = await bars();
   expect(Math.round(fitting.x + fitting.width / 2)).toBe(640);
   expect(Math.abs((fitting.y + fitting.height / 2) - (bands.top.y + bands.top.height + bands.help.y) / 2)).toBeLessThan(1);
@@ -231,4 +235,22 @@ test('multi-drag snaps each unit separately while preserving stacks', async ({ p
   await expect.poll(async () => (await saved(page)).instances.map(i => [i.id, i.x, i.y]).sort())
     .toEqual([['snap-a', 740, 440], ['snap-b', 960, 540], ['snap-c', 960, 540]]);
   expect((await saved(page)).instances.filter(i => i.id !== 'snap-a').map(i => i.stack)).toEqual(['snap-stack', 'snap-stack']);
+});
+
+test('the fullscreen preview opens at the zoom the last one was left at', async ({ page }) => {
+  await page.goto('/');
+  const token = page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first();
+  await token.hover();
+  await page.keyboard.press('z');
+  const dialog = page.getByRole('dialog', { name: /^Fullscreen preview:/ });
+  await expect(dialog).toContainText('100%');
+  await dialog.hover();
+  for (let n = 0; n < 3; n++) await page.mouse.wheel(0, -100);
+  await expect(dialog).toContainText('133%');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  // Another piece opens at the same zoom.
+  await page.locator('.table-viewport').getByRole('button', { name: 'Spirit die', exact: true }).hover();
+  await page.keyboard.press('z');
+  await expect(dialog).toContainText('133%');
 });

@@ -20,6 +20,9 @@ function previewCentre(size: number, start: number, end: number, pointer: number
   return centre + (.5 - Math.max(0, Math.min(1, (pointer - start) / room))) * overflow;
 }
 
+/** The zoom the last fullscreen preview was left at, for the next one (until the page reloads). */
+let lastZoom = 1;
+
 export function PiecePreview({ item, component, components, actor, viewer, pointer: openedAt, stackCount = 1, onClose }: {
   item: Instance; component: Component; components: Component[]; actor: string; viewer: boolean;
   /** How many pieces the previewed stack holds, shown as on the table. */
@@ -28,7 +31,9 @@ export function PiecePreview({ item, component, components, actor, viewer, point
   pointer?: { x: number; y: number }; onClose: () => void;
 }) {
   const permission = previewPermission(item, component, actor, viewer);
-  const [zoom, setZoom] = useState(1);
+  // Each fullscreen preview opens at the zoom the last one was left at.
+  const [zoom, setZoom] = useState(() => lastZoom);
+  useEffect(() => { lastZoom = zoom; }, [zoom]);
   const [flipped, setFlipped] = useState(false);
   const [rotation, setRotation] = useState(0);
   // A book's pages turn inside the preview only (from the page shown on the table); hidden content has no pages to read.
