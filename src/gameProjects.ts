@@ -604,6 +604,9 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // The top and bottom seats sit a little further out than the default ring, so the cards fanned out above their
   // table hands stay clear of the pieces laid out in front of them.
   for (const seat of players) if (Math.abs(seat.rotation) % 180 === 0) seat.y += Math.sign(seat.y - CENTER.y) * 60;
+  // Roll dice starts hidden from every seat: the rules script shows it once the game starts, if the dice don't roll by
+  // themselves, and hides Start game then.
+  for (const item of instances) if (item.componentId === rollButton.id) item.hiddenFrom = players.map(seat => seat.id);
   // Only tiles, buildings, boardwalks, tide markers and the squall snap; everything else moves freely.
   const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book, startButton, rollButton, scoreboard]
     .map(item => item.gridTags ? item : { ...item, snapToGrid: false });

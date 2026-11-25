@@ -328,6 +328,24 @@ describe('game projects', () => {
       expect(announcements(rolls.get(7)!).at(-1)).toMatch(/The squall! Move it to another tile/);
     });
 
+    it('shows only the buttons that apply: Start game before the game, Roll dice after it while the dice don\'t roll by themselves', () => {
+      const hiddenFrom = (p: Project, name: string) => piecesOf(p, name)[0].hiddenFrom ?? [];
+      const everyone = (p: Project) => p.players.map(player => player.id);
+      const game = build('tidewater');
+      expect([hiddenFrom(game, 'Start game'), hiddenFrom(game, 'Roll dice')]).toEqual([[], everyone(game)]);
+      const { p, seat } = setup();
+      // With autoRoll off, starting hides Start game and shows Roll dice.
+      const manual = applyCommand(p, call('startGame', 3), seat);
+      expect(errors(manual)).toEqual([]);
+      expect([hiddenFrom(manual, 'Start game'), hiddenFrom(manual, 'Roll dice')]).toEqual([everyone(manual), []]);
+      // Turning autoRoll on in memory hides Roll dice again; with it on from the start, Roll dice never shows.
+      const auto = applyCommand(manual, { type: 'memory', changes: [{ path: ['autoRoll'], value: true }] }, seat);
+      expect(errors(auto)).toEqual([]);
+      expect(hiddenFrom(auto, 'Roll dice')).toEqual(everyone(auto));
+      const automatic = applyCommand({ ...p, memory: { ...p.memory, autoRoll: true } }, call('startGame', 3), seat);
+      expect([hiddenFrom(automatic, 'Start game'), hiddenFrom(automatic, 'Roll dice')]).toEqual([everyone(automatic), everyone(automatic)]);
+    });
+
     it('rolls by itself when a turn starts once the game is on, and names the players beside the squall', () => {
       const { p, seat, second } = setup();
       const started = applyCommand({ ...p, memory: { ...p.memory, autoRoll: true } }, call('startGame', 3), seat);

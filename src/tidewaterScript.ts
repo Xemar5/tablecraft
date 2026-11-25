@@ -3,6 +3,9 @@
  * dice when a turn starts, hands out resources for the huts and lighthouses beside the rolled tiles, warns about the
  * squall on a 7, deals starting resources and keeps building points in memory for the scoreboard.
  *
+ * It also hides the buttons that don't apply yet (or any more) from every seat: Start game once the game is under way,
+ * and Roll dice until then and while the dice roll by themselves.
+ *
  * Memory it uses: `colors` (the colour each seat plays, in seat order), `autoRoll`, `started`, `round`, `lastRoll`,
  * `points` (building points per colour) and `placed` (each colour's huts in the order they were placed, before the
  * game starts).
@@ -12,7 +15,8 @@ export const TIDEWATER_SCRIPT = String.raw`-- Tidewater Isles: rolls, resources 
 -- Seats play the colours in memory.colors, in seat order (seat 1 crimson, 2 azure, 3 ivory, 4 amber); change the list in
 -- the Memory window to match your table. Place the huts and boardwalks of the setup rounds, then press Start game: each
 -- player takes one resource for every tile touching the second hut they placed. From then on the dice roll by
--- themselves whenever a turn starts (set memory.autoRoll to false to roll with the Roll dice button instead). Every
+-- themselves whenever a turn starts (set memory.autoRoll to false to roll with the Roll dice button instead, which only
+-- shows while it's needed). Every
 -- hut on a corner of a tile showing the rolled number takes one of its resource and every lighthouse two, unless the
 -- squall is on that tile. A 7 brings the squall instead.
 
@@ -174,6 +178,22 @@ end
 
 -- Buttons ---------------------------------------------------------------------------------------------------------
 
+-- Shows only the buttons that make sense now and hides the others from every seat: Start game until the game starts,
+-- then Roll dice while the dice don't roll by themselves (memory.autoRoll is false).
+local function showButtons()
+  local everyone = {}
+  for _, seat in ipairs(game.players()) do table.insert(everyone, seat.id) end
+  local function shownWhen(shown, component)
+    local pieces = onTable(component)
+    if #pieces > 0 then
+      -- No seat list shows them to everyone (an empty {} reaches the engine as a table, not a list).
+      if shown then game.hideFrom(pieces) else game.hideFrom(pieces, everyone) end
+    end
+  end
+  shownWhen(not memory.started, "Start game")
+  shownWhen(memory.started and memory.autoRoll == false, "Roll dice")
+end
+
 function startGame(piece, player)
   if memory.started then
     game.announce("The game is already under way: end your turn to roll, or press Roll dice.")
@@ -201,6 +221,7 @@ function startGame(piece, player)
   end
   memory.started = true
   memory.round = 1
+  showButtons()
   local lines = handOut(gains)
   local text = "The game begins."
   if #lines > 0 then text = text .. " Starting resources: " .. table.concat(lines, "; ") .. "." end
@@ -256,6 +277,16 @@ function onSnap(pieces, player)
         if #beside > 0 then text = text .. " Take a random card from " .. table.concat(beside, " or ") .. "." else text = text .. " Nobody lives beside it." end
         game.announce(text)
       end
+    end
+  end
+end
+
+-- Turning memory.autoRoll (or started) on or off in the Memory window shows or hides the buttons to match.
+function onMemoryChanged(changes, player)
+  for _, change in ipairs(changes) do
+    if change.keys[1] == "autoRoll" or change.keys[1] == "started" then
+      showButtons()
+      return
     end
   end
 end
