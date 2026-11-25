@@ -1,10 +1,14 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, EyeOff, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Download, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { Armchair, ArrowRight, EyeOff, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
 import { gameProject, type GameProjectId } from './gameProjects';
 import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './storage';
+import { addSnapshot, assignLegacySnapshots, baseSnapshot, deleteSession, deleteSnapshot, DRAFT_LIMIT, emptyHistory, findSession, findSnapshot, hasUnsavedChanges, LEGACY_SNAPSHOTS_KEY, latestSnapshot,
+  loadHistories, loadOpenProject, makeSnapshot, readHistory, remapHistory, removeHistory, renameItem, restingSnapshot, restoreSnapshot, saveHistory, saveOpenProject, selectHistory, setStatus, startSession,
+  type History, type OpenProject, type Snapshot } from './projectHistory';
+import { ExportDialog, GameChooser, HistoryManager, UnsavedDialog } from './SnapshotManager';
 import { addDraftEdit, clearDesignDraft, loadDesignDraft, recoverDesignDraft, saveDesignDraft, withDraft, type DesignDraft } from './designDraft';
 import { createPortableZip, downloadZip, projectZip, readPortableZip } from './portable';
 import { FONT_ACCEPT, importAsset, TEXTURE_ACCEPT } from './assets';
@@ -39,28 +43,95 @@ const LIBRARY_VIEW_KEY = 'tablecraft.libraryView';
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
   : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} />
   : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : kind === 'button' ? <MousePointerClick size={size} /> : <Square size={size} />;
-const LAST_PROJECT_KEY = 'tablecraft.last-project';
-function boot(): { archive: Archive; error: string | null; lastProjectId: string | null; draftNotice?: string; draftStored: boolean } {
+const message = (error: unknown) => error instanceof Error ? error.message : String(error);
+type Boot = {
+  archive: Archive; error: string | null; draftNotice?: string; draftStored: boolean;
+  histories: Record<string, History>; brokenHistories: string[]; historyError: string | null; open?: OpenProject;
+};
+function boot(): Boot {
   const draft = loadDesignDraft();
   try {
     // Designer changes still pending when the page closed are applied as if the playground had been opened.
-    const { archive, recovered, skipped } = recoverDesignDraft(loadWorkspace(), draft);
+    const { archive: saved, recovered, skipped } = recoverDesignDraft(loadWorkspace(), draft);
     const draftNotice = recovered || skipped ? `Restored ${recovered} unsaved designer change${recovered === 1 ? '' : 's'}${skipped ? `; ${skipped} no longer applied` : ''}.` : undefined;
-    return { archive: refreshProjectLinks(archive), lastProjectId: localStorage.getItem(LAST_PROJECT_KEY), error: null, draftNotice, draftStored: !!draft };
+    let archive = refreshProjectLinks(saved);
+    const { histories, errors } = loadHistories(archive.projects.map(project => project.id));
+    const brokenHistories = archive.projects.map(project => project.id).filter(id => !histories[id] && readHistory(id) !== null);
+    const notices = errors.length ? [`Saved snapshots of ${errors.length} project${errors.length === 1 ? '' : 's'} couldn't be read and have not been overwritten.`] : [];
+    try { archive = migrateLegacySnapshots(archive, histories, brokenHistories); }
+    catch (error) { notices.push(`Saved snapshots couldn't be moved into their projects and have been kept as they were. ${message(error)}`); }
+    let open = loadOpenProject();
+    const head = open && archive.projects.find(project => project.id === open!.projectId);
+    if (!head) open = undefined;
+    else if (!brokenHistories.includes(head.id)) open = rememberLoaded(head, histories, open!);
+    return { archive, error: null, draftNotice, draftStored: !!draft, histories, brokenHistories, historyError: notices.join(' ') || null, open };
   }
-  catch (error) { return { archive: { format: 'tablecraft', version: 1, projects: [starterProject()] }, lastProjectId: null, draftStored: !!draft, error: `Your previous save couldn't be read. It has not been overwritten. ${error instanceof Error ? error.message : String(error)}` }; }
+  catch (error) {
+    return { archive: { format: 'tablecraft', version: 1, projects: [starterProject()] }, draftStored: !!draft, histories: {}, brokenHistories: [], historyError: null,
+      error: `Your previous save couldn't be read. It has not been overwritten. ${message(error)}` };
+  }
 }
-function loadSnapshots(): { projects: Project[]; error: string | null } {
+/**
+ * The project loaded when the page closed stays loaded, with any changes since its last snapshot. One loaded before
+ * projects kept snapshots (or never saved one) starts from a snapshot of its table, so nothing is lost.
+ */
+function rememberLoaded(head: Project, histories: Record<string, History>, open: OpenProject): OpenProject {
+  let history = histories[head.id] ?? emptyHistory();
+  if (open.from && findSnapshot(history, open.from)) return open;
+  const session = findSession(history, open.session)?.id;
+  const latest = latestSnapshot(history, session);
+  if (latest && !hasUnsavedChanges(head, history, { projectId: head.id, session, from: latest.id })) return { projectId: head.id, ...(session ? { session } : {}), from: latest.id };
   try {
-    const raw = localStorage.getItem('tablecraft.snapshots');
-    if (!raw) return { projects: [], error: null };
-    const archive = archiveSchema.extend({ projects: projectSchema.array().max(100) }).parse(JSON.parse(raw));
-    archive.projects.forEach(validateProject);
-    return { projects: archive.projects, error: null };
-  } catch (error) {
-    return { projects: [], error: `Saved snapshots couldn't be read and have not been overwritten. ${String(error)}` };
-  }
+    const snapshot = makeSnapshot(head, `${head.name} - ${history.snapshots.length ? 'latest' : 'initial state'}`);
+    history = addSnapshot(history, snapshot, session);
+    saveHistory(head.id, history);
+    histories[head.id] = history;
+    return { projectId: head.id, ...(session ? { session } : {}), from: snapshot.id };
+  } catch { return { projectId: head.id, ...(session ? { session } : {}) }; }
 }
+/**
+ * Snapshots used to be one list shared by every project (Actions → Save/Load). Each now goes to the project it was saved
+ * from, after its existing draft snapshots and before a snapshot of its current table; ones from no remaining project
+ * become projects of their own. The old list is removed only once everything is saved.
+ */
+function migrateLegacySnapshots(archive: Archive, histories: Record<string, History>, broken: string[]): Archive {
+  const raw = localStorage.getItem(LEGACY_SNAPSHOTS_KEY);
+  if (!raw) return archive;
+  const legacy = archiveSchema.extend({ projects: projectSchema.array().max(100) }).parse(JSON.parse(raw)).projects;
+  const { byProject, unmatched } = assignLegacySnapshots(archive.projects, legacy);
+  if ([...byProject.keys()].some(id => broken.includes(id))) throw new Error('Some projects\' saved snapshots could not be read.');
+  if (archive.projects.length + unmatched.length > 100) throw new Error('They would take the workspace past 100 projects.');
+  const start = Date.now() - legacy.length;
+  const writes: [string, History][] = [];
+  for (const [projectId, snapshots] of byProject) {
+    const head = archive.projects.find(project => project.id === projectId)!;
+    let history = histories[projectId] ?? emptyHistory();
+    const moved = snapshots.map(project => ({ id: uid('snapshot'), name: project.name, createdAt: start + legacy.indexOf(project), project: { ...project, id: projectId } }));
+    history = { ...history, snapshots: [...history.snapshots, ...moved] };
+    // The table as it was autosaved stays the latest version.
+    if (hasUnsavedChanges(head, history, { projectId, from: history.snapshots.at(-1)!.id })) history = { ...history, snapshots: [...history.snapshots, makeSnapshot(head, `${head.name} - latest`)] };
+    writes.push([projectId, { ...history, snapshots: history.snapshots.slice(-DRAFT_LIMIT) }]);
+  }
+  const added = unmatched.map(project => ({ ...project, id: uid('project') }));
+  for (const project of added) writes.push([project.id, { ...emptyHistory(), snapshots: [makeSnapshot(project, project.name)] }]);
+  const previous = writes.map(([id]) => [id, readHistory(id)] as const);
+  const next = added.length ? { ...archive, projects: [...archive.projects, ...added] } : archive;
+  try {
+    for (const [id, history] of writes) saveHistory(id, history);
+    if (added.length) saveWorkspace(next);
+    localStorage.removeItem(LEGACY_SNAPSHOTS_KEY);
+  } catch (error) {
+    for (const [id, value] of previous) if (value === null) removeHistory(id); else localStorage.setItem(`tablecraft.history.${id}`, value);
+    throw error;
+  }
+  for (const [id, history] of writes) histories[id] = history;
+  return next;
+}
+/** What the header and Home say the loaded project is: a draft, or a session of a finished project. */
+const contextLabel = (open: OpenProject, history: History | undefined) => {
+  const session = history && findSession(history, open.session);
+  return session ? `Session · ${session.name}` : history?.status === 'finished' ? 'Draft snapshot' : 'Draft';
+};
 
 // Dice faces and book pages are rows of one piece, not separately spawnable variants.
 const hasVariants = (component: Component) => !hasPages(component) && component.rows.length > 1;
@@ -75,8 +146,24 @@ export default function App() {
   }, []);
   const [storageError, setStorageError] = useState(initial.error);
   const [fallbackProject] = useState(starterProject);
-  const initialProject = initial.archive.projects.find(p => p.id === initial.lastProjectId) ?? initial.archive.projects[0] ?? fallbackProject;
-  const [home, setHome] = useState(!initial.archive.projects.some(p => p.id === initial.lastProjectId));
+  const initialProject = initial.archive.projects.find(p => p.id === initial.open?.projectId) ?? initial.archive.projects[0] ?? fallbackProject;
+  const [home, setHome] = useState(!initial.open);
+  // Project histories (snapshots and sessions) and the loaded project. Handlers read the refs, which change at once, so
+  // a step that runs right after saving a snapshot (closing, loading another project) sees it.
+  const [histories, setHistories] = useState(initial.histories);
+  const historiesRef = useRef(initial.histories);
+  const [brokenHistories, setBrokenHistories] = useState(initial.brokenHistories);
+  const [historyError, setHistoryError] = useState(initial.historyError);
+  const [open, setOpenState] = useState(initial.open);
+  const openRef = useRef(initial.open);
+  const setOpen = useCallback((next: OpenProject | undefined) => { openRef.current = next; setOpenState(next); }, []);
+  useEffect(() => { try { saveOpenProject(open); } catch { /* the workspace still reopens Home */ } }, [open]);
+  // Dialogs: the snapshots of a project (from Home), its export, starting or continuing a finished game, and the
+  // unsaved-changes question before leaving the loaded project.
+  const [historyFor, setHistoryFor] = useState<string>();
+  const [exportFor, setExportFor] = useState<string>();
+  const [chooser, setChooser] = useState<string>();
+  const [unsaved, setUnsaved] = useState<{ target: string; then: () => void }>();
   const [projectId, setProjectId] = useState(initialProject.id);
   const [mode, setMode] = useState<'playground' | 'designer'>('playground');
   const [componentId, setComponentId] = useState<string | undefined>(initialProject.components[0]?.id);
@@ -138,9 +225,6 @@ export default function App() {
   const [database, setDatabase] = useState(settings.database);
   const [roomCode, setRoomCode] = useState(() => `PLAY-${crypto.randomUUID().slice(0, 6).toUpperCase()}`);
   const [nameRequired, setNameRequired] = useState(false);
-  const [saveName, setSaveName] = useState('');
-  const [snapshotStore, setSnapshotStore] = useState(loadSnapshots);
-  const { projects: snapshots, error: snapshotError } = snapshotStore;
   const fileInput = useRef<HTMLInputElement>(null);
   const textureInput = useRef<HTMLInputElement>(null);
   const fontInput = useRef<HTMLInputElement>(null);
@@ -184,24 +268,6 @@ export default function App() {
     ? [...new Map(archive.projects.flatMap(project => project.components.filter(component => component.kind === 'font')).map(component => [component.id, component])).values()]
     : project.components, [home, archive.projects, project.components]);
   const notify = useCallback((message: string, error = false) => setToast({ message, error, id: Date.now() }), []);
-  const openProject = (id: string) => {
-    try {
-      const refreshed = refreshProjectLinks(archive);
-      const next = refreshed.projects.find(p => p.id === id);
-      if (!next) throw new Error('Project no longer exists.');
-      localStorage.setItem(LAST_PROJECT_KEY, id);
-      if (refreshed !== archive) setWorkspace(current => {
-        const histories = { ...current.histories };
-        for (const project of refreshed.projects) if (project !== archive.projects.find(p => p.id === project.id)) {
-          histories[project.id] = { entries: [], notice: 'Undo history cleared because linked component designs changed.' };
-        }
-        return { archive: refreshed, histories };
-      });
-      setProjectId(id); setActor(next.players[0]?.id ?? '');
-      setComponentId(next.components[0]?.id); setSelected([]); setSearch(''); setFilter('all');
-      setMode('playground'); setHome(false); setModal(undefined);
-    } catch (error) { notify(`Unable to open project: ${String(error)}`, true); }
-  };
   const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
   const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
   const panels = usePanelLayout(mode, libraryVisible, mode === 'designer' ? designerInspectorVisible : inspectorVisible, layersVisible, notify);
@@ -292,9 +358,7 @@ export default function App() {
     }));
     setProjectId(next.id);
     setHome(false);
-    try { localStorage.setItem(LAST_PROJECT_KEY, next.id); }
-    catch (error) { notify(`Unable to remember the last project: ${String(error)}`, true); }
-  }, [notify]);
+  }, [setArchive]);
   const send = useCallback((command: Command, target = projectId): Promise<boolean> => {
     if (sessionRef.current && target === projectId) {
       return predict(p => applyCommand(p, command, actor || undefined), sessionRef.current.send(command, actor)).then(() => true).catch(error => {
@@ -549,13 +613,24 @@ export default function App() {
           ? { ...c, source: { ...c.source, projectId: ids.get(c.source.projectId)! } } : c) }));
         if (archive.projects.length + projects.length > 100) throw new Error('A workspace can contain at most 100 projects.');
         if (!projects.length) throw new Error('The imported archive has no projects.');
-        setArchive(refreshProjectLinks({ ...archive, projects: [...archive.projects, ...projects] }));
-        setProjectId(projects[0].id); setActor(projects[0].players[0]?.id ?? ''); setSelected([]);
-        setComponentId(projects[0].components[0]?.id); setMode('playground');
-        if (!home) localStorage.setItem(LAST_PROJECT_KEY, projects[0].id);
+        // Imported snapshots and sessions come along; a project without draft snapshots starts with one of itself. Each
+        // project rests at its latest draft (or base), like every project that isn't loaded.
+        const imports = projects.map((project, n) => {
+          const old = incoming.projects[n].id, saved = imported.histories[old];
+          let history = saved ? remapHistory(saved, ids, project.id) : emptyHistory();
+          if (!history.snapshots.length) history = addSnapshot(history, makeSnapshot(project, `${project.name} - initial state`));
+          const resting = restingSnapshot(history);
+          return { project: resting ? restoreSnapshot(resting, project) : project, history };
+        });
+        const written: string[] = [];
+        try { for (const { project, history } of imports) { saveHistory(project.id, history); written.push(project.id); } }
+        catch (error) { written.forEach(removeHistory); throw new Error(`The snapshots couldn't be saved in this browser: ${message(error)}`); }
+        historiesRef.current = { ...historiesRef.current, ...Object.fromEntries(imports.map(({ project, history }) => [project.id, history])) };
+        setHistories(historiesRef.current);
+        setArchive(refreshProjectLinks({ ...archive, projects: [...archive.projects, ...imports.map(item => item.project)] }));
         setStorageError(null);
-        const saved = snapshotInitialStates(projects);
-        notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'}.${saved ? ` The initial state${projects.length === 1 ? ' is' : 's are'} saved in Save/Load.` : ''}`);
+        const snapshots = imports.reduce((sum, { history }) => sum + history.snapshots.length + history.sessions.reduce((total, session) => total + session.snapshots.length, 0), 0);
+        notify(`Imported ${projects.length} project${projects.length === 1 ? '' : 's'} with ${snapshots} snapshot${snapshots === 1 ? '' : 's'}.${home ? '' : ' Load them from Home.'}`);
       } else {
         if (home) throw new Error('Open a project before importing a component.');
         const bundle = remapComponentBundle(imported.bundle);
@@ -577,9 +652,14 @@ export default function App() {
       }
     } catch (error) { notify(`Asset import failed: ${error instanceof Error ? error.message : String(error)}`, true); }
   };
-  const exportProject = (project: Project) => {
-    try { downloadZip(`${project.name}.tablecraft.zip`, projectZip(project)); }
-    catch (error) { notify(`Export failed: ${String(error)}`, true); }
+  /** Exports a project with the chosen snapshots (by default all of them) and the sessions they belong to. */
+  const exportProject = (project: Project, snapshotIds?: ReadonlySet<string>) => {
+    try {
+      const history = histories[project.id];
+      const chosen = history && (snapshotIds ?? new Set([...history.snapshots, ...history.sessions.flatMap(session => session.snapshots)].map(snapshot => snapshot.id)));
+      downloadZip(`${project.name}.tablecraft.zip`, projectZip(project, history && chosen?.size ? selectHistory(history, chosen) : undefined));
+      return true;
+    } catch (error) { notify(`Export failed: ${message(error)}`, true); return false; }
   };
   const join = async (host: boolean) => {
     const fromHome = home;
@@ -593,9 +673,23 @@ export default function App() {
       }, (next, history) => { setProject(next); setLiveUndo(history); }, message => notify(message, true), () => {
         sessionRef.current = undefined; setSession(undefined); notify('Disconnected. Your latest table is saved locally.', true);
       });
-      sessionRef.current = live; setSession(live);
       const row = [...live.connection.db.roomState.iter()][0];
-      const ownPlayer = row ? (JSON.parse(row.state) as Project).players.find(p => p.owner === live.identity) : undefined;
+      const room = row ? JSON.parse(row.state) as Project : undefined;
+      // Joining another project's table closes the loaded project; the room's project is loaded, starting from a
+      // snapshot of the table as it was joined.
+      if (room && openRef.current?.projectId !== room.id) {
+        unloadProject();
+        let history = historiesRef.current[room.id] ?? emptyHistory();
+        let from = latestSnapshot(history)?.id;
+        if (!from) {
+          const snapshot = makeSnapshot(room, `${room.name} - joined`);
+          history = addSnapshot(history, snapshot);
+          if (commitHistory(room.id, history)) from = snapshot.id;
+        }
+        setOpen({ projectId: room.id, ...(from ? { from } : {}) });
+      }
+      sessionRef.current = live; setSession(live);
+      const ownPlayer = room?.players.find(p => p.owner === live.identity);
       setActor(ownPlayer?.id ?? '');
       setCurtain(undefined); setSelected([]);
       if (fromHome) setMode('playground');
@@ -611,22 +705,143 @@ export default function App() {
     if (sessionRef.current) { leave(); notify('Left the live session. The latest table is saved locally.'); }
     setHome(true); setModal(undefined); setCurtain(undefined); setSelected([]);
   };
-  /**
-   * Adds playground snapshots to the saved ones (Actions → Save/Load). Returns whether they were stored; it reports why
-   * not, for example when the browser's storage is full.
-   */
-  const storeSnapshots = (sources: { project: Project; name: string }[]) => {
-    if (snapshotError) { notify(`Snapshots aren't saved until the saved ones can be read: ${snapshotError}`, true); return false; }
-    if (snapshots.length + sources.length > 100) { notify('There are already 100 saved snapshots; delete some in Save/Load to save more.', true); return false; }
-    try {
-      const next = [...snapshots, ...sources.map(({ project, name }) => ({ ...structuredClone(project), id: uid('snapshot'), name: name.slice(0, 100) }))];
-      localStorage.setItem('tablecraft.snapshots', JSON.stringify({ format: 'tablecraft', version: 1, projects: next }));
-      setSnapshotStore({ projects: next, error: null });
-      return true;
-    } catch (error) { notify(`Snapshot not saved: ${String(error)}`, true); return false; }
+  /** Saves a project's history in this browser, or says why it couldn't (for example, when storage is full). */
+  const commitHistory = (projectId: string, next: History) => {
+    if (brokenHistories.includes(projectId)) { notify('This project\'s saved snapshots couldn\'t be read. Download them from the notice at the top first.', true); return false; }
+    try { saveHistory(projectId, next); }
+    catch (error) { notify(`Not saved: ${message(error)}. Delete some snapshots or export them to make room.`, true); return false; }
+    historiesRef.current = { ...historiesRef.current, [projectId]: next };
+    setHistories(historiesRef.current);
+    return true;
   };
-  /** A new or imported project starts with a snapshot of itself, so its table can be reset in Save/Load. */
-  const snapshotInitialStates = (projects: Project[]) => storeSnapshots(projects.map(project => ({ project, name: `${project.name} - initial state` })));
+  /** Changes a project's history; a project that isn't loaded then rests at its (possibly new) latest draft or base. */
+  const updateHistory = (projectId: string, change: (history: History) => History) => {
+    let next: History;
+    try { next = change(historiesRef.current[projectId] ?? emptyHistory()); } catch (error) { notify(message(error), true); return false; }
+    if (!commitHistory(projectId, next)) return false;
+    if (openRef.current?.projectId !== projectId) restHead(projectId, next);
+    return true;
+  };
+  /** Puts a project that isn't loaded back at its latest draft snapshot, or its base when finished. */
+  const restHead = (projectId: string, history: History) => {
+    const resting = restingSnapshot(history);
+    if (resting) setWorkspace(current => {
+      const head = current.archive.projects.find(p => p.id === projectId);
+      if (!head) return current;
+      let rested: Project;
+      try { rested = restoreSnapshot(resting, head); } catch { return current; }
+      const histories = { ...current.histories }; delete histories[projectId];
+      let next = { ...current.archive, projects: current.archive.projects.map(p => p === head ? rested : p) };
+      try { next = refreshProjectLinks(next); } catch { /* keep the links as they were */ }
+      return { archive: next, histories };
+    });
+  };
+  /** The loaded project as it is now, with any designer edits still held or pending. */
+  const currentTable = () => { designerFlush.current?.(); return withDraft(committed, draftRef.current); };
+  /** Runs `then`, first asking to save the loaded project's changes since its last snapshot (to `target`: why it is left). */
+  const leaveProject = (target: string, then: () => void) => {
+    const current = openRef.current;
+    if (current && current.projectId === committed.id && hasUnsavedChanges(currentTable(), historiesRef.current[current.projectId], current)) setUnsaved({ target, then });
+    else then();
+  };
+  /** Saves the loaded table as a snapshot: to its session when playing one, otherwise to the drafts. */
+  const saveSnapshot = (name: string) => {
+    const current = openRef.current;
+    if (!current) return false;
+    try {
+      const snapshot = makeSnapshot(currentTable(), name);
+      const history = historiesRef.current[current.projectId] ?? emptyHistory();
+      if (!commitHistory(current.projectId, addSnapshot(history, snapshot, current.session))) return false;
+      setOpen({ ...current, from: snapshot.id });
+      const session = findSession(history, current.session);
+      notify(session ? `Saved “${snapshot.name}” to ${session.name}.` : `Saved the draft snapshot “${snapshot.name}”.`);
+      return true;
+    } catch (error) { notify(`Snapshot not saved: ${message(error)}`, true); return false; }
+  };
+  /** Closes the loaded project: leaves its live room, drops designer edits not yet saved and resets it to where it rests. */
+  const unloadProject = () => {
+    const previous = openRef.current;
+    if (!previous) return;
+    if (sessionRef.current) leave();
+    setDraft(undefined); setCurtain(undefined); setSelected([]);
+    restHead(previous.projectId, historiesRef.current[previous.projectId] ?? emptyHistory());
+    setWorkspace(current => { const histories = { ...current.histories }; delete histories[previous.projectId]; return { ...current, histories }; });
+    setOpen(undefined);
+  };
+  /** Loads a snapshot as the working copy of its project (closing the project loaded before), from the drafts or a session. */
+  const switchTo = (projectId: string, snapshot: Snapshot, session?: string) => {
+    const head = archive.projects.find(p => p.id === projectId);
+    if (!head) { notify('That project no longer exists.', true); return false; }
+    let loaded: Project;
+    try { loaded = restoreSnapshot(snapshot, head); } catch (error) { notify(`Unable to load “${snapshot.name}”: ${message(error)}`, true); return false; }
+    unloadProject();
+    setWorkspace(current => {
+      const histories = { ...current.histories }; delete histories[projectId];
+      let next = { ...current.archive, projects: current.archive.projects.map(p => p.id === projectId ? loaded : p) };
+      try { next = refreshProjectLinks(next); } catch { /* keep the links as they were */ }
+      return { archive: next, histories };
+    });
+    setOpen({ projectId, ...(session ? { session } : {}), from: snapshot.id });
+    setProjectId(projectId); setActor(loaded.players[0]?.id ?? ''); setComponentId(loaded.components[0]?.id);
+    setSelected([]); setSearch(''); setFilter('all'); setMode('playground'); setHome(false);
+    setModal(undefined); setHistoryFor(undefined); setChooser(undefined);
+    return true;
+  };
+  /** Loads a project from Home: a draft loads its latest snapshot; a finished one asks to start a game or continue one. */
+  const loadProject = (id: string) => {
+    const head = archive.projects.find(p => p.id === id);
+    if (!head) return;
+    const history = historiesRef.current[id] ?? emptyHistory();
+    if (baseSnapshot(history)) { setChooser(id); return; }
+    leaveProject(`load ${head.name}`, () => {
+      let current = historiesRef.current[id] ?? emptyHistory(), latest = latestSnapshot(current);
+      if (!latest) {
+        latest = makeSnapshot(head, `${head.name} - initial state`);
+        current = addSnapshot(current, latest);
+        if (!commitHistory(id, current)) return;
+      }
+      if (switchTo(id, latest)) notify(`Loaded ${head.name} from “${latest.name}”.`);
+    });
+  };
+  const startGame = (id: string, name: string) => {
+    const head = archive.projects.find(p => p.id === id);
+    if (!head) return;
+    leaveProject(`start a game of ${head.name}`, () => {
+      try {
+        const { history, session } = startSession(historiesRef.current[id] ?? emptyHistory(), name);
+        if (commitHistory(id, history) && switchTo(id, session.snapshots[0], session.id)) notify(`Started ${session.name} from “${session.baseName}”.`);
+      } catch (error) { notify(message(error), true); }
+    });
+  };
+  const continueSession = (id: string, sessionId: string) => {
+    const history = historiesRef.current[id], latest = history && latestSnapshot(history, sessionId);
+    const session = history && findSession(history, sessionId);
+    if (!latest || !session) { notify('That session no longer exists.', true); return; }
+    leaveProject(`continue ${session.name}`, () => { if (switchTo(id, latest, sessionId)) notify(`Continuing ${session.name} from “${latest.name}”.`); });
+  };
+  const loadSnapshot = (id: string, snapshotId: string) => {
+    const found = historiesRef.current[id] && findSnapshot(historiesRef.current[id], snapshotId);
+    if (!found) { notify('That snapshot no longer exists.', true); return; }
+    leaveProject(`load “${found.snapshot.name}”`, () => { if (switchTo(id, found.snapshot, found.session?.id)) notify(`Loaded “${found.snapshot.name}”${found.session ? ` from ${found.session.name}` : ''}.`); });
+  };
+  const closeProject = () => {
+    const current = openRef.current, head = current && archive.projects.find(p => p.id === current.projectId);
+    if (!current) return;
+    leaveProject(`close ${head?.name ?? 'it'}`, () => { unloadProject(); setHome(true); setModal(undefined); notify(`Closed ${head?.name ?? 'the project'}.`); });
+  };
+  /** Props shared by the snapshot manager on Home and in Save/Load. */
+  const historyProps = (id: string) => ({
+    history: histories[id] ?? emptyHistory(), open: open?.projectId === id ? open : undefined,
+    onLoad: (snapshotId: string) => loadSnapshot(id, snapshotId), onContinue: (sessionId: string) => continueSession(id, sessionId),
+    onStartGame: (name: string) => startGame(id, name),
+    onRename: (itemId: string, name: string) => updateHistory(id, history => renameItem(history, itemId, name)),
+    onDeleteSnapshot: (snapshotId: string) => updateHistory(id, history => deleteSnapshot(history, snapshotId, openRef.current?.projectId === id ? openRef.current : undefined)),
+    onDeleteSession: (sessionId: string) => updateHistory(id, history => deleteSession(history, sessionId, openRef.current?.projectId === id ? openRef.current : undefined)),
+    onStatus: (status: History['status'], baseId?: string) => updateHistory(id, history => setStatus(history, status, baseId)),
+    onExport: () => setExportFor(id),
+  });
+  // Home says whether the loaded project has changes since its last snapshot.
+  const homeDirty = useMemo(() => home && !!open && open.projectId === committed.id && hasUnsavedChanges(project, histories[open.projectId], open), [home, open, project, committed.id, histories]);
   const createProject = (name: string, description = '', game?: GameProjectId) => {
     if (archive.projects.length >= 100) { notify('A workspace can contain at most 100 projects.', true); return; }
     if (!validName(settings.name)) {
@@ -635,10 +850,15 @@ export default function App() {
       return;
     }
     const profile = { name: settings.name.trim(), color: settings.color };
-    const next = game ? gameProject(game, name, description, profile) : blankProject(name, description, profile);
-    setProject(next); setActor(next.players[0].id); setComponentId(undefined); setSelected([]);
-    setSearch(''); setFilter('all'); setMode('playground'); setModal(game ? undefined : 'templates');
-    snapshotInitialStates([next]);
+    // A new project starts as a draft with a snapshot of its initial table, and is loaded in place of the loaded one.
+    leaveProject('create a new project', () => {
+      const next = game ? gameProject(game, name, description, profile) : blankProject(name, description, profile);
+      const snapshot = makeSnapshot(next, `${next.name} - initial state`);
+      unloadProject();
+      setProject(next); setActor(next.players[0].id); setComponentId(undefined); setSelected([]);
+      setSearch(''); setFilter('all'); setMode('playground'); setModal(game ? undefined : 'templates');
+      setOpen({ projectId: next.id, ...(commitHistory(next.id, addSnapshot(emptyHistory(), snapshot)) ? { from: snapshot.id } : {}) });
+    });
   };
   const copyLinked = async (component: Component) => {
     try {
@@ -704,7 +924,7 @@ export default function App() {
     <header className="app-header">
       <a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
       {!home && <>
-      <div className="project-heading compact-project"><h1>{project.name}</h1></div>
+      <div className="project-heading compact-project"><h1>{project.name}</h1>{open && <span className="history-badge loaded project-context" title="Saving a snapshot adds it here">{contextLabel(open, histories[open.projectId])}</span>}</div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
 
       <div className="header-actions"><HeaderMenu label="Actions" title="Undo, redo, save and print" icon={<Menu size={17} />} items={[
@@ -714,8 +934,9 @@ export default function App() {
           { label: 'Redo', icon: <Redo2 size={16} />, onToggle: redo, shortcut: 'Ctrl Y', disabled: !redoCount || !!modal || !!curtain || viewer, divider: true,
             hint: `Redo the latest undone action for everyone · ${redoCount} available` },
         ] : [],
-        { label: 'Save/Load', icon: <Save size={16} />, onToggle: () => { setSaveName(`${project.name} - playtest`); setModal('save'); }, hint: 'Save a named snapshot of this table' },
-        { label: 'Print to PDF', icon: <Printer size={16} />, onToggle: () => setModal('print'), hint: 'Print every piece, or save them as a PDF' },
+        { label: 'Save/Load', icon: <Save size={16} />, onToggle: () => setModal('save'), hint: 'Save a snapshot of this table, or load one' },
+        { label: 'Print to PDF', icon: <Printer size={16} />, onToggle: () => setModal('print'), hint: 'Print every piece, or save them as a PDF', divider: true },
+        { label: 'Close project', icon: <FolderX size={16} />, onToggle: closeProject, hint: 'Close it and go Home (asks to save unsaved changes first)' },
       ]} /><HeaderMenu label="Visibility" title="Show or hide panels" icon={<Eye size={17} />} items={[
         { label: 'Component library', icon: <LibraryBig size={16} />, checked: libraryVisible, onToggle: () => setLibraryVisible(!libraryVisible) },
         { label: mode === 'playground' ? 'Pieces panel' : 'Layers panel', icon: <PanelLeft size={16} />, checked: layersVisible, onToggle: () => setLayersVisible(!layersVisible) },
@@ -734,16 +955,25 @@ export default function App() {
       const raw = localStorage.getItem('tablecraft.workspace.v1'); if (raw) download('tablecraft-recovery.json', raw);
       setStorageError(null);
     }}>Download recovery & continue</button><button onClick={() => exportProject(project)}>Export current work</button></Notice>
-    {home && <Home projects={archive.projects} onLoad={openProject} onCreate={createProject}
+    <Notice message={historyError ?? ''}>{brokenHistories.length > 0 && <button onClick={() => {
+      download('tablecraft-snapshots-recovery.json', JSON.stringify(Object.fromEntries(brokenHistories.map(id => [id, readHistory(id)]))));
+      brokenHistories.forEach(removeHistory); setBrokenHistories([]); setHistoryError(null);
+    }}>Download recovery & reset those snapshots</button>}<button onClick={() => setHistoryError(null)}>Dismiss</button></Notice>
+    {home && <Home projects={archive.projects} histories={histories} onLoad={loadProject} onCreate={createProject}
+      open={open && { id: open.projectId, context: contextLabel(open, histories[open.projectId]), dirty: homeDirty }}
+      onContinue={() => { setHome(false); setModal(undefined); }} onCloseProject={closeProject} onHistory={setHistoryFor}
       onUpdate={(id, patch) => setWorkspace(current => ({ ...current, archive: { ...current.archive, projects: current.archive.projects.map(p => p.id === id ? { ...p, ...patch } : p) } }))}
-      onImport={() => fileInput.current?.click()} onExport={exportProject} onJoin={() => { setConnectionError(''); setModal('session'); }}
+      onImport={() => fileInput.current?.click()} onExport={item => setExportFor(item.id)} onJoin={() => leaveProject('join a table', () => { setConnectionError(''); setModal('session'); })}
       onExportAll={() => {
-        try { downloadZip('tablecraft-workspace.zip', createPortableZip(archive)); }
-        catch (error) { notify(`Export failed: ${String(error)}`, true); }
+        try { downloadZip('tablecraft-workspace.zip', createPortableZip(archive, Object.fromEntries(archive.projects.flatMap(p => histories[p.id] ? [[p.id, histories[p.id]]] : [])))); }
+        catch (error) { notify(`Export failed: ${message(error)}`, true); }
       }}
       onDelete={id => {
         try {
-          if (localStorage.getItem(LAST_PROJECT_KEY) === id) localStorage.removeItem(LAST_PROJECT_KEY);
+          if (openRef.current?.projectId === id) throw new Error('Close the project first.');
+          removeHistory(id);
+          historiesRef.current = Object.fromEntries(Object.entries(historiesRef.current).filter(([key]) => key !== id));
+          setHistories(historiesRef.current);
           setWorkspace(current => {
             const histories = { ...current.histories }; delete histories[id];
             return { archive: { ...current.archive, projects: current.archive.projects.filter(p => p.id !== id) }, histories };
@@ -978,28 +1208,28 @@ export default function App() {
       </>}</div>
     </Modal>}
     {modal === 'print' && <PrintDialog project={project} onClose={() => setModal(undefined)} />}
-    {modal === 'save' && <Modal title="Keep this moment." subtitle="Save a named playground snapshot, including designs, hands and seats." onClose={() => setModal(undefined)}>
-      <div className="save-dialog"><Field label="Snapshot name"><input value={saveName} maxLength={100} onChange={e => setSaveName(e.target.value)} /></Field>
-        <Notice message={snapshotError ?? ''} className="inline-error"><button className="button" onClick={() => {
-          download('tablecraft-snapshots-recovery.json', localStorage.getItem('tablecraft.snapshots') ?? '');
-          setSnapshotStore({ projects: [], error: null });
-        }}>Download recovery & reset snapshots</button></Notice>
-        <div className="button-row"><button className="button primary" disabled={!!snapshotError || snapshots.length >= 100} onClick={() => {
-          if (storeSnapshots([{ project, name: saveName.trim() || project.name }])) notify('Playground snapshot saved.');
-        }}><Save size={15} /> Save snapshot</button><button className="button" onClick={() => exportProject(project)}><Download size={15} /> Export ZIP</button></div>
-        <h3 className="saved-heading">Saved playgrounds</h3>{!snapshots.length && <p className="help-text">No snapshots yet. Your workspace is also saved automatically.</p>}
-        <div className="snapshot-list">{snapshots.map(snapshot => <div key={snapshot.id}><div><strong>{snapshot.name}</strong><small>{snapshot.instances.length} pieces · {snapshot.players.length} players</small></div><button className="button" disabled={!!session} onClick={() => {
-          const next = { ...structuredClone(snapshot), id: uid('project') };
-          setProject(next); setActor(next.players[0]?.id ?? ''); setSelected([]); setModal(undefined); notify('Playground restored, including every hand and seat.');
-        }}>Load</button><button className="icon-button" aria-label={`Delete ${snapshot.name}`} onClick={() => {
-          try {
-            const next = snapshots.filter(p => p.id !== snapshot.id);
-            localStorage.setItem('tablecraft.snapshots', JSON.stringify({ format: 'tablecraft', version: 1, projects: next }));
-            setSnapshotStore({ projects: next, error: null });
-          } catch (error) { notify(String(error), true); }
-        }}><Trash2 size={14} /></button></div>)}</div>
-      </div>
+    {modal === 'save' && open && <Modal title="Save & load" subtitle="Snapshots keep the whole playground: designs, table, hands, seats, scripts and memory." wide onClose={() => setModal(undefined)}>
+      <HistoryManager project={project} {...historyProps(open.projectId)} onSave={saveSnapshot} readOnly={session ? 'Leave the live table to load snapshots.' : undefined} />
     </Modal>}
+    {historyFor && (() => {
+      const item = archive.projects.find(p => p.id === historyFor);
+      return item && <Modal title={item.name} subtitle="Draft snapshots, the base of a finished project, and play sessions." wide onClose={() => setHistoryFor(undefined)}>
+        <HistoryManager project={item} {...historyProps(item.id)} />
+      </Modal>;
+    })()}
+    {exportFor && (() => {
+      const item = exportFor === open?.projectId && !home ? project : archive.projects.find(p => p.id === exportFor);
+      return item && <ExportDialog project={item} history={histories[item.id] ?? emptyHistory()} open={open?.projectId === item.id ? open : undefined}
+        onClose={() => setExportFor(undefined)} onExport={ids => { if (exportProject(item, ids)) setExportFor(undefined); }} />;
+    })()}
+    {chooser && (() => {
+      const item = archive.projects.find(p => p.id === chooser), history = histories[chooser];
+      return item && history && <GameChooser project={item} history={history} onClose={() => setChooser(undefined)}
+        onStart={name => { setChooser(undefined); startGame(item.id, name); }} onContinue={sessionId => { setChooser(undefined); continueSession(item.id, sessionId); }} />;
+    })()}
+    {unsaved && open && <UnsavedDialog project={project} target={unsaved.target} onCancel={() => setUnsaved(undefined)}
+      onDiscard={() => { const { then } = unsaved; setUnsaved(undefined); then(); }}
+      onSave={name => { const { then } = unsaved; if (saveSnapshot(name)) { setUnsaved(undefined); then(); } }} />}
     {modal === 'help' && <Modal title="Welcome to your workshop." subtitle="Less setup. More 'what if?'" wide onClose={() => setModal(undefined)}>
       <div className="help-grid"><div><span>01</span><h3>Make your pieces</h3><p>Start from a template or a blank component. Add layers and nested frames, style them, and connect text or images to CSV columns with {'{{bindings}}'}.</p></div><div><span>02</span><h3>Bring them to the table</h3><p>Click a library component to spawn it. Shift-click to select multiple pieces, then stack compatible pieces. Double-click to flip a card or draw from a stack.</p></div><div><span>03</span><h3>Find the fun</h3><p>Add hotseat players, switch seats and play. Connect a SpaceTimeDB room for online play. Design changes stay live for everyone.</p></div></div>
       <div className="keyboard-shortcuts"><span><kbd>Z</kbd> Fullscreen preview</span><span><kbd>F</kbd> Flip</span><span><kbd>Q/E</kbd> Rotate</span><span><kbd>Shift Q/E</kbd> Turn page / die face</span><span><kbd>G</kbd> Group (over Pieces)</span><span><kbd>R</kbd> Shuffle / roll</span><span><kbd>G</kbd> Stack</span><span><kbd>Ctrl C/V</kbd> Copy / paste</span><span><kbd>Ctrl D</kbd> Clone</span><span><kbd>L</kbd> Lock</span><span><kbd>Del</kbd> Delete</span><span><kbd>Scroll</kbd> Zoom</span><span><kbd>Middle drag</kbd> Pan</span></div>

@@ -54,7 +54,7 @@ test('the designer inspector can be hidden from the Visibility menu, separately 
 test('the Actions menu undoes and redoes table actions, also with Ctrl+Z and Ctrl+Y, and saves and prints', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['UndoCtrl Z', 'RedoCtrl Y', 'Save/Load', 'Print to PDF']);
+  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['UndoCtrl Z', 'RedoCtrl Y', 'Save/Load', 'Print to PDF', 'Close project']);
   await page.keyboard.press('Escape');
   await expectHeaderEnabled(page, 'Undo', false);
   await expectHeaderEnabled(page, 'Redo', false);

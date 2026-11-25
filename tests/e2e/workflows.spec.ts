@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fillServer, pickSeat, settleJoin, setProfileName } from './liveSeat';
 import type { Archive } from '../../src/domain';
-import { createPortableZip } from '../../src/portable';
+import { createPortableZip, readPortableZip } from '../../src/portable';
+import { readFileSync } from 'node:fs';
 import { savedWorkspace } from './savedWorkspace';
 import { chooseHeader, expectHeaderChecked, toggleHeader } from './headerMenus';
 
@@ -354,23 +355,32 @@ test('named saves restore hands and seats; ZIP exports can be imported', async (
   await chooseHeader(page, 'Save/Load');
   await page.getByLabel('Snapshot name').fill('Evening playtest');
   await page.getByRole('button', { name: 'Save snapshot', exact: true }).click();
-  await expect(page.locator('.snapshot-list')).toContainText('Evening playtest');
+  const drafts = page.getByRole('region', { name: 'Draft snapshots' });
+  await expect(drafts).toContainText('Evening playtest');
+  await page.getByRole('button', { name: 'Export…', exact: true }).click();
+  // A draft exports with its latest snapshot by default.
   const downloadPromise = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export ZIP', exact: true }).click();
   const downloaded = await downloadPromise;
   expect(downloaded.suggestedFilename()).toBe('Wildwood.tablecraft.zip');
+  const exported = readPortableZip(readFileSync((await downloaded.path())!));
+  expect(exported.kind === 'archive' && Object.values(exported.histories)[0].snapshots.map(snapshot => snapshot.name)).toEqual(['Evening playtest']);
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await page.reload();
   await expect(page.locator('.hand-card')).toHaveCount(1);
+  // Loading a snapshot puts the table back in place: first as it was when the project was loaded, then as saved.
   await chooseHeader(page, 'Save/Load');
-  await page.getByRole('button', { name: 'Load', exact: true }).click();
-  await expect(page.locator('.project-heading h1')).toHaveText('Evening playtest');
+  await page.getByRole('button', { name: 'Load snapshot Wildwood - initial state', exact: true }).click();
+  await expect(page.locator('.hand-card')).toHaveCount(0);
+  await expect(page.locator('.project-heading h1')).toHaveText('Wildwood');
+  await chooseHeader(page, 'Save/Load');
+  await page.getByRole('button', { name: 'Load snapshot Evening playtest', exact: true }).click();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   const data = await workspace(page);
   await page.locator('input[accept=".zip,application/zip"]').setInputFiles({
     name: 'playground.zip', mimeType: 'application/zip', buffer: Buffer.from(createPortableZip(data)),
   });
-  await expect(page.getByRole('status')).toContainText('Imported 2 projects');
+  await expect(page.getByRole('status')).toContainText('Imported 1 project with 1 snapshot. Load them from Home.');
 });
 
 test('two real SpaceTimeDB clients share pieces, live designs, hands and returning seats', async ({ browser, storageState }) => {

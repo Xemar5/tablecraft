@@ -47,7 +47,7 @@ test('dismissing a storage warning does not permit overwriting the unreadable sa
   await expect(warning.getByRole('button', { name: 'Download recovery & continue', exact: true })).toBeVisible();
   await warning.getByRole('button', { name: 'Dismiss notification', exact: true }).click();
   await expect(warning).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
+  await page.getByRole('button', { name: 'Load project Wildwood', exact: true }).click();
   const pieces = await page.locator('.table-piece').count();
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
   await expect(page.locator('.table-piece')).toHaveCount(pieces + 1);

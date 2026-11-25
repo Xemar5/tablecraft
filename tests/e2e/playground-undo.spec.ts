@@ -14,7 +14,7 @@ const database = process.env.TABLECRAFT_TEST_DATABASE ?? 'tablecraft-studio';
 async function connect(page: Page, code: string, host: boolean, name: string, seat: 'new' | { seat: string } = 'new') {
   await setProfileName(page, name);
   await page.goto('/');
-  if (await page.getByRole('region', { name: 'Project home' }).count()) await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
+  if (await page.getByRole('region', { name: 'Project home' }).count()) await page.getByRole('button', { name: 'Load project Wildwood', exact: true }).click();
   await page.getByRole('button', { name: /Invite players/ }).click();
   await page.getByLabel('SpaceTimeDB server', { exact: true }).fill(server);
   await page.getByLabel('Database name', { exact: true }).fill(database);

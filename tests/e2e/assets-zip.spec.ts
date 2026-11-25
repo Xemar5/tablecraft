@@ -40,6 +40,7 @@ test('imported textures and fonts render, travel in ZIP saves and are deleted wi
   await expect(page.locator('.designer-canvas .node-text').last()).toHaveCSS('font-family', new RegExp(importedFont.id));
 
   await chooseHeader(page, 'Save/Load');
+  await page.getByRole('button', { name: 'Export…', exact: true }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export ZIP', exact: true }).click();
   const download = await pending, bytes = readFileSync((await download.path())!);

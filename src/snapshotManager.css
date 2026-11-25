@@ -1,0 +1,73 @@
+/* Project histories (SnapshotManager.tsx): snapshots, sessions, the new-game chooser and the export picker. */
+.history-manager { padding: 20px 26px 0; }
+.history-status { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid #e1e8d8; border-radius: 10px; background: #fff; }
+.history-status p { margin: 0; font-size: 11px; line-height: 1.6; color: #6f7d68; }
+.history-status p strong { color: #2f4f3b; }
+.history-status-switch { display: inline-flex; flex: none; padding: 3px; border-radius: 8px; background: #eef3e7; }
+.history-status-switch button { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #6f8a5c; }
+.history-status-switch button.active { background: #fff; color: #2f4f3b; box-shadow: 0 1px 3px #1c33231f; }
+.history-status-switch button:disabled { opacity: .5; cursor: not-allowed; }
+.history-save { display: flex; align-items: flex-end; gap: 10px; margin-top: 16px; }
+.history-save .field { flex: 1; margin: 0; }
+.history-save-target { margin: 6px 0 0; }
+.history-save-target strong { color: #4e6f3d; }
+.history-section { margin-top: 18px; }
+.history-section h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-size: 13px; color: #2f4f3b; }
+.history-count { padding: 0 6px; border-radius: 9px; background: #eef3e7; font-size: 10px; font-weight: 600; color: #6f8a5c; }
+.history-list { list-style: none; margin: 0; padding: 0; }
+.history-section > .history-list { max-height: 260px; overflow-y: auto; scrollbar-width: thin; }
+.history-snapshot, .history-session-heading { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-bottom: 1px solid #e8edde; }
+.history-snapshot.loaded, .history-session.loaded > .history-session-heading { background: #f1f6ea; }
+.history-snapshot-text { flex: 1; min-width: 0; }
+.history-snapshot-text small { display: block; margin-top: 3px; font-size: 10px; color: #8d9c80; overflow-wrap: anywhere; }
+.history-name { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
+.history-name strong { font-size: 12px; color: #2f3b29; overflow-wrap: anywhere; }
+.history-rename-button { width: 22px; height: 22px; opacity: 0; color: #8d9c80; }
+.history-snapshot:hover .history-rename-button, .history-session-heading:hover .history-rename-button, .history-rename-button:focus-visible { opacity: 1; }
+.history-rename { width: 100%; height: 26px; padding: 2px 6px; font-size: 12px; }
+.history-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 6px; border-radius: 9px; background: #eef3e7; font-size: 9px; font-weight: 600; letter-spacing: .02em; color: #5f7a4c; text-transform: uppercase; }
+.history-badge.base { background: #fbefd2; color: #8a6318; }
+.history-badge.loaded { background: #dcebcd; color: #2f5a2b; }
+.history-badge.outdated { background: #f6e6df; color: #8a4a33; }
+.history-row-actions { display: flex; flex: none; align-items: center; gap: 5px; }
+.history-row-actions .button { height: 28px; padding: 0 9px; font-size: 11px; }
+.history-row-actions .icon-button[aria-disabled='true'] { opacity: .35; cursor: not-allowed; }
+.history-confirm { display: inline-flex; align-items: center; gap: 3px; }
+.history-confirm .button { height: 28px; padding: 0 9px; font-size: 11px; }
+.history-session-snapshots { margin-left: 30px; }
+.history-new-game { margin: 0 0 6px; }
+.history-footer { padding: 18px 0 24px; }
+
+.game-chooser { display: grid; gap: 18px; padding: 20px 26px 26px; }
+.game-chooser h3 { display: flex; align-items: center; gap: 7px; margin: 0 0 6px; font-size: 14px; color: #2f4f3b; }
+.game-chooser-new { padding: 14px; border: 1px solid #dfe8d3; border-radius: 10px; background: #fff; }
+.game-chooser-new .help-text { margin-bottom: 10px; }
+.game-chooser-new .button { margin-top: 10px; }
+.game-chooser-sessions .history-list { max-height: 240px; overflow-y: auto; }
+
+.unsaved-dialog { padding: 20px 26px 0; }
+.unsaved-dialog .modal-actions { padding: 18px 0 24px; }
+
+.export-dialog { padding: 20px 26px 0; }
+.export-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.export-presets .button { height: 30px; font-size: 11px; }
+.export-presets .button.active { border-color: #9bb585; background: #eef5e6; color: #2f4f3b; }
+.export-tree { list-style: none; margin: 14px 0 0; padding: 0; max-height: 340px; overflow-y: auto; scrollbar-width: thin; border: 1px solid #e1e8d8; border-radius: 10px; background: #fff; }
+.export-group { padding: 6px 10px; border-bottom: 1px solid #edf1e7; }
+.export-group:last-child { border-bottom: 0; }
+.export-group ul { list-style: none; margin: 0; padding: 0 0 0 24px; }
+.export-check { display: flex; align-items: center; gap: 7px; min-height: 28px; font-size: 12px; cursor: pointer; }
+.export-check input { width: auto; margin: 0; accent-color: var(--green); }
+.export-check span:not(.history-badge) { min-width: 0; overflow-wrap: anywhere; }
+.export-check small { margin-left: auto; padding-left: 8px; font-size: 10px; color: #9aa78f; white-space: nowrap; }
+.export-dialog .help-text { margin-top: 10px; }
+.export-dialog .modal-actions { padding: 14px 0 24px; }
+
+/* Home: the loaded project, apart from the projects that can be loaded. */
+.home-section-title { max-width: 1200px; margin: 0 auto 10px; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: #8d9c80; }
+.home-open { max-width: 1200px; margin: 0 auto 26px; }
+.home-project.home-project-open { border-color: #b9cfa2; box-shadow: 0 6px 22px #2f4f3b14; }
+.home-project-status { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 4px; }
+.home-unsaved { color: #9a5a2e; font-size: 11px; font-weight: 600; }
+.project-heading .project-context { flex: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; line-height: 16px; }
+@media (max-width: 960px) { .project-heading .project-context { display: none; } }

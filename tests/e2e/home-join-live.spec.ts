@@ -62,7 +62,7 @@ test('a table can be joined from the home screen as a viewer who then takes and 
     await expect(host.locator('[data-player-row="player-2"]')).toContainText('Empty seat');
 
     await guest.getByRole('link', { name: 'Tablecraft home' }).click();
-    await expect(guest.getByRole('button', { name: `Open project ${hostedName}` }).first()).toBeVisible();
+    await expect(guest.getByRole('button', { name: `Continue project ${hostedName}` }).first()).toBeVisible();
   } finally {
     await first.close(); await second.close();
   }

@@ -34,16 +34,17 @@ test('New project can start from a ready-to-play game, which fills in its name a
   await page.keyboard.press('Delete');
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ })).toHaveCount(31);
   await chooseHeader(page, 'Save/Load');
-  const saved = page.locator('.snapshot-list > div').filter({ hasText: 'Friday chess - initial state' });
+  const saved = page.locator('.history-snapshot').filter({ hasText: 'Friday chess - initial state' });
   await expect(saved).toContainText('33 pieces');
-  await saved.getByRole('button', { name: 'Load', exact: true }).click();
+  // Loading it puts the table back in place, after asking about the capture that wasn't saved.
+  await saved.getByRole('button', { name: 'Load snapshot Friday chess - initial state', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Unsaved changes' }).getByRole('button', { name: 'Discard changes', exact: true }).click();
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ })).toHaveCount(32);
   await page.getByRole('link', { name: 'Tablecraft home' }).click();
-  // Loading a snapshot opens it as a project of its own, beside the one that lost a piece.
   const friday = page.locator('.home-project').filter({ hasText: 'Friday chess' });
-  await expect(friday).toHaveCount(2);
-  await expect(friday.filter({ hasText: '2 components · 33 pieces · 2 players' })).toHaveCount(1);
-  await expect(friday.filter({ hasText: '2 components · 32 pieces · 2 players' })).toHaveCount(1);
+  await expect(friday).toHaveCount(1);
+  await expect(friday).toContainText('2 components · 33 pieces · 2 players');
+  await expect(friday).not.toContainText('Unsaved changes');
 });
 
 test('chess snaps pieces to square centres on a grid lined up with the board', async ({ page }) => {

@@ -2,7 +2,7 @@ import { expect, type Page } from '@playwright/test';
 
 /** Header menu items and the menu they're in. */
 const MENU: Record<string, 'Actions' | 'Visibility' | 'Scripting'> = {
-  Undo: 'Actions', Redo: 'Actions', 'Save/Load': 'Actions', 'Print to PDF': 'Actions',
+  Undo: 'Actions', Redo: 'Actions', 'Save/Load': 'Actions', 'Print to PDF': 'Actions', 'Close project': 'Actions',
   'Component library': 'Visibility', 'Pieces panel': 'Visibility', 'Layers panel': 'Visibility', 'Hand panel': 'Visibility',
   'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', 'Hidden pieces': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
 };

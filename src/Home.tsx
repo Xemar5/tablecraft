@@ -1,13 +1,19 @@
 import { useState } from 'react';
-import { Download, FolderPlus, GripVertical, Link2, Pencil, Plus, Trash2, Upload, Users } from 'lucide-react';
+import { Download, FolderPlus, GripVertical, History as HistoryIcon, Link2, Pencil, Play, Plus, Trash2, Upload, Users, X } from 'lucide-react';
 import { ComponentThumbnail } from './ComponentView';
 import { type Project } from './domain';
 import { GAME_PROJECTS, type GameProjectId } from './gameProjects';
+import type { History } from './projectHistory';
 import './newProject.css';
 import { Field, Modal } from './ui';
 
-export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onUpdate, onImport, onExport, onExportAll, onJoin }: {
-  projects: Project[]; onLoad: (id: string) => void; onDelete: (id: string) => void;
+/**
+ * The workshop: the loaded project (continue or close it) apart from the projects that can be loaded. Loading another
+ * project closes the loaded one.
+ */
+export function Home({ projects, open, histories, onLoad, onContinue, onCloseProject, onHistory, onDelete, onReorder, onCreate, onUpdate, onImport, onExport, onExportAll, onJoin }: {
+  projects: Project[]; open?: { id: string; context: string; dirty: boolean }; histories: Record<string, History>;
+  onLoad: (id: string) => void; onContinue: () => void; onCloseProject: () => void; onHistory: (id: string) => void; onDelete: (id: string) => void;
   onReorder: (id: string, targetId: string, after: boolean) => void; onCreate: (name: string, description: string, game?: GameProjectId) => void;
   onUpdate: (id: string, patch: Pick<Project, 'name' | 'description'>) => void;
   onImport: () => void; onExport: (project: Project) => void; onExportAll: () => void; onJoin: () => void;
@@ -29,18 +35,26 @@ export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onUpdate
     if (!touched.description) setDescription(game?.description ?? '');
   };
   const [editing, setEditing] = useState<Project>();
-  return <section className="home-screen" aria-label="Project home">
-    <div className="home-heading"><div><p>YOUR WORKSHOP</p><h1>Projects</h1><p>Design, collect, and play.</p></div>
+  const loaded = open && projects.find(project => project.id === open.id);
+  const others = projects.filter(project => project !== loaded);
+  const status = (id: string) => {
+    const history = histories[id];
+    const snapshots = history?.snapshots.length ?? 0, sessions = history?.sessions.length ?? 0;
+    return <><span className={`history-badge${history?.status === 'finished' ? ' base' : ''}`}>{history?.status === 'finished' ? 'Finished' : 'Draft'}</span>
+      <small>{snapshots} snapshot{snapshots === 1 ? '' : 's'}{sessions ? ` · ${sessions} session${sessions === 1 ? '' : 's'}` : ''}</small></>;
+  };
+  const heading = <div className="home-heading"><div><p>YOUR WORKSHOP</p><h1>Projects</h1><p>Design, collect, and play.</p></div>
       <div className="home-actions"><button className="button" onClick={onImport}><Upload size={16} /> Import projects</button>
         <button className="button" onClick={onExportAll} disabled={!projects.length}><Download size={16} /> Export all projects</button>
         <button className="button" onClick={onJoin}><Users size={16} /> Join a table</button>
         <button className="button primary" onClick={() => { setName(blankName); setDescription(''); setStart(''); setTouched({ name: false, description: false }); setCreating(true); }}><Plus size={16} /> New project</button></div>
-    </div>
-    {!projects.length && <p className="empty-note">No projects yet. Create a project or import a Tablecraft export.</p>}
-    <div className="home-projects">{projects.map((project, index) => <article key={project.id}
-      className={`home-project${drop?.id === project.id ? drop.after ? ' library-drop-after' : ' library-drop-before' : ''}`}
+    </div>;
+  const card = (project: Project, index: number) => {
+    const isOpen = project === loaded;
+    return <article key={project.id}
+      className={`home-project${isOpen ? ' home-project-open' : ''}${drop?.id === project.id ? drop.after ? ' library-drop-after' : ' library-drop-before' : ''}`}
       onDragOver={event => {
-        if (!dragged || dragged === project.id) return;
+        if (!dragged || dragged === project.id || isOpen) return;
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
         setDrop({ id: project.id, after: event.clientY > rect.top + rect.height / 2 });
@@ -52,26 +66,40 @@ export function Home({ projects, onLoad, onDelete, onReorder, onCreate, onUpdate
         setDragged(undefined); setDrop(undefined);
       }}>
       <div className="home-project-heading">
-        <button className="icon-button" aria-label={`Reorder project ${project.name}`} title="Drag to reorder; Up/Down when focused" draggable
+        {!isOpen && <button className="icon-button" aria-label={`Reorder project ${project.name}`} title="Drag to reorder; Up/Down when focused" draggable
           onDragStart={event => { event.dataTransfer.setData('text/plain', project.id); event.dataTransfer.effectAllowed = 'move'; setDragged(project.id); }}
           onDragEnd={() => { setDragged(undefined); setDrop(undefined); }}
           onKeyDown={event => {
             if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
             event.preventDefault();
-            const target = projects[index + (event.key === 'ArrowUp' ? -1 : 1)];
+            const target = others[index + (event.key === 'ArrowUp' ? -1 : 1)];
             if (target) onReorder(project.id, target.id, event.key === 'ArrowDown');
-          }}><GripVertical size={18} /></button>
-        <div><h2>{project.name}</h2>{project.description && <p className="home-project-description">{project.description}</p>}<p>{project.components.length} components · {project.instances.length} pieces · {project.players.length} players</p></div>
-        <div className="home-project-actions"><button className="button primary" aria-label={`Open project ${project.name}`} onClick={() => onLoad(project.id)}>Open project</button>
+          }}><GripVertical size={18} /></button>}
+        <div><h2>{project.name}</h2>{project.description && <p className="home-project-description">{project.description}</p>}
+          <p className="home-project-status">{status(project.id)}{isOpen && open!.context !== 'Draft' && <span className="history-badge loaded">{open!.context}</span>}{isOpen && open!.dirty && <span className="home-unsaved">Unsaved changes</span>}</p>
+          <p>{project.components.length} components · {project.instances.length} pieces · {project.players.length} players</p></div>
+        <div className="home-project-actions">{isOpen
+          ? <><button className="button primary" aria-label={`Continue project ${project.name}`} onClick={onContinue}><Play size={15} /> Continue</button>
+            <button className="button" aria-label={`Close project ${project.name}`} title={open!.dirty ? 'Close it (asks to save the unsaved changes first)' : 'Close it'} onClick={onCloseProject}><X size={15} /> Close</button></>
+          : <button className="button primary" aria-label={`Load project ${project.name}`} title={loaded ? `Load it (closes ${loaded.name})` : undefined} onClick={() => onLoad(project.id)}>Load</button>}
+          <button className="icon-button" aria-label={`Snapshots and sessions of ${project.name}`} title="Snapshots and sessions" onClick={() => onHistory(project.id)}><HistoryIcon size={17} /></button>
           <button className="icon-button" aria-label={`Edit project ${project.name}`} title="Edit name and description" onClick={() => { setName(project.name); setDescription(project.description); setEditing(project); }}><Pencil size={16} /></button>
-          <button className="icon-button" aria-label={`Export project ${project.name}`} onClick={() => onExport(project)}><Download size={17} /></button>
-          <button className="icon-button" aria-label={`Delete project ${project.name}`} onClick={() => setDeleting(project)}><Trash2 size={17} /></button></div>
+          <button className="icon-button" aria-label={`Export project ${project.name}`} title="Export…" onClick={() => onExport(project)}><Download size={17} /></button>
+          {!isOpen && <button className="icon-button" aria-label={`Delete project ${project.name}`} onClick={() => setDeleting(project)}><Trash2 size={17} /></button>}</div>
       </div>
       <details><summary>Components ({project.components.length})</summary><ul className="home-components">
         {project.components.map(component => <li key={component.id}><div className="home-component-image"><ComponentThumbnail component={component} components={project.components} width={44} /></div>
           <span><strong>{component.name}</strong><small>{component.kind} · {Math.max(1, component.rows.length)} variants {component.source && <><Link2 size={11} /> Read-only link</>}</small></span></li>)}
       </ul>{!project.components.length && <p>No components yet.</p>}</details>
-    </article>)}</div>
+    </article>;
+  };
+  return <section className="home-screen" aria-label="Project home">
+    {heading}
+    {loaded && <section className="home-open" aria-label="Open project"><h2 className="home-section-title">Open project</h2><div className="home-projects">{card(loaded, -1)}</div></section>}
+    {loaded && <h2 className="home-section-title">Other projects</h2>}
+    {!projects.length && <p className="empty-note">No projects yet. Create a project or import a Tablecraft export.</p>}
+    {loaded && !others.length && <p className="empty-note">No other projects. Create a project or import a Tablecraft export.</p>}
+    <div className="home-projects">{others.map((project, index) => card(project, index))}</div>
     {deleting && <Modal title={`Delete ${deleting.name}?`} subtitle="This removes the project from this browser. Export it first to keep a backup. Other projects keep their last linked snapshots." onClose={() => setDeleting(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setDeleting(undefined)}>Cancel</button><button className="button danger" onClick={() => { onDelete(deleting.id); setDeleting(undefined); }}>Delete project</button></div>
     </Modal>}

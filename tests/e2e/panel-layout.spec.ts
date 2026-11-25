@@ -38,9 +38,9 @@ test('panel dragging works after opening Home and returning to a project', async
   await page.goto('/');
   await page.evaluate(() => localStorage.removeItem('tablecraft.last-project'));
   await page.reload();
-  await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
+  await page.getByRole('button', { name: 'Load project Wildwood', exact: true }).click();
   await page.getByRole('link', { name: 'Tablecraft home', exact: true }).click();
-  await page.getByRole('button', { name: 'Open project Wildwood', exact: true }).click();
+  await page.getByRole('button', { name: 'Continue project Wildwood', exact: true }).click();
   for (const [label, selector, dimension, dx, dy] of [
     ['Resize component library', '#component-library-panel', 'width', 40, 0],
     ['Resize table inspector', '#playground-inspector-panel', 'width', -40, 0],

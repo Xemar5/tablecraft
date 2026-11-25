@@ -18,5 +18,5 @@ test('library header offers linking and adding, the footer is gone, and empty li
   await expect(dialog.getByRole('heading', { name: 'No other projects yet', exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Go to Home', exact: true }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Open project Wildwood', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Continue project Wildwood', exact: true })).toBeVisible();
 });
