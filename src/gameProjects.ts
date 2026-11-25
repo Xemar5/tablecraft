@@ -1,4 +1,5 @@
 import { makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PersistentStack, type PieceGroup, type Player, type Project } from './domain';
+import { hexCorners, type Grid } from './grids';
 
 /**
  * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
@@ -84,6 +85,33 @@ function project(name: string, description: string, components: Component[], ins
   const stacks = persistentStacks(instances);
   return { id: uid('project'), name, description, components, instances, players, groups, ...stacks.length ? { stacks } : {},
     settings: { grid: false, snap: false, gridSize: 25, hands, turns: true, turn: 0, ...grid } };
+}
+
+/**
+ * Tidewater's grids: tiles snap to the island's hex cells, huts and lighthouses to the cells' corners, and boardwalks
+ * to their edges, turned along them. Each grid takes only its pieces (by grid tags).
+ */
+function islandGrids(): Grid[] {
+  const cells = ISLAND.flat().map(cell => ({ x: CENTER.x + cell.x, y: CENTER.y + cell.y }));
+  const key = (at: { x: number; y: number }) => `${Math.round(at.x)},${Math.round(at.y)}`;
+  const corners = new Map<string, { x: number; y: number }>(), edges = new Map<string, { x: number; y: number; rotation: number }>();
+  for (const cell of cells) {
+    const around = hexCorners({ size: HEX.width, orientation: 'pointy' }, cell.x, cell.y);
+    around.forEach((corner, n) => {
+      const next = around[(n + 1) % 6], middle = { x: (corner.x + next.x) / 2, y: (corner.y + next.y) / 2 };
+      corners.set(key(corner), { x: Math.round(corner.x * 10) / 10, y: Math.round(corner.y * 10) / 10 });
+      edges.set(key(middle), { x: Math.round(middle.x * 10) / 10, y: Math.round(middle.y * 10) / 10,
+        rotation: Math.round(((Math.atan2(next.y - corner.y, next.x - corner.x) * 180 / Math.PI) + 360) % 180) });
+    });
+  }
+  const only = (tag: string) => ({ anyOf: [{ has: [tag], lacks: [] }] });
+  return [
+    { id: 'grid-corners', name: 'Corners', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 24, filter: only('corner'),
+      points: [...corners.values()].map((at, n) => ({ id: `corner-${n + 1}`, ...at })) },
+    { id: 'grid-edges', name: 'Edges', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 24, filter: only('edge'),
+      points: [...edges.values()].map((at, n) => ({ id: `edge-${n + 1}`, ...at })) },
+    { id: 'grid-island', name: 'Island', shape: 'hex', orientation: 'pointy', visible: false, snap: true, size: HEX.width, offsetX: CENTER.x, offsetY: CENTER.y, filter: only('tile') },
+  ];
 }
 
 /** A die showing pips. */
@@ -334,7 +362,7 @@ const RULES = [
 export function tidewaterProject(name: string, description: string, profile: Profile): Project {
   const terrainRows = TERRAINS.map(({ terrain, name, resource }) => ({ name, terrain, resource }));
   const tile = component('Island tile', 'card', HEX.width, HEX.height, {
-    flippable: true, stackable: true, stackTags: ['tile'], shufflable: true, previewWhenLocked: true, rotationStep: 60, rows: terrainRows,
+    flippable: true, stackable: true, stackTags: ['tile'], gridTags: ['tile'], shufflable: true, previewWhenLocked: true, rotationStep: 60, rows: terrainRows,
     front: [
       ...TERRAINS.map(({ terrain, name, fill }) => shape(name, { shapeKind: 'path', x: 0, y: 0, ...HEX, points: HEX_OUTLINE, fill, stroke: '#1f2b2633', strokeWidth: 1.5, ...when('terrain', terrain) })),
       // The art and resource name fill the upper half, leaving the number slot free below them.
@@ -395,19 +423,19 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     PLAYER_COLORS.map(({ color, name, fill, edge }) => shape(`${name} ${part}`, { ...values(fill, edge), ...when('color', color) }));
   // Huts, lighthouses and boardwalks look the same from both sides, so a printed piece has a back.
   const hutFace = () => colored('hut', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 26, points: outline([[13, 1], [25, 11], [25, 25], [1, 25], [1, 11]]), fill, stroke: edge, strokeWidth: 1.5 }));
-  const hut = component('Hut', 'card', 26, 26, { stackable: true, stackTags: ['hut'], rotationStep: 30, rows: colorRows, front: hutFace(), back: hutFace() });
+  const hut = component('Hut', 'card', 26, 26, { stackable: true, stackTags: ['hut'], gridTags: ['corner'], rotationStep: 30, rows: colorRows, front: hutFace(), back: hutFace() });
   const lighthouseFace = () => [
     shape('Lamp', { x: 8, y: 1, width: 10, height: 9, radius: 2, fill: '#f6dc84', stroke: '#6d5a1f', strokeWidth: 1 }),
     ...colored('tower', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 38, points: outline([[6, 10], [20, 10], [24, 37], [2, 37]]), fill, stroke: edge, strokeWidth: 1.5 })),
     shape('Band', { x: 5, y: 22, width: 16, height: 3, fill: '#00000033' }),
   ];
-  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, stackTags: ['lighthouse'], rotationStep: 30, rows: colorRows, front: lighthouseFace(), back: lighthouseFace() });
+  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, stackTags: ['lighthouse'], gridTags: ['corner'], rotationStep: 30, rows: colorRows, front: lighthouseFace(), back: lighthouseFace() });
   // Boardwalks lie along tile edges (at 30, 90 or 150 degrees), so they turn in sixths from an edge angle.
   const boardwalkFace = () => [
     ...colored('boardwalk', (fill, edge) => ({ x: 0, y: 5, width: 44, height: 10, radius: 2, fill, stroke: edge, strokeWidth: 1.2 })),
     ...[11, 22, 33].map((x, index) => shape(`Plank gap ${index + 1}`, { x, y: 6, width: 1.2, height: 8, fill: '#00000040' })),
   ];
-  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, stackTags: ['boardwalk'], rotationStep: 60, rows: colorRows, front: boardwalkFace(), back: boardwalkFace() });
+  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, stackTags: ['boardwalk'], gridTags: ['edge'], rotationStep: 60, rows: colorRows, front: boardwalkFace(), back: boardwalkFace() });
   const resource = component('Resource', 'card', 64, 90, {
     color: '#f4ecd8', flippable: true, hand: true, hideInHand: true, stackable: true, stackTags: ['resource'], shufflable: true,
     rows: TERRAINS.slice(0, 5).map(({ terrain, resource }) => ({ name: resource, terrain })),
@@ -532,7 +560,9 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // The top and bottom seats sit a little further out than the default ring, so the cards fanned out above their
   // table hands stay clear of the pieces laid out in front of them.
   for (const seat of players) if (Math.abs(seat.rotation) % 180 === 0) seat.y += Math.sign(seat.y - CENTER.y) * 60;
-  return project(name, description, [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book], instances, players, groups, true);
+  // Only tiles, buildings and boardwalks snap; everything else moves freely.
+  const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book].map(item => item.gridTags ? item : { ...item, snapToGrid: false });
+  return { ...project(name, description, components, instances, players, groups, true), grids: islandGrids() };
 }
 
 export function gameProject(id: GameProjectId, name: string, description: string, profile: Profile): Project {

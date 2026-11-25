@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { reorder } from './zOrder';
 import { runCommand } from './scripting';
+import { gridPointPosition, gridSchema, projectGrids, snapTarget, validateGrids } from './grids';
 import { commonTags, describeFilter, filterFromTags, matchesTags, normalizeTags, sameFilter, tagFilterSchema, tagSchema, type TagFilter } from './tags';
 
 const id = z.string().min(1).max(100);
@@ -88,6 +89,10 @@ export const componentSchema = z.object({
   stackTags: z.array(tagSchema).max(50).optional(),
   /** Show the corner preview when hovering its pieces even while they are locked (locked pieces have none otherwise). */
   previewWhenLocked: z.boolean().optional(),
+  /** Grid tags: each grid's filter decides by these whether the component's pieces snap to it (see src/grids.ts). */
+  gridTags: z.array(tagSchema).max(50).optional(),
+  /** Whether its pieces snap to grids at all (true when absent). */
+  snapToGrid: z.boolean().optional(),
   /** Degrees each Q/E press or rotate button turns its pieces (90 when absent). */
   rotationStep: z.number().int().min(1).max(180).optional(),
   /** The global script function its pieces run: pressing a button piece, or Run on any selected piece. */
@@ -236,6 +241,8 @@ export const projectSchema = z.object({
   /** Stacks that stay on the table when they're down to one piece or none. */
   stacks: z.array(persistentStackSchema).max(2000).optional(),
   scripts: z.array(scriptSchema).max(50).optional(),
+  /** Grid layers, first = highest priority (see src/grids.ts). Absent in older projects, which have one grid from their settings. */
+  grids: z.array(gridSchema).max(50).optional(),
   /** JSON values shared by scripts and players (absent when empty). */
   memory: memorySchema.optional(),
   scriptLog: z.array(scriptLogEntrySchema).max(SCRIPT_LOG_LIMIT).optional(),
@@ -273,7 +280,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('front'), ids: z.array(id).min(1) }),
   /** Moves table pieces (whole stacks) to the front or back, or one step past the next overlapping piece. Boards stay underneath. */
   z.object({ type: z.literal('zOrder'), ids: z.array(id).min(1), move: z.enum(['front', 'back', 'forward', 'backward']) }),
-  z.object({ type: z.literal('extractMove'), id, x: num, y: num }),
+  /** `snap` snaps a moved piece (or stack) to the grids, here and in the other moves that take it. */
+  z.object({ type: z.literal('extractMove'), id, x: num, y: num, snap: z.boolean().optional() }),
   z.object({ type: z.literal('roll'), ids: z.array(id).min(1), seed: z.number().int() }),
   /** Turns book pages (clamped) or steps dice to their next face (looped) by `delta` rows. */
   z.object({ type: z.literal('cycleVariant'), ids: z.array(id).min(1), delta: z.number().int().min(-10000).max(10000).refine(value => value !== 0, 'Choose a direction.') }),
@@ -303,16 +311,16 @@ export const commandSchema = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('arrangePieces'), parent: id.nullable(), ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]),
     target: z.array(id).max(10000), position: z.enum(['above', 'below']) }),
-  z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num }),
+  z.object({ type: z.literal('releaseMany'), ids: z.array(id).min(1), x: num, y: num, snap: z.boolean().optional() }),
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
   z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
-  z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional() }),
+  z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional(), snap: z.boolean().optional() }),
   z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(),
     positions: z.array(z.object({ id, x: num, y: num })).min(1).max(10000).optional(),
     rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional(),
     /** Rotation steps: each piece turns by this many of its component's rotation step. */
-    turns: z.number().int().min(-360).max(360).optional() }),
+    turns: z.number().int().min(-360).max(360).optional(), snap: z.boolean().optional() }),
   z.object({ type: z.literal('drawSelection'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('delete'), ids: z.array(id) }),
   z.object({ type: z.literal('stack'), ids: z.array(id), stackId: id }),
@@ -322,7 +330,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('shuffle'), id, seed: z.number().int() }),
   z.object({ type: z.literal('draw'), id, playerId: id, faceUp: z.boolean().optional() }),
   z.object({ type: z.literal('drawMany'), id, playerId: id, count: z.number().int().min(1).max(1000), faceUp: z.boolean().optional() }),
-  z.object({ type: z.literal('release'), id, x: num, y: num }),
+  z.object({ type: z.literal('release'), id, x: num, y: num, snap: z.boolean().optional() }),
   z.object({ type: z.literal('dropFromHand'), id, targetId: id, stackId: id }),
   z.object({ type: z.literal('reorderHand'), ids: z.array(id), playerId: id }),
   z.object({ type: z.literal('player'), player: playerSchema }),
@@ -347,6 +355,12 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** Runs the scripts' update(dt). Live rooms get these from the server's timer, offline tables from the app's. */
   z.object({ type: z.literal('tick'), dt: num.min(0).max(3600), seed: z.number().int() }),
   z.object({ type: z.literal('clearScriptLog') }),
+  /** Adds a grid layer, or replaces the one with its id in place. */
+  z.object({ type: z.literal('grid'), grid: gridSchema }),
+  z.object({ type: z.literal('removeGrid'), id }),
+  z.object({ type: z.literal('reorderGrids'), ids: z.array(id).max(50) }),
+  /** Puts pieces (with their whole stacks) on a grid point, turning them to its rotation if it has one. */
+  z.object({ type: z.literal('snapTo'), ids: z.array(id).min(1), grid: id, point: z.string().min(1).max(100) }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
@@ -475,6 +489,7 @@ export function validateProject(project: Project): Project {
   if (project.instances.some(i => !i.stack && i.stackFilter)) throw new Error('Only stacks can have a stack filter.');
   validateGroups(project);
   validateScripting(project);
+  validateGrids(project.grids);
   validatedComponents.add(project.components);
   return project;
 }
@@ -820,6 +835,15 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     if (!c) throw new Error('Component no longer exists.');
     return c;
   };
+  // Snaps each moved unit (a stack, or a loose piece) to the grids: the stack's bottom piece decides where it snaps.
+  const snapUnits = (items: Instance[]) => {
+    const units = new Map<string, Instance[]>();
+    for (const item of items) if (!item.holder) units.set(item.stack ?? item.id, item.stack ? stackMembers(p, item) : [item]);
+    for (const members of units.values()) {
+      const target = snapTarget(p, component(members[0]), members[0].x, members[0].y);
+      if (target) members.forEach(member => Object.assign(member, { x: target.x, y: target.y }, target.rotation === undefined ? {} : { rotation: snapAngle(((target.rotation % 360) + 360) % 360) }));
+    }
+  };
   // Pieces going onto a target piece or stack must fit its filter (onto a loose piece: share a stack tag with it).
   // A new stack gets the tags its pieces share as its filter; an existing one keeps its own (its bottom piece's).
   const joinFilter = (target: Instance, items: Instance[]) => {
@@ -1029,6 +1053,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (item.holder || isLocked(item)) throw new Error('Only unlocked tabletop components can be moved.');
       if (item.stackReversed && component(item).flippable) item.flipped = !item.flipped;
       Object.assign(item, { stack: null, stackReversed: false, x: command.x, y: command.y });
+      if (command.snap) snapUnits([item]);
       break;
     }
     case 'roll': {
@@ -1187,6 +1212,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         if (!item.holder || isLocked(item)) throw new Error('Only unlocked held components can be released.');
       });
       items.forEach((item, index) => Object.assign(item, { holder: null, x: command.x + index * 24, y: command.y + index * 24 }));
+      if (command.snap) snapUnits(items);
       break;
     }
     case 'dropManyFromHand': {
@@ -1243,7 +1269,10 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
         Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order: members.length, x: target.x, y: target.y });
         applyFilter(command.stackId, filter);
-      } else Object.assign(item, { holder: null, x: command.x, y: command.y });
+      } else {
+        Object.assign(item, { holder: null, x: command.x, y: command.y });
+        if (command.snap) snapUnits([item]);
+      }
       break;
     }
     case 'move':
@@ -1293,6 +1322,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         if (command.flip && item.stack && flippedStacks.has(item.stack)) item.stackReversed = !item.stackReversed;
         else if (command.flip && component(item).flippable) item.flipped = !item.flipped;
       }
+      if (command.snap) snapUnits([...selectedIds].map(get));
       break;
     }
     case 'delete':
@@ -1422,6 +1452,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         break;
       }
       Object.assign(item, { holder: null, x: command.x, y: command.y });
+      if (command.snap) snapUnits([item]);
       break;
     }
     case 'reorderHand': {
@@ -1516,6 +1547,39 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (!p.memory) delete p.memory;
       break;
     case 'clearScriptLog': delete p.scriptLog; break;
+    case 'grid': {
+      const grids = projectGrids(p);
+      const index = grids.findIndex(grid => grid.id === command.grid.id);
+      if (index < 0 && grids.length >= 50) throw new Error('A table can have at most 50 grids.');
+      if (command.grid.shape !== 'points') delete command.grid.points;
+      p.grids = index < 0 ? [...grids, command.grid] : grids.map(grid => grid.id === command.grid.id ? command.grid : grid);
+      break;
+    }
+    case 'removeGrid':
+      if (!projectGrids(p).some(grid => grid.id === command.id)) throw new Error('Grid no longer exists.');
+      p.grids = projectGrids(p).filter(grid => grid.id !== command.id);
+      break;
+    case 'reorderGrids': {
+      const grids = projectGrids(p), ordered = command.ids.map(key => grids.find(grid => grid.id === key));
+      if (ordered.length !== grids.length || new Set(command.ids).size !== grids.length || ordered.some(grid => !grid)) throw new Error('Reorder must contain every grid once.');
+      p.grids = ordered as typeof grids;
+      break;
+    }
+    case 'snapTo': {
+      const grid = projectGrids(p).find(item => item.id === command.grid);
+      if (!grid) throw new Error('Grid no longer exists.');
+      const at = gridPointPosition(grid, command.point);
+      if (!at) throw new Error(`${grid.name} has no point ${command.point}.`);
+      const pieces = new Set([...new Set(command.ids)].flatMap(key => stackMembers(p, get(key))));
+      for (const item of pieces) {
+        editable(item);
+        if (item.holder) throw new Error('Only table pieces can snap to a grid.');
+        if (isLocked(item)) throw new Error('Unlock this component first.');
+        Object.assign(item, { x: at.x, y: at.y });
+        if (at.rotation !== undefined) item.rotation = snapAngle(((at.rotation % 360) + 360) % 360);
+      }
+      break;
+    }
     // Script runs are handled around the table engine (runCommand); on their own they change nothing.
     case 'reloadScripts': case 'call': case 'tick': break;
   }

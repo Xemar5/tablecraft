@@ -18,6 +18,8 @@ import {
   appendScriptLog, componentTags, memoryAt, memoryPathText, setMemory, stackFilterOf, stackMembers, visibleBack, visibleStackMembers,
   type Command, type Component, type Instance, type Memory, type MemoryPath, type MemoryValue, type Player, type Project, type Script, type ScriptLogEntry,
 } from './domain';
+import { gridPointPosition, nearestGridPoint, projectGrids, snapOf, type Grid } from './grids';
+import { filterTags } from './tags';
 
 type Apply = (project: Project, command: Command, actor?: string) => Project;
 type LogLine = Omit<ScriptLogEntry, 'seq'>;
@@ -43,6 +45,7 @@ export const SCRIPT_HANDLERS = [
   { name: 'onShuffle', args: '(stack, player)', doc: 'A stack was shuffled.' },
   { name: 'onTurnEnd', args: '(previous, next)', doc: 'The turn passed from one seat to the next.' },
   { name: 'onTurnStart', args: '(player)', doc: 'A seat’s turn began.' },
+  { name: 'onSnap', args: '(pieces, player)', doc: 'Table pieces snapped to grid points; piece.snap is { grid, point } for each.' },
 ] as const;
 const HANDLER_NAMES = new Set<string>(SCRIPT_HANDLERS.map(handler => handler.name));
 type HandlerName = typeof SCRIPT_HANDLERS[number]['name'];
@@ -75,6 +78,12 @@ export const SCRIPT_API = [
   { name: 'game.stack', args: '(pieces)', doc: 'Stacks pieces (the first at the bottom) and returns the stack id.' },
   { name: 'game.stackOnto', args: '(pieces, stack)', doc: 'Puts pieces on top of a stack or piece (or an empty persistent stack).' },
   { name: 'game.unstack', args: '(stack)', doc: 'Spreads a stack out.' },
+  { name: 'game.grids', args: '()', doc: 'The table’s grids, first (highest priority) first: { id, name, shape ("square", "hex" or "points"), visible, snap, size, sizeY, offsetX, offsetY, orientation, rotation, radius, tags }.' },
+  { name: 'game.gridPoint', args: '(grid, point)', doc: 'A grid point { grid, point, x, y, rotation, label }, or nil. point is "col,row" (square), "q,r" (hex) or a point id (points grids); two numbers work too: game.gridPoint(grid, 2, 3).' },
+  { name: 'game.gridPoints', args: '(grid)', doc: 'The points of a points grid (nil for square and hex grids, which never end).' },
+  { name: 'game.nearestGridPoint', args: '(x, y, grid?)', doc: 'The grid point nearest to x, y: of one grid, or of any grid.' },
+  { name: 'game.snapTo', args: '(pieces, grid, point)', doc: 'Puts pieces (with their stacks) on a grid point, turned to its rotation if it has one.' },
+  { name: 'game.piecesAt', args: '(grid, point)', doc: 'The table pieces snapped to a grid point.' },
   { name: 'game.setStackFilter', args: '(stack, rules)', doc: 'Sets which pieces may join a stack: a list of rules { has = {"blue", "red"}, lacks = {"white"} }; a piece fits when it matches any rule (an empty list takes any piece).' },
   { name: 'game.shuffle', args: '(stack)', doc: 'Shuffles a stack.' },
   { name: 'game.draw', args: '(stack, player?, count?, faceUp?)', doc: 'Draws count pieces (1) from the top of a stack into a hand (the acting or current seat) and returns them.' },
@@ -219,6 +228,15 @@ function detectEvents(before: Project, after: Project, command: Command, actor?:
   if (flipped.length) add('onFlip', pieces(flipped), player);
   const rolled = kept.filter(({ item, was }) => (item.rolls ?? 0) > (was.rolls ?? 0)).map(entry => entry.item);
   if (rolled.length) add('onRoll', pieces(rolled), player);
+  if (wanted('onSnap')) {
+    // Pieces that came to rest on a grid point they weren't on before (moving onto the same point again doesn't count).
+    const key = (project: Project, item: Instance) => { const snap = snapOf(project, item); return snap ? `${snap.grid}|${snap.point}` : ''; };
+    const snapped = after.instances.filter(item => {
+      const was = previous.get(item.id), now = key(after, item);
+      return now && (!was || (was.x !== item.x || was.y !== item.y || !!was.holder) && key(before, was) !== now);
+    });
+    if (snapped.length) add('onSnap', pieces(snapped), player);
+  }
   const shuffled = new Set(kept.filter(({ item, was }) => item.stack && (item.shuffles ?? 0) > (was.shuffles ?? 0)).map(entry => entry.item.stack!));
   for (const stack of shuffled) add('onShuffle', stackInfo(after, stack), player);
   if (command.type === 'memory') {
@@ -430,8 +448,17 @@ function pieceInfo(project: Project, item: Instance): PieceInfo {
     row: item.row + 1, data: component?.rows[item.row] ?? {},
     x: item.x, y: item.y, rotation: item.rotation, scale: item.scale,
     faceUp: !visibleBack(item), locked: item.locked, holder: item.holder ?? undefined, stack: item.stack ?? undefined,
-    group: item.group,
+    group: item.group, snap: snapInfo(project, item),
   };
+}
+function snapInfo(project: Project, item: Instance): MemoryValue | undefined {
+  const snap = snapOf(project, item);
+  return snap && { grid: snap.grid, point: snap.point };
+}
+function gridInfo(grid: Grid): PieceInfo {
+  const { id, name, shape, visible, snap, size, sizeY, offsetX, offsetY, orientation, rotation, radius } = grid;
+  return { id, name, shape, visible, snap, size, sizeY: shape === 'square' ? sizeY ?? size : undefined, offsetX, offsetY,
+    orientation: shape === 'hex' ? orientation ?? 'pointy' : undefined, rotation, radius: shape === 'points' ? radius ?? 50 : undefined, tags: filterTags(grid.filter) };
 }
 function playerInfo(project: Project, id: string): PieceInfo | undefined {
   const index = project.players.findIndex(player => player.id === id);
@@ -554,6 +581,24 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     for (const [holder, list] of groups) each(list.map(item => item.id), holder || undefined);
   };
   let noUndoMemory: Memory | undefined;
+  const findGrid = (value: MemoryValue | undefined) => {
+    const key = text(value, 'grid'), grids = projectGrids(state.live);
+    const found = grids.find(grid => grid.id === key) ?? grids.find(grid => grid.name === key);
+    if (!found) throw new ScriptError(`There is no grid ${key}.`);
+    return found;
+  };
+  // A grid point: "2,3", a point id, a table such as { col = 2, row = 3 } / { q = 1, r = -2 } / a point table, or two numbers.
+  const pointArg = (L: LuaState, index: number) => {
+    const value = arg(L, index, 'point'), next = arg(L, index + 1, 'point');
+    if (typeof value === 'number' && typeof next === 'number') return `${Math.round(value)},${Math.round(next)}`;
+    if (typeof value === 'string') return value.replace(/\s+/g, '');
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (typeof value.point === 'string') return value.point;
+      const a = value.col ?? value.q, b = value.row ?? value.r;
+      if (typeof a === 'number' && typeof b === 'number') return `${Math.round(a)},${Math.round(b)}`;
+    }
+    throw new ScriptError('point should be "col,row", a point id, or a table such as { col = 2, row = 3 }.');
+  };
   const turnPlayer = () => state.live.settings.turns && state.live.players.length ? state.live.players[state.live.settings.turn % state.live.players.length] : undefined;
 
   const functions: Record<string, (L: LuaState) => number> = {
@@ -696,6 +741,35 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       return 0;
     },
     unstack: L => { act({ type: 'unstack', id: stackPiece(arg(L, 1, 'stack')).id }); return 0; },
+    grids: L => { pushValue(L, projectGrids(state.live).map(gridInfo)); return 1; },
+    gridPoint: L => {
+      const grid = findGrid(arg(L, 1, 'grid')), point = pointArg(L, 2);
+      const at = gridPointPosition(grid, point);
+      pushValue(L, at && { grid: grid.id, point, ...at, label: grid.points?.find(item => item.id === point)?.label });
+      return 1;
+    },
+    gridPoints: L => {
+      const grid = findGrid(arg(L, 1, 'grid'));
+      pushValue(L, grid.shape === 'points' ? (grid.points ?? []).map(point => ({ grid: grid.id, point: point.id, x: point.x, y: point.y, rotation: point.rotation ?? grid.rotation, label: point.label })) : undefined);
+      return 1;
+    },
+    nearestGridPoint: L => {
+      const x = number(arg(L, 1, 'x'), 'x'), y = number(arg(L, 2, 'y'), 'y'), only = arg(L, 3, 'grid');
+      const candidates = (only === undefined ? projectGrids(state.live) : [findGrid(only)]).map(grid => nearestGridPoint(grid, x, y)).filter(found => !!found);
+      const best = candidates.sort((a, b) => a!.distance - b!.distance)[0];
+      pushValue(L, best && { grid: best.grid, point: best.point, x: best.x, y: best.y, rotation: best.rotation, distance: best.distance });
+      return 1;
+    },
+    snapTo: L => {
+      const items = pieces(arg(L, 1, 'pieces')), grid = findGrid(arg(L, 2, 'grid')), point = pointArg(L, 3);
+      if (items.length) act({ type: 'snapTo', ids: items.map(i => i.id), grid: grid.id, point });
+      return 0;
+    },
+    piecesAt: L => {
+      const grid = findGrid(arg(L, 1, 'grid')), point = pointArg(L, 2);
+      pushValue(L, state.live.instances.filter(item => { const snap = snapOf(state.live, item); return snap?.grid === grid.id && snap.point === point; }).map(item => pieceInfo(state.live, item)));
+      return 1;
+    },
     setStackFilter: L => {
       const value = arg(L, 1, 'stack'), key = text(value, 'stack');
       const stackId = state.live.stacks?.some(stack => stack.id === key) || state.live.instances.some(i => i.stack === key) ? key : stackPiece(value).stack;
