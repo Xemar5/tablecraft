@@ -774,6 +774,8 @@ export default function App() {
             <button className="library-item-name" aria-label={`Edit ${comp.name}`} title="Click to edit in the designer" onClick={() => edit(comp.id)}>
               <strong>{comp.name}<PencilLine size={10} aria-hidden="true" /></strong><small>{`${comp.width} × ${comp.height} px`}{libraryView === 'list' && <> · {comp.kind}{hasVariants(comp) && ` · ${comp.rows.length} variants`}</>}</small>
               <span className="library-name-hint" aria-hidden="true"><PencilLine size={9} /> Click to edit in the designer</span></button>
+            {/* The small grid has no names: a pencil in the tile's corner edits it instead. */}
+            {libraryView === 'small' && <button className="icon-button library-edit" aria-label={`Edit ${comp.name}`} title={`Edit ${comp.name} in the designer`} onClick={() => edit(comp.id)}><PencilLine size={12} /></button>}
             {mode === 'playground' && hasVariants(comp) && <button className="icon-button library-variants-toggle" aria-expanded={openVariants.includes(comp.id)}
               aria-label={`${openVariants.includes(comp.id) ? 'Hide' : 'Show'} ${comp.name} variants (${comp.rows.length})`}
               title={`${openVariants.includes(comp.id) ? 'Hide' : 'Show'} ${comp.rows.length} variants`}
@@ -801,6 +803,7 @@ export default function App() {
               <button className="library-item-name" aria-label={`Edit script ${script.name}`} title="Click to open in the Scripts window" onClick={() => openScript(script.id)}>
                 <strong>{script.name}<PencilLine size={10} aria-hidden="true" /></strong><small>{info}</small>
                 <span className="library-name-hint" aria-hidden="true"><PencilLine size={9} /> Click to open in the Scripts window</span></button>
+              {libraryView === 'small' && <button className="icon-button library-edit" aria-label={`Edit script ${script.name}`} title={`Open ${script.name} in the Scripts window`} onClick={() => openScript(script.id)}><PencilLine size={12} /></button>}
             </div>
           </div>;
         })}

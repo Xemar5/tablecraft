@@ -24,6 +24,12 @@ test('the component library is a grid that fits the panel, with small-grid and l
   expect(await columns()).toBeGreaterThan(4);
   const tile = (await items.first().locator('.library-preview').boundingBox())!;
   expect(tile.height).toBeLessThan(60);
+  // A pencil in each tile's top right corner edits it.
+  const pencil = items.first().locator('.library-edit');
+  await expect(pencil).toBeVisible();
+  const corner = (await pencil.boundingBox())!;
+  expect(corner.x + corner.width).toBeGreaterThan(tile.x + tile.width - 6);
+  expect(corner.y).toBeLessThan(tile.y + 6);
 
   // The list: name and details on the left, a small icon on the right. The choice is remembered.
   await page.getByRole('radio', { name: 'List', exact: true }).click();
@@ -33,6 +39,12 @@ test('the component library is a grid that fits the panel, with small-grid and l
   expect(icon.x).toBeGreaterThan(name.x + name.width - 1);
   expect(icon.height).toBeLessThan(50);
   await expect(items.first()).toContainText('220 × 308 px · card');
+  // Hovering a name swaps its details for the edit hint, as in the large grid.
+  const hint = items.first().locator('.library-name-hint');
+  await expect(hint).toBeHidden();
+  await items.first().locator('.library-item-name').hover();
+  await expect(hint).toBeVisible();
+  await expect(hint).toHaveText('Click to edit in the designer');
   const first = await items.first().locator('.library-item-name strong').innerText();
   await page.getByRole('button', { name: `Reorder ${first}`, exact: true }).press('ArrowDown');
   await expect.poll(async () => (await savedWorkspace(page)).projects[0].components[1].name).toBe(first);
@@ -43,6 +55,9 @@ test('the component library is a grid that fits the panel, with small-grid and l
   await page.getByRole('button', { name: `Reorder ${first}`, exact: true }).focus();
   await page.keyboard.press('ArrowLeft');
   await expect.poll(async () => (await savedWorkspace(page)).projects[0].components[0].name).toBe(first);
+  await page.getByRole('button', { name: `Edit ${first}`, exact: true }).click();
+  await expect(page.getByRole('navigation', { name: 'Workspace mode' }).getByRole('button', { name: 'Component designer' })).toHaveClass(/active/);
+  await expect(items.first()).toHaveClass(/active/);
 });
 
 test('new components start from a type, with scripts last and no blank component', async ({ page }) => {
