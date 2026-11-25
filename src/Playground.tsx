@@ -1087,12 +1087,17 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                     if (!rect || e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom) return;
                     const point = worldPoint(e.clientX, e.clientY);
                     const slot = !bypass ? slotAt(e.clientX, e.clientY) : undefined;
-                    if (slot && fitsSlot(slot, [i]) && i.holder === actor) { void dispatch({ type: 'dropIntoStack', ids: [i.id], stackId: slot.id }); return; }
+                    if (slot && fitsSlot(slot, [i]) && i.holder === actor) {
+                      void dispatch({ type: 'dropIntoStack', ids: [i.id], stackId: slot.id }).then(ok => { if (ok) setSelected([...p.instances.filter(other => other.stack === slot.id).map(other => other.id), i.id]); });
+                      return;
+                    }
                     const target = targetAt(e.clientX, e.clientY, [i.id]);
                     if (i.holder === actor) {
-                      void dispatch(!bypass && target && compatible(target, [i])
+                      const stacking = !bypass && target && compatible(target, [i]);
+                      void dispatch(stacking
                         ? { type: 'dropFromHand', id: i.id, targetId: target.id, stackId: uid('stack') }
-                        : { type: 'release', id: i.id, ...point, snap: true });
+                        : { type: 'release', id: i.id, ...point, snap: true })
+                        .then(ok => { if (ok && stacking) setSelected([...stackMembers(p, target).map(other => other.id), i.id]); });
                     } else {
                       void dispatch({ type: 'playVisibleHand', id: i.id, ...point, snap: true,
                         ...(!bypass && target && compatible(target, [i]) ? { targetId: target.id, stackId: uid('stack') } : {}) });
@@ -1269,8 +1274,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               const { x, y } = worldPoint(e.clientX, e.clientY);
               const slot = !bypass ? slotAt(e.clientX, e.clientY) : undefined;
               const target = targetAt(e.clientX, e.clientY, []);
-              if (slot && fitsSlot(slot, moving)) dispatch({ type: 'dropIntoStack', ids: movingIds, stackId: slot.id });
-              else if (!bypass && target && compatible(target, moving)) dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') });
+              // Like table drags, dropping onto a stack selects the whole stack it lands in.
+              if (slot && fitsSlot(slot, moving)) void dispatch({ type: 'dropIntoStack', ids: movingIds, stackId: slot.id }).then(ok => { if (ok) setSelected([...p.instances.filter(i => i.stack === slot.id).map(i => i.id), ...movingIds]); });
+              else if (!bypass && target && compatible(target, moving)) void dispatch({ type: 'dropManyFromHand', ids: movingIds, targetId: target.id, stackId: uid('stack') })
+                .then(ok => { if (ok) setSelected([...stackMembers(p, target).map(i => i.id), ...movingIds]); });
               else dispatch({ type: 'releaseMany', ids: moving.map(i => i.id), x, y, snap: true });
             }
           }} onDoubleClick={e => { e.stopPropagation(); if (comp.flippable) void dispatch({ type: 'transform', ids: [item.id], flip: true }); }}

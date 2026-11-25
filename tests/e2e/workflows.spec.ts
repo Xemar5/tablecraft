@@ -415,10 +415,12 @@ test('two real SpaceTimeDB clients share pieces, live designs, hands and returni
   await expect(a.locator('.artboard')).toContainText('Name: Forest guardian');
   await updateCsv(a, 'Shared guardian');
   await expect(a.locator('.connection-badge')).toHaveText('Live session');
+  // Design edits reach the room when the designer is left for the playground.
+  await expect(b.locator('.table-piece .node-text').filter({ hasText: 'Shared guardian' })).toHaveCount(0);
+  await a.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(b.locator('.table-piece .node-text').filter({ hasText: 'Shared guardian' }).first()).toBeVisible();
   await b.locator('.table-piece').filter({ has: b.locator('.stack-count') }).dblclick();
   await expect(b.locator('.hand-card')).toHaveCount(1);
-  await a.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(a.locator('.hand-card')).toHaveCount(0);
   await expect(a.getByLabel("Bob's hand", { exact: true })).toContainText('W I L D W O O D');
   await b.reload();
@@ -648,7 +650,8 @@ test('multiplayer synchronizes atomic hand and stack interactions', async ({ bro
   await deck.click();
   await b.keyboard.press('e');
   await expect(a.locator(`[data-piece-id="${topId}"]`)).toHaveAttribute('style', /rotate\(90deg\)/);
-  await b.getByRole('button', { name: /^Draw to hand/ }).click();
+  // The card dropped from the hand left the whole stack selected: draw all of it.
+  await b.locator('.action-grid').getByRole('button', { name: /^Draw all/ }).click();
   await expect(b.locator('.hand-card')).toHaveCount(12);
   await expect(a.getByLabel("Bob's hand", { exact: true }).locator('.component-thumbnail')).toHaveCount(12);
   await expect(a.locator('.stack-count')).toHaveCount(0);

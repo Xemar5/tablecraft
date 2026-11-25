@@ -27,6 +27,8 @@ test('imported assets and their references synchronize through authoritative liv
     await host.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
     await host.getByRole('button', { name: 'Add image', exact: true }).click();
     await choose(host, host, 'Imported texture', 'Live texture');
+    // Design edits reach the room when the host goes back to the playground.
+    await host.getByRole('button', { name: 'Playground', exact: true }).click();
     await expect(guest.locator('.table-piece .node-image img').first()).toHaveAttribute('src', /^data:image\/png;base64,/, { timeout: 20000 });
     await host.getByRole('button', { name: 'Edit Live texture', exact: true }).click();
     await host.getByRole('button', { name: 'Delete asset', exact: true }).click();
