@@ -304,3 +304,7 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .piece-id-row dd { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; }
 .piece-id-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; color: #4b5c48; background: #f1f4ec; padding: 2px 5px; border-radius: 4px; }
 .piece-id-row .icon-button { width: 22px; height: 22px; flex-shrink: 0; color: #8a9b7d; }
+.debug-info { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
+.debug-info summary { cursor: pointer; font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: #869a73; list-style-position: inside; }
+.debug-info[open] summary { margin-bottom: 8px; }
+.debug-info .piece-ids { margin: 0; }

@@ -54,7 +54,10 @@ test('the Selection tab shows the ids of selected pieces and their stack, ready 
   await page.goto('/');
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).first();
   await stack.click();
+  // The ids sit in a Debug section at the bottom of the Selection tab, closed at first.
   const ids = page.locator('.piece-ids');
+  await expect(ids).toBeHidden();
+  await page.locator('.debug-info summary').click();
   await expect(ids.locator('.piece-id-row')).toHaveText([/^Piece ids12 pieces$/, /^Stack idstarter-deck$/]);
   await ids.getByRole('button', { name: 'Copy stack id', exact: true }).click();
   await expect(page.locator('.toast')).toContainText('Copied the stack id.');

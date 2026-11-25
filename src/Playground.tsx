@@ -136,6 +136,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const [hoveredSeat, setHoveredSeat] = useState<string>();
   // Pings (from any player or script) show a pin with the pinging player for a few seconds; see PingPins.
   const [pins, setPins] = useState<PingPin[]>([]);
+  const [debugOpen, setDebugOpen] = useState(false);
   const seenPings = useRef<Map<string, number>>(null);
   useEffect(() => {
     const first = !seenPings.current;
@@ -1438,7 +1439,6 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           actions={<div className="seat-hand-actions" role="toolbar" aria-label={`${selectedSeat.name}'s hand actions`}>{handActions(selectedSeat)}</div>} /> :
         piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
-          <PieceIds ids={selected} stack={selectionStack} notify={notify} />
           {viewer ? <div className="viewer-inspect">
             <p className="viewer-note" role="note"><Eye size={14} /> You are watching. Inspect freely; take a seat in Players to move or change pieces.</p>
             <div className="stack-actions"><button className="button" onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={14} /> Focus</button>
@@ -1495,6 +1495,11 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               onChange={scale => dispatch({ type: 'move', ids: selectedPieces.map(i => i.id), patch: { scale } })} />
           </div>
           </>}
+          {/* Ids for scripts and the CLI, out of the way until needed; open or closed, it stays so across selections. */}
+          <details className="debug-info" open={debugOpen} onToggle={event => setDebugOpen(event.currentTarget.open)}>
+            <summary>Debug</summary>
+            <PieceIds ids={selected} stack={selectionStack} notify={notify} />
+          </details>
         </div> : slotRecord ? <div className="inspector-section selected-inspector">
           <div className="section-title"><h3>Empty persistent stack</h3><button className="icon-button" aria-label="Clear selection" onClick={() => setSelectedSlot(undefined)}><X size={15} /></button></div>
           <p className="help-text">Drop pieces here to fill it. Drag it to move it.</p>
