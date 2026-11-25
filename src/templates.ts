@@ -29,6 +29,7 @@ export function template(kind: TemplateKind): Component {
       flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
   } else if (kind === 'card') {
     base.name = 'Spirit cards';
+    base.stackTags = ['spirit'];
     base.rows = cardRows;
     base.csv = 'id,name,type,cost,power,description,art\n' + cardRows.map(r => [r.id, r.name, r.type, r.cost, r.power, `"${r.description}"`, r.art].join(',')).join('\n');
     base.front = [
@@ -46,7 +47,7 @@ export function template(kind: TemplateKind): Component {
       makeNode('text', { name: 'Back title', x: 15, y: 225, width: 190, height: 28, text: 'W I L D W O O D', color: '#e8d8ae', font: 'Lora', fontSize: 16, align: 'center' }),
     ];
   } else if (kind === 'token') {
-    Object.assign(base, { name: 'Amber token', width: 80, height: 80, color: '#dbb66a', flippable: false, hideInHand: false, shufflable: false, stackTag: 'amber' });
+    Object.assign(base, { name: 'Amber token', width: 80, height: 80, color: '#dbb66a', flippable: false, hideInHand: false, shufflable: false, stackTag: '', stackTags: ['amber'] });
     base.front = [
       makeNode('shape', { name: 'Token face', x: 3, y: 3, width: 74, height: 74, radius: 50, fill: '#e6bc6c', text: 'sun' }),
     ];

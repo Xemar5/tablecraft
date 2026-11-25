@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { reorder } from './zOrder';
 import { runCommand } from './scripting';
+import { commonTags, describeFilter, filterFromTags, matchesTags, normalizeTags, sameFilter, tagFilterSchema, tagSchema, type TagFilter } from './tags';
 
 const id = z.string().min(1).max(100);
 const num = z.number().finite();
@@ -80,7 +81,11 @@ export const componentSchema = z.object({
   csv: z.string().max(1_000_000),
   rows: z.array(z.record(z.string(), z.string())).max(10000),
   flippable: z.boolean(), hand: z.boolean(), hideInHand: z.boolean(),
-  stackable: z.boolean(), shufflable: z.boolean(), stackTag: z.string().max(100),
+  stackable: z.boolean(), shufflable: z.boolean(),
+  /** Legacy single stack tag, read as one more entry of `stackTags` (new edits leave it empty). */
+  stackTag: z.string().max(100),
+  /** Stack tags: a stack's filter decides by these which pieces may join it (see src/tags.ts). */
+  stackTags: z.array(tagSchema).max(50).optional(),
   /** Show the corner preview when hovering its pieces even while they are locked (locked pieces have none otherwise). */
   previewWhenLocked: z.boolean().optional(),
   /** Degrees each Q/E press or rotate button turns its pieces (90 when absent). */
@@ -168,6 +173,8 @@ export const instanceSchema = z.object({
   shuffles: z.number().int().min(0).optional(),
   /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
   group: id.optional(),
+  /** The filter of the (ordinary) stack this piece is in, shared by every piece in it. Persistent stacks keep theirs on their record. */
+  stackFilter: tagFilterSchema.optional(),
 });
 /** A locked group holds its pieces in place (with its subgroups), whatever each piece's own lock says. */
 /**
@@ -177,6 +184,8 @@ export const instanceSchema = z.object({
  */
 export const persistentStackSchema = z.object({
   id, tag: z.string().max(100), x: num, y: num, rotation: num, scale: num.min(0.1).max(5).optional(), componentId: id.optional(),
+  /** Which pieces may join (see src/tags.ts). Records from before filters have a single legacy `tag` instead. */
+  filter: tagFilterSchema.optional(),
 });
 export type PersistentStack = z.infer<typeof persistentStackSchema>;
 export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(), locked: z.boolean().optional() });
@@ -277,7 +286,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('persistStack'), ids: z.array(id).min(1).max(10000), stackId: id }),
   /** Makes a persistent stack ordinary again (an empty one disappears; a single piece is no longer a stack). */
   z.object({ type: z.literal('unpersistStack'), stackId: id }),
-  z.object({ type: z.literal('setStackTag'), stackId: id, tag: z.string().trim().max(100) }),
+  /** Sets which pieces may join a stack (an ordinary or a persistent one). */
+  z.object({ type: z.literal('setStackFilter'), stackId: id, filter: tagFilterSchema }),
   /** Moves an empty persistent stack (stacks with pieces move with their pieces). */
   z.object({ type: z.literal('moveStack'), stackId: id, x: num, y: num }),
   /** Puts table pieces (whole stacks) or your own held pieces on top of a persistent stack, including an empty one. */
@@ -457,11 +467,12 @@ export function validateProject(project: Project): Project {
   if (persistent.size !== (project.stacks ?? []).length) throw new Error('Duplicate persistent stack identifiers.');
   for (const [stack, group] of groups) {
     const record = persistent.get(stack);
-    const members = group.map(i => project.components.find(c => c.id === i.componentId)!);
-    if (record ? !fitsPersistentStack(record, members) : !canStack(members)) throw new Error('Incompatible components in stack.');
+    if (group.some(i => !componentIds.get(i.componentId)!.stackable)) throw new Error('Incompatible components in stack.');
+    if (record ? group.some(i => i.stackFilter) : group.some(i => !sameFilter(i.stackFilter, group[0].stackFilter))) throw new Error('Every piece in a stack must share its stack filter.');
     if (group.some(i => !!i.stackReversed !== !!group[0].stackReversed)) throw new Error('Inconsistent stack orientation.');
   }
   if (project.instances.some(i => !i.stack && i.stackReversed)) throw new Error('Only stacks can have a stack orientation.');
+  if (project.instances.some(i => !i.stack && i.stackFilter)) throw new Error('Only stacks can have a stack filter.');
   validateGroups(project);
   validateScripting(project);
   validatedComponents.add(project.components);
@@ -545,10 +556,49 @@ export function appendScriptLog(log: ScriptLogEntry[] | undefined, entries: Omit
   return next.slice(-SCRIPT_LOG_LIMIT);
 }
 
-/** Whether pieces of these components may form (or join) a persistent stack, by its stack tag. */
-export function fitsPersistentStack(record: Pick<PersistentStack, 'tag'>, components: Component[]): boolean {
-  if (!components.every(c => c.stackable)) return false;
-  return record.tag ? components.every(c => c.stackTag === record.tag) : components.length <= 1 || canStack(components);
+/** A component's stack tags (its legacy single tag included). */
+export function componentTags(component: Pick<Component, 'stackTag' | 'stackTags'>): string[] {
+  return normalizeTags([...component.stackTags ?? [], ...component.stackTag ? [component.stackTag] : []]);
+}
+
+/** The filter a new stack of these components gets: any of the tags they all share (untagged pieces don't count). */
+export const newStackFilter = (components: Component[]): TagFilter => filterFromTags(commonTags(components.map(componentTags)).tags);
+
+/** A persistent stack's own filter: its record's, or its legacy single tag. Undefined when it has neither. */
+const recordFilter = (record: Pick<PersistentStack, 'tag' | 'filter'>): TagFilter | undefined => record.filter ?? (record.tag ? filterFromTags([record.tag]) : undefined);
+
+/**
+ * The filter deciding which pieces may join a stack (by id): a persistent stack's record filter, or the filter its
+ * pieces share. Stacks from before filters (and persistent stacks without one) take their pieces' shared tags.
+ */
+export function stackFilterOf(project: Pick<Project, 'instances' | 'components' | 'stacks'>, stackId: string): TagFilter {
+  const record = project.stacks?.find(stack => stack.id === stackId);
+  const members = project.instances.filter(i => i.stack === stackId);
+  const own = record ? recordFilter(record) : members[0]?.stackFilter;
+  if (own) return own;
+  return newStackFilter(members.flatMap(i => project.components.filter(c => c.id === i.componentId)));
+}
+
+/** Whether pieces of these components may go into an empty persistent stack. */
+export function fitsPersistentStack(record: Pick<PersistentStack, 'tag' | 'filter'>, components: Component[]): boolean {
+  return components.every(c => c.stackable && matchesTags(recordFilter(record), componentTags(c)));
+}
+
+/**
+ * Why `moving` can't go onto `target` (a stack, or a loose piece they would form a new stack with), or undefined when
+ * they can. Locks and hands are checked by the commands themselves.
+ */
+export function stackJoinError(project: Pick<Project, 'instances' | 'components' | 'stacks'>, target: Instance, moving: Instance[]): string | undefined {
+  const comp = (item: Instance) => project.components.find(c => c.id === item.componentId)!;
+  const members = target.stack ? project.instances.filter(i => i.stack === target.stack) : [target];
+  const blocked = [...members, ...moving].map(comp).find(c => !c.stackable);
+  if (blocked) return `${blocked.name} can't be stacked.`;
+  if (target.stack) {
+    const filter = stackFilterOf(project, target.stack);
+    const outsider = moving.map(comp).find(c => !matchesTags(filter, componentTags(c)));
+    return outsider && `${outsider.name} doesn't fit this stack (it takes ${describeFilter(filter)}).`;
+  }
+  return commonTags([...members, ...moving].map(i => componentTags(comp(i)))).shared ? undefined : 'These pieces have no stack tag in common.';
 }
 
 /**
@@ -572,6 +622,20 @@ function keepPersistentStacks(source: Project, p: Project) {
     if (!owner) continue;
     members.forEach(i => { i.stack = owner.id; });
     taken.add(owner.id);
+  }
+}
+
+/**
+ * Every piece of an ordinary stack shares its bottom piece's filter (so merged stacks keep the filter of the stack they
+ * went onto); persistent stacks keep theirs on their record, and pieces outside stacks have none.
+ */
+function normalizeStackFilters(p: Project) {
+  const persistent = new Set((p.stacks ?? []).map(record => record.id));
+  const bottoms = new Map<string, Instance>();
+  for (const item of p.instances) if (item.stack && (!bottoms.has(item.stack) || item.order < bottoms.get(item.stack)!.order)) bottoms.set(item.stack, item);
+  for (const item of p.instances) {
+    const filter = item.stack && !persistent.has(item.stack) ? bottoms.get(item.stack)!.stackFilter : undefined;
+    if (filter) item.stackFilter = filter; else delete item.stackFilter;
   }
 }
 
@@ -703,10 +767,10 @@ export function shareComponents(previous: Component[], next: Component[]): Compo
   return shared.length === previous.length && shared.every((component, index) => component === previous[index]) ? previous : shared;
 }
 
+/** Whether these components can form a stack: all stackable, with the tagged ones sharing at least one stack tag. */
 export function canStack(components: Component[]): boolean {
   if (!components.length || components.some(c => !c.stackable)) return false;
-  const first = components[0];
-  return components.every(c => first.stackTag ? c.stackTag === first.stackTag : c.id === first.id);
+  return commonTags(components.map(componentTags)).shared;
 }
 
 export function stackMembers(project: Project, instance: Instance): Instance[] {
@@ -755,6 +819,16 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     const c = p.components.find(c => c.id === i.componentId);
     if (!c) throw new Error('Component no longer exists.');
     return c;
+  };
+  // Pieces going onto a target piece or stack must fit its filter (onto a loose piece: share a stack tag with it).
+  // A new stack gets the tags its pieces share as its filter; an existing one keeps its own (its bottom piece's).
+  const joinFilter = (target: Instance, items: Instance[]) => {
+    const problem = stackJoinError(p, target, items);
+    if (problem) throw new Error(problem);
+    return target.stack ? undefined : newStackFilter([target, ...items].map(component));
+  };
+  const applyFilter = (stackId: string, filter: TagFilter | undefined) => {
+    if (filter) p.instances.filter(i => i.stack === stackId).forEach(i => { i.stackFilter = filter; });
   };
   // When a stack is dismantled or merged, materialize its visible order/faces.
   const materialize = (items: Instance[]) => {
@@ -826,7 +900,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       for (const i of p.instances.filter(i => i.componentId === command.component.id)) {
         if (!command.component.flippable) i.flipped = false;
         if (!command.component.hand) i.holder = null;
-        if (!command.component.stackable || source.components.find(c => c.id === i.componentId)?.stackTag !== command.component.stackTag) i.stack = null;
+        if (!command.component.stackable) i.stack = null;
       }
       break;
     }
@@ -853,11 +927,10 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (command.type === 'syncLinkedComponents') {
         for (const instance of p.instances.filter(item => ids.has(item.componentId))) {
           const component = p.components.find(c => c.id === instance.componentId)!;
-          const previous = source.components.find(c => c.id === instance.componentId)!;
           instance.row = Math.min(instance.row, Math.max(0, component.rows.length - 1));
           if (!component.flippable) instance.flipped = false;
           if (!component.hand) instance.holder = null;
-          if (!component.stackable || previous.stackTag !== component.stackTag) instance.stack = null;
+          if (!component.stackable) instance.stack = null;
         }
         for (const component of p.components) for (const node of [...component.front, ...component.back]) {
           if (node.type === 'component' && node.componentId && ids.has(node.componentId) && node.dataSource === 'row') {
@@ -1002,8 +1075,9 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       else {
         // Stack the pieces first: whole stacks keep their order, the first selected piece goes on the bottom.
         if (items.some(i => i.stack && stackMembers(p, i).some(other => !items.includes(other)))) throw new Error('Select the entire stack.');
-        if (!canStack(items.map(component))) throw new Error('Select compatible stackable pieces.');
+        if (!canStack(items.map(component))) throw new Error('These pieces have no stack tag in common.');
         if (p.instances.some(i => i.stack === command.stackId) || records.some(record => record.id === command.stackId)) throw new Error('Stack identifier already exists.');
+        items.forEach(i => { i.stackFilter = newStackFilter(items.map(component)); });
         stacks.forEach(stack => { if (stack) materialize(stackMembers(p, items.find(i => i.stack === stack)!)); });
         const seen = new Set<string>();
         const ordered = items.flatMap(item => {
@@ -1017,19 +1091,24 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       }
       if (records.some(record => record.id === stackId)) throw new Error('This stack is already persistent.');
       const bottom = p.instances.filter(i => i.stack === stackId).sort((a, b) => a.order - b.order)[0];
-      records.push({ id: stackId, tag: component(bottom).stackTag, x: bottom.x, y: bottom.y, rotation: bottom.rotation, scale: bottom.scale, componentId: bottom.componentId });
+      records.push({ id: stackId, tag: '', filter: stackFilterOf(p, stackId), x: bottom.x, y: bottom.y, rotation: bottom.rotation, scale: bottom.scale, componentId: bottom.componentId });
       break;
     }
-    case 'unpersistStack':
+    case 'unpersistStack': {
       if (!(p.stacks ?? []).some(record => record.id === command.stackId)) throw new Error('This stack isn\'t persistent.');
+      // Its pieces keep the filter as an ordinary stack.
+      const filter = stackFilterOf(p, command.stackId);
+      p.instances.filter(i => i.stack === command.stackId).forEach(i => { i.stackFilter = filter; });
       p.stacks = p.stacks!.filter(record => record.id !== command.stackId);
       break;
-    case 'setStackTag': {
+    }
+    case 'setStackFilter': {
       const record = (p.stacks ?? []).find(item => item.id === command.stackId);
-      if (!record) throw new Error('This stack isn\'t persistent.');
-      const members = p.instances.filter(i => i.stack === record.id);
-      if (command.tag && members.some(i => component(i).stackTag !== command.tag)) throw new Error('The pieces in this stack don\'t have that stack tag.');
-      record.tag = command.tag;
+      const members = p.instances.filter(i => i.stack === command.stackId);
+      if (!record && !members.length) throw new Error('This stack no longer exists.');
+      members.forEach(editable);
+      if (record) Object.assign(record, { filter: command.filter, tag: '' });
+      else members.forEach(i => { i.stackFilter = command.filter; });
       break;
     }
     case 'moveStack': {
@@ -1052,7 +1131,8 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       });
       if (items.some(i => i.stack && stackMembers(p, i).some(other => !items.includes(other)))) throw new Error('Select the entire stack.');
       if (members.some(i => isLocked(i))) throw new Error('Unlock the stack first.');
-      if (!fitsPersistentStack(record, [...members, ...items].map(component))) throw new Error(record.tag ? `Only pieces tagged "${record.tag}" go into this stack.` : 'These pieces don\'t go into this stack.');
+      const filter = stackFilterOf(p, record.id), outsider = items.map(component).find(c => !c.stackable || !matchesTags(filter, componentTags(c)));
+      if (outsider) throw new Error(outsider.stackable ? `${outsider.name} doesn't fit this stack (it takes ${describeFilter(filter)}).` : `${outsider.name} can't be stacked.`);
       materialize(members);
       new Set(items.flatMap(i => i.stack ? [i.stack] : [])).forEach(stack => materialize(stackMembers(p, items.find(i => i.stack === stack)!)));
       const seen = new Set<string>();
@@ -1117,10 +1197,12 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         if (!item.holder || isLocked(item)) throw new Error('Only unlocked held components can be released.');
       });
       const targetItems = stackMembers(p, target);
-      if (targetItems.some(i => i.holder || isLocked(i)) || !canStack([...targetItems, ...items].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+      if (targetItems.some(i => i.holder || isLocked(i))) throw new Error('Select compatible unlocked tabletop components.');
+      const filter = joinFilter(target, items);
       if (p.instances.some(i => i.stack === command.stackId && !targetItems.includes(i))) throw new Error('Stack identifier already exists.');
       materialize(targetItems);
       [...stackMembers(p, target), ...items].forEach((item, order) => Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
+      applyFilter(command.stackId, filter);
       break;
     }
     case 'transferToHand': {
@@ -1154,11 +1236,13 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (!item.holder || isLocked(item)) throw new Error('Only unlocked held components can be released.');
       if (command.targetId) {
         const target = get(command.targetId), members = stackMembers(p, target);
-        if (!command.stackId || members.some(i => i.holder || isLocked(i)) || !canStack([...members, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+        if (!command.stackId || members.some(i => i.holder || isLocked(i))) throw new Error('Select compatible unlocked tabletop components.');
+        const filter = joinFilter(target, [item]);
         if (p.instances.some(i => i.stack === command.stackId && !members.includes(i))) throw new Error('Stack identifier already exists.');
         materialize(members);
         stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
         Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order: members.length, x: target.x, y: target.y });
+        applyFilter(command.stackId, filter);
       } else Object.assign(item, { holder: null, x: command.x, y: command.y });
       break;
     }
@@ -1218,7 +1302,10 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     case 'stack': {
       const items = command.ids.map(get);
       items.forEach(i => { editable(i); if (isLocked(i) || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
-      if (items.length < 2 || new Set(command.ids).size !== items.length || !canStack(items.map(component))) throw new Error('Select at least two compatible stackable components.');
+      if (items.length < 2 || new Set(command.ids).size !== items.length) throw new Error('Select at least two stackable pieces.');
+      const blocked = items.map(component).find(c => !c.stackable);
+      if (blocked) throw new Error(`${blocked.name} can't be stacked.`);
+      if (!canStack(items.map(component))) throw new Error('These pieces have no stack tag in common.');
       if (items.some(i => i.stack && p.instances.some(other => other.stack === i.stack && !command.ids.includes(other.id)))) throw new Error('Select the entire stack.');
       if (p.instances.some(i => i.stack === command.stackId && !items.includes(i))) throw new Error('Stack identifier already exists.');
       const priorStacks = new Set(items.flatMap(i => i.stack ? [i.stack] : []));
@@ -1231,6 +1318,8 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         return items.filter(other => other.stack === item.stack).sort((a, b) => a.order - b.order);
       });
       ordered.forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: items[0].x, y: items[0].y }));
+      // A new stack takes every stack tag its pieces share.
+      applyFilter(command.stackId, newStackFilter(items.map(component)));
       break;
     }
     case 'dropStack': {
@@ -1241,7 +1330,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (items.some(i => i.stack && stackMembers(p, i).some(other => !command.ids.includes(other.id)))) throw new Error('Select the entire stack.');
       const combined = [...targetItems, ...items];
       combined.forEach(i => { editable(i); if (isLocked(i) || i.holder) throw new Error('Only unlocked tabletop components can be stacked.'); });
-      if (!canStack(combined.map(component))) throw new Error('Select compatible stackable components.');
+      const filter = joinFilter(target, items);
       if (p.instances.some(i => i.stack === command.stackId && !combined.includes(i))) throw new Error('Stack identifier already exists.');
       const priorStacks = new Set(combined.flatMap(i => i.stack ? [i.stack] : []));
       priorStacks.forEach(stack => materialize(stackMembers(p, combined.find(i => i.stack === stack)!)));
@@ -1254,6 +1343,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         return items.filter(other => other.stack === item.stack).sort((a, b) => a.order - b.order);
       });
       [...orderedTarget, ...orderedMoving].forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
+      applyFilter(command.stackId, filter);
       break;
     }
     case 'unstack': {
@@ -1322,11 +1412,13 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (command.type === 'dropFromHand') {
         const target = get(command.targetId);
         const items = stackMembers(p, target);
-        if (!command.stackId || items.some(i => i.holder || isLocked(i)) || !canStack([...items, item].map(component))) throw new Error('Select compatible unlocked tabletop components.');
+        if (!command.stackId || items.some(i => i.holder || isLocked(i))) throw new Error('Select compatible unlocked tabletop components.');
+        const filter = joinFilter(target, [item]);
         if (p.instances.some(i => i.stack === command.stackId && !items.includes(i))) throw new Error('Stack identifier already exists.');
         materialize(items);
         stackMembers(p, target).forEach((i, order) => Object.assign(i, { stack: command.stackId, stackReversed: false, order, x: target.x, y: target.y }));
         Object.assign(item, { holder: null, stack: command.stackId, stackReversed: false, order: items.length, x: target.x, y: target.y });
+        applyFilter(command.stackId, filter);
         break;
       }
       Object.assign(item, { holder: null, x: command.x, y: command.y });
@@ -1438,6 +1530,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       i.stackReversed = false;
     }
   });
+  normalizeStackFilters(p);
   normalizeGroups(p);
   syncPersistentStacks(p);
   // Commands that change table order or grouping keep each group's pieces together (see gatherGroups), so raising a

@@ -5,8 +5,8 @@ import { starterProject, template } from '../src/templates';
 
 function table(): Project {
   const project = starterProject();
-  const card = { ...template('card'), id: 'card', stackable: true };
-  const token = { ...template('token'), id: 'token', stackable: true, stackTag: '' };
+  const card = { ...template('card'), id: 'card', stackable: true, stackTags: ['spirit'] };
+  const token = { ...template('token'), id: 'token', stackable: true, stackTag: '', stackTags: ['amber'] };
   project.components = [card, token];
   project.instances = [
     ...['a', 'b', 'c'].map((id, order) => ({ ...makeInstance(card.id), id, order })),
@@ -33,6 +33,6 @@ describe('stack order preview', () => {
     expect(stackPlan(project, ['c', 'a', 'b'])).toBeUndefined();
   });
   it('explains why incompatible pieces cannot be stacked', () => {
-    expect(stackPlan(table(), ['a', 't'])?.error).toMatch(/compatible stackable/);
+    expect(stackPlan(table(), ['a', 't'])?.error).toMatch(/no stack tag in common/);
   });
 });

@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createPortal, flushSync } from 'react-dom';
 import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
-import { canStack, fitsPersistentStack, handPermissions, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
+import { componentTags, fitsPersistentStack, handPermissions, stackFilterOf, stackJoinError, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ZoomPresets } from './ZoomPresets';
@@ -14,6 +14,8 @@ import { PiecePreview } from './PiecePreview';
 import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft, snappedPositions, snapToGrid } from './playgroundPreview';
 import { cssPx } from './uiScale';
 import { scriptsMention } from './scripting';
+import { TagFilterEditor } from './TagEditors';
+import { describeFilter, filterTags, normalizeTags } from './tags';
 
 type Props = {
   project: Project; actor: string; owner: string; host?: boolean; selected: string[]; setSelected: (ids: string[]) => void;
@@ -263,7 +265,11 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const inPieceStack = !!pieceStack && selectedPieces.every(i => i.stack === pieceStack.id);
   const canPersist = !viewer && !!piece && !pieceStack && selectedPieces.length > 0 &&
     selectedPieces.every(i => !i.holder && !i.locked && !!p.components.find(c => c.id === i.componentId)?.stackable);
-  const stackTags = [...new Set(p.components.map(c => c.stackTag).filter(Boolean))].sort();
+  // Tags offered when editing a stack's filter: every component's stack tags and the tags filters already use.
+  const stackTags = useMemo(() => normalizeTags([...p.components.flatMap(componentTags), ...(p.stacks ?? []).flatMap(record => filterTags(record.filter)),
+    ...p.instances.flatMap(i => filterTags(i.stackFilter))]).sort((a, b) => a.localeCompare(b)), [p.components, p.stacks, p.instances]);
+  // The stack the selection is in (all of it), whose filter the inspector shows.
+  const selectionStack = piece?.stack && selectedPieces.every(i => i.stack === piece.stack) ? piece.stack : undefined;
   const stackTop = piece && !piece.holder ? visibleStackMembers(p, piece).at(-1) : undefined;
   const canDrawSelection = !!currentPlayer && p.settings.hands && !selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand);
   const selectHandCard = (id: string, event: React.MouseEvent) => {
@@ -550,8 +556,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     return true;
   };
   const compatible = (target: Instance, moving: Instance[]) =>
-    [...stackMembers(p, target), ...moving].every(i => !i.locked) &&
-    canStack([...stackMembers(p, target), ...moving].map(i => p.components.find(c => c.id === i.componentId)!));
+    [...stackMembers(p, target), ...moving].every(i => !i.locked) && !stackJoinError(p, target, moving);
   const showDropHint = (x: number, y: number, moving: Instance[], alt: boolean) => {
     const hand = tableHandInsertion(x, y, moving, alt);
     setHandDrop(hand);
@@ -1050,7 +1055,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             const comp = p.components.find(c => c.id === record.componentId);
             const at = slotPreview?.id === record.id ? slotPreview : record;
             return <button key={`slot:${record.id}`} type="button" data-stack-slot={record.id} aria-pressed={selectedSlot === record.id}
-              aria-label={`Empty persistent stack${record.tag ? `, tag ${record.tag}` : ''}`} title="Empty persistent stack: drop pieces here to fill it"
+              aria-label={`Empty persistent stack${stackFilterOf(p, record.id).anyOf.length ? `, takes ${describeFilter(stackFilterOf(p, record.id))}` : ''}`} title="Empty persistent stack: drop pieces here to fill it"
               className={`stack-slot${selectedSlot === record.id ? ' selected' : ''}${dropHint?.id === `slot:${record.id}` ? ' drop-target' : ''}`}
               style={{ left: at.x, top: at.y, width: comp?.width ?? 120, height: comp?.height ?? 168, transform: `translate(-50%, -50%) rotate(${record.rotation}deg) scale(${record.scale ?? 1})` }}
               onPointerDown={e => {
@@ -1078,7 +1083,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
                 if (moved) void dispatch({ type: 'moveStack', stackId: drag.id, x: moved.x, y: moved.y });
               }}
               onPointerCancel={() => { slotDrag.current = null; setSlotPreview(undefined); }}>
-              <Layers size={20} aria-hidden="true" /><span>{record.tag || 'Empty stack'}</span>
+              <Layers size={20} aria-hidden="true" /><span>{stackFilterOf(p, record.id).anyOf.length ? describeFilter(stackFilterOf(p, record.id)) : 'Empty stack'}</span>
             </button>;
           })}
           {topPieces.map(item => {
@@ -1350,7 +1355,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
           {piece.locked && !ownLock(piece.id) && <p className="help-text">Held in place by its locked group. Unlock the group in the Pieces panel to move it.</p>}
-          {pieceStack && inPieceStack && <StackTagField record={pieceStack} tags={stackTags} disabled={viewer} onChange={tag => dispatch({ type: 'setStackTag', stackId: pieceStack.id, tag })} />}
+          {selectionStack && <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, selectionStack)} suggestions={stackTags} disabled={viewer}
+            hint="Which pieces may join this stack, by their components' stack tags (Behavior tab). A new stack takes every tag its pieces share."
+            onChange={filter => void dispatch({ type: 'setStackFilter', stackId: selectionStack, filter })} />}
           <div className="field-grid">
             <NumberField deferred label="Rotation" value={piece.rotation} mixed={selectedPieces.some(i => i.rotation !== piece.rotation)}
               onChange={rotation => dispatch({ type: 'move', ids: selectedPieces.map(i => i.id), patch: { rotation: ((rotation % 360) + 360) % 360 } })} />
@@ -1360,8 +1367,10 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           </>}
         </div> : slotRecord ? <div className="inspector-section selected-inspector">
           <div className="section-title"><h3>Empty persistent stack</h3><button className="icon-button" aria-label="Clear selection" onClick={() => setSelectedSlot(undefined)}><X size={15} /></button></div>
-          <p className="help-text">Drop pieces here to fill it{slotRecord.tag ? ` (pieces tagged “${slotRecord.tag}”)` : ''}. Drag it to move it.</p>
-          <StackTagField record={slotRecord} tags={stackTags} disabled={viewer} onChange={tag => dispatch({ type: 'setStackTag', stackId: slotRecord.id, tag })} />
+          <p className="help-text">Drop pieces here to fill it. Drag it to move it.</p>
+          <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, slotRecord.id)} suggestions={stackTags} disabled={viewer}
+            hint="Which pieces may join this stack, by their components' stack tags (Behavior tab)."
+            onChange={filter => void dispatch({ type: 'setStackFilter', stackId: slotRecord.id, filter })} />
           {!viewer && <div className="action-grid"><button className="danger" onClick={() => { void dispatch({ type: 'unpersistStack', stackId: slotRecord.id }); setSelectedSlot(undefined); }}><Trash2 size={17} /><span>Remove stack</span></button></div>}
         </div> : <div className="inspector-section table-intro"><div className="intro-icon"><MousePointer2 size={23} /></div><h3>No component selected</h3><p>Select a component on the table or in your hand to see its settings and actions.</p></div>}
       </> : <>
@@ -1638,21 +1647,6 @@ function DrawFlight({ flight, component, components, onDone }: { flight: DrawFli
   return <div ref={element} className="draw-flight" aria-hidden="true" style={{ width: component.width, height: component.height }}>
     <ComponentView component={component} components={components} row={flight.from.row} back={visibleBack(flight.from)} />
   </div>;
-}
-
-/** A persistent stack's tag: which pieces may join it (see fitsPersistentStack). Saved when the field loses focus. */
-function StackTagField({ record, tags, disabled, onChange }: { record: PersistentStack; tags: string[]; disabled: boolean; onChange: (tag: string) => Promise<boolean> }) {
-  const [value, setValue] = useState(record.tag);
-  useEffect(() => setValue(record.tag), [record.tag]);
-  const commit = () => {
-    const tag = value.trim();
-    if (tag !== record.tag) void onChange(tag).then(ok => { if (!ok) setValue(record.tag); });
-  };
-  return <Field label="Stack tag" hint="Pieces whose component has this stack tag can join. Empty: the same component as the stack's pieces, or any stackable piece while it's empty.">
-    <input value={value} list="persistent-stack-tags" disabled={disabled} maxLength={100} placeholder="No tag" onChange={event => setValue(event.target.value)} onBlur={commit}
-      onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur(); } }} />
-    <datalist id="persistent-stack-tags">{tags.map(tag => <option key={tag} value={tag} />)}</datalist>
-  </Field>;
 }
 
 function orderBadgePlace(comp: Component, angle: number, zoom = 1): React.CSSProperties {

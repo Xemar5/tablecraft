@@ -387,11 +387,14 @@ describe('tabletop commands', () => {
     expect(p.players).toHaveLength(34);
     expect(source.players).toHaveLength(2);
   });
-  it('requires matching tags, or the exact same untagged component, for stacking', () => {
-    const a = template('card'), b = template('card');
+  it('stacks pieces that share a stack tag, and untagged pieces with anything stackable', () => {
+    const a = { ...template('card'), stackTags: [] as string[] }, b = { ...template('card'), stackTags: [] as string[] };
+    expect(canStack([a, b])).toBe(true);
+    a.stackTags = ['red', 'blue'];
+    expect(canStack([a, b])).toBe(true);
+    b.stackTags = ['green'];
     expect(canStack([a, b])).toBe(false);
-    expect(canStack([a, a])).toBe(true);
-    a.stackTag = b.stackTag = 'cards';
+    b.stackTags = ['BLUE', 'green'];
     expect(canStack([a, b])).toBe(true);
     b.stackable = false;
     expect(canStack([a, b])).toBe(false);
@@ -453,8 +456,8 @@ describe('tabletop commands', () => {
     const deck = p.instances.filter(i => i.stack);
     const card = p.instances.find(i => i.componentId === p.components[0].id && !i.stack)!;
     expect(() => applyCommand(p, { type: 'dropStack', ids: [deck[0].id], targetId: card.id, stackId: 'new' }, 'player-1')).toThrow('entire stack');
-    const token = p.instances.find(i => i.componentId === p.components[1].id)!;
-    expect(() => applyCommand(p, { type: 'dropStack', ids: [token.id], targetId: card.id, stackId: 'new' }, 'player-1')).toThrow('compatible');
+    const die = p.instances.find(i => p.components.find(c => c.id === i.componentId)?.kind === 'dice')!;
+    expect(() => applyCommand(p, { type: 'dropStack', ids: [die.id], targetId: card.id, stackId: 'new' }, 'player-1')).toThrow("can't be stacked");
     p = applyCommand(p, { type: 'dropStack', ids: [card.id], targetId: deck[0].id, stackId: 'new' }, 'player-1');
     const result = stackMembers(p, p.instances.find(i => i.id === card.id)!);
     expect(result).toHaveLength(13);

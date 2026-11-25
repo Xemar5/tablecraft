@@ -3,7 +3,9 @@ import { createPortal } from 'react-dom';
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, BringToFront, CaseLower, CaseSensitive, CaseUpper, ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, ImagePlus, Italic, Layers, Link2, MousePointer2, MoveHorizontal, MoveVertical, PenTool, Redo2, RemoveFormatting, RotateCcw, RotateCw, SendToBack, Spline, Square, Strikethrough, Trash2, Type, Underline, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
 import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
-import { hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
+import { componentTags, hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
+import { TagListField } from './TagEditors';
+import { normalizeTags } from './tags';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { combineLayers, convertToPaths, copySubtrees, groupLayers, pasteSubtrees, reorderLayers, selectedRoots, uncombineLayers, ungroupLayers } from './designerOperations';
 import type { OrderMove } from './zOrder';
@@ -1133,8 +1135,10 @@ export function Designer({ component: incoming, components, functions = [], onCh
               onChange={action => update({ action: action || undefined })}
               hint={<InfoTip text={component.kind === 'button' ? 'Pressing its pieces on the table calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'
                 : 'Selected pieces get a Run button that calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'} />} />
-            {component.stackable && <Field label="Stack tag"><input value={component.stackTag} placeholder="e.g. spirit-deck" onChange={event => update({ stackTag: event.target.value })} /></Field>}
-            <p className="help-text">Matching tags can stack together. Leave blank to stack only this component's instances.</p>
+            {component.stackable && <TagListField label="Stack tags" tags={componentTags(component)}
+              suggestions={normalizeTags(components.flatMap(componentTags)).sort((a, b) => a.localeCompare(b))}
+              hint="Pieces with a stack tag in common can stack, and a new stack takes the tags they share as its filter (editable when the stack is selected). Pieces without tags stack with anything."
+              onChange={stackTags => update({ stackTags, stackTag: '' })} />}
           </div>
           {hasPages(component) && <div className="inspector-section"><h3>{component.kind === 'book' ? 'Book pages' : 'Dice variants'}</h3>
             <p className="help-text">{component.kind === 'book'

@@ -242,7 +242,7 @@ export function goProject(name: string, description: string, profile: Profile): 
     shape('White stone', { shapeKind: 'ellipse', x: .5, y: .5, width: 27, height: 27, fill: '#f4f2ec', stroke: '#b9b3a4', strokeWidth: 1, ...when('side', 'white') }),
   ];
   const stone = component('Go stone', 'token', 28, 28, {
-    stackable: true, rows: [{ name: 'Black stone', side: 'black' }, { name: 'White stone', side: 'white' }],
+    stackable: true, stackTags: ['stone'], rows: [{ name: 'Black stone', side: 'black' }, { name: 'White stone', side: 'white' }],
     front: stoneFace(), back: stoneFace(),
   });
   const bowl = component('Stone bowl', 'token', 96, 96, { color: '#6b4a2b',
@@ -334,7 +334,7 @@ const RULES = [
 export function tidewaterProject(name: string, description: string, profile: Profile): Project {
   const terrainRows = TERRAINS.map(({ terrain, name, resource }) => ({ name, terrain, resource }));
   const tile = component('Island tile', 'card', HEX.width, HEX.height, {
-    flippable: true, stackable: true, shufflable: true, previewWhenLocked: true, rotationStep: 60, rows: terrainRows,
+    flippable: true, stackable: true, stackTags: ['tile'], shufflable: true, previewWhenLocked: true, rotationStep: 60, rows: terrainRows,
     front: [
       ...TERRAINS.map(({ terrain, name, fill }) => shape(name, { shapeKind: 'path', x: 0, y: 0, ...HEX, points: HEX_OUTLINE, fill, stroke: '#1f2b2633', strokeWidth: 1.5, ...when('terrain', terrain) })),
       // The art and resource name fill the upper half, leaving the number slot free below them.
@@ -350,7 +350,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   });
   const numbers = [2, 3, 4, 5, 6, 8, 9, 10, 11, 12];
   const marker = component('Tide marker', 'token', 38, 38, {
-    color: '#efe3c4', stackable: true, shufflable: true, previewWhenLocked: true,
+    color: '#efe3c4', stackable: true, stackTags: ['marker'], shufflable: true, previewWhenLocked: true,
     rows: numbers.map(number => ({ number: String(number), pips: '•'.repeat(6 - Math.abs(7 - number)), hot: number === 6 || number === 8 ? 'yes' : 'no' })),
     front: [
       label('Number', { x: 0, y: 4, width: 38, height: 20, text: '{{number}}', font: 'Lora', fontSize: 17, fontWeight: 700, color: '#2c2a24', ...when('hot', 'no') }),
@@ -395,21 +395,21 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     PLAYER_COLORS.map(({ color, name, fill, edge }) => shape(`${name} ${part}`, { ...values(fill, edge), ...when('color', color) }));
   // Huts, lighthouses and boardwalks look the same from both sides, so a printed piece has a back.
   const hutFace = () => colored('hut', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 26, points: outline([[13, 1], [25, 11], [25, 25], [1, 25], [1, 11]]), fill, stroke: edge, strokeWidth: 1.5 }));
-  const hut = component('Hut', 'card', 26, 26, { stackable: true, rotationStep: 30, rows: colorRows, front: hutFace(), back: hutFace() });
+  const hut = component('Hut', 'card', 26, 26, { stackable: true, stackTags: ['hut'], rotationStep: 30, rows: colorRows, front: hutFace(), back: hutFace() });
   const lighthouseFace = () => [
     shape('Lamp', { x: 8, y: 1, width: 10, height: 9, radius: 2, fill: '#f6dc84', stroke: '#6d5a1f', strokeWidth: 1 }),
     ...colored('tower', (fill, edge) => ({ shapeKind: 'path', x: 0, y: 0, width: 26, height: 38, points: outline([[6, 10], [20, 10], [24, 37], [2, 37]]), fill, stroke: edge, strokeWidth: 1.5 })),
     shape('Band', { x: 5, y: 22, width: 16, height: 3, fill: '#00000033' }),
   ];
-  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, rotationStep: 30, rows: colorRows, front: lighthouseFace(), back: lighthouseFace() });
+  const lighthouse = component('Lighthouse', 'card', 26, 38, { stackable: true, stackTags: ['lighthouse'], rotationStep: 30, rows: colorRows, front: lighthouseFace(), back: lighthouseFace() });
   // Boardwalks lie along tile edges (at 30, 90 or 150 degrees), so they turn in sixths from an edge angle.
   const boardwalkFace = () => [
     ...colored('boardwalk', (fill, edge) => ({ x: 0, y: 5, width: 44, height: 10, radius: 2, fill, stroke: edge, strokeWidth: 1.2 })),
     ...[11, 22, 33].map((x, index) => shape(`Plank gap ${index + 1}`, { x, y: 6, width: 1.2, height: 8, fill: '#00000040' })),
   ];
-  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, rotationStep: 60, rows: colorRows, front: boardwalkFace(), back: boardwalkFace() });
+  const boardwalk = component('Boardwalk', 'card', 44, 20, { stackable: true, stackTags: ['boardwalk'], rotationStep: 60, rows: colorRows, front: boardwalkFace(), back: boardwalkFace() });
   const resource = component('Resource', 'card', 64, 90, {
-    color: '#f4ecd8', flippable: true, hand: true, hideInHand: true, stackable: true, shufflable: true,
+    color: '#f4ecd8', flippable: true, hand: true, hideInHand: true, stackable: true, stackTags: ['resource'], shufflable: true,
     rows: TERRAINS.slice(0, 5).map(({ terrain, resource }) => ({ name: resource, terrain })),
     front: [
       ...TERRAINS.slice(0, 5).map(({ terrain, fill }) => shape(`${terrain} panel`, { x: 5, y: 5, width: 54, height: 58, radius: 6, fill, ...when('terrain', terrain) })),
@@ -422,7 +422,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ],
   });
   const tideCard = component('Tide card', 'card', 80, 112, {
-    color: '#f2ead6', flippable: true, hand: true, hideInHand: true, stackable: true, shufflable: true,
+    color: '#f2ead6', flippable: true, hand: true, hideInHand: true, stackable: true, stackTags: ['tide card'], shufflable: true,
     rows: TIDE_CARDS.map(({ name, text }) => ({ name, text })),
     front: [
       shape('Header', { x: 0, y: 0, width: 80, height: 30, fill: '#2d6f86' }),

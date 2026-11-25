@@ -1,0 +1,22 @@
+/* Tag lists and tag filters (TagEditors.tsx). */
+.tag-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-height: 30px; padding: 4px 5px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.tag-chip { display: inline-flex; align-items: center; gap: 3px; max-width: 100%; padding: 2px 4px 2px 8px; border-radius: 12px; background: #e6efd9; color: #2f4f3b; font-size: 11px; line-height: 16px; overflow-wrap: anywhere; }
+.tag-chip button { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; opacity: .6; cursor: pointer; }
+.tag-chip button:hover { opacity: 1; background: #d4e3c2; }
+.tag-chip-not { background: #f6e6df; color: #7a3f2e; text-decoration: line-through; text-decoration-color: #c08a76; }
+.tag-chip-not button:hover { background: #edd2c6; }
+.tag-input { flex: 1 1 80px; min-width: 70px; width: auto; border: 0; padding: 3px 4px; font-size: 11px; background: transparent; }
+.tag-input:focus { outline: none; }
+.tag-empty { font-size: 11px; color: #9ca990; padding: 0 3px; }
+.tag-add { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; padding: 0; border: 1px dashed #b9c8aa; border-radius: 50%; background: transparent; color: #6f8a5c; cursor: pointer; }
+.tag-add:hover { background: #eef4e5; }
+.tag-filter .filter-summary { margin: 0 0 4px; font-size: 11px; line-height: 1.5; color: #6f7d68; }
+.tag-filter .filter-summary strong { color: #2f4f3b; font-weight: 600; }
+.filter-rule { position: relative; display: grid; gap: 4px; padding: 8px 30px 8px 8px; border: 1px solid #e1e8d8; border-radius: 8px; background: #f8faf4; }
+.filter-part { display: grid; grid-template-columns: 52px 1fr; align-items: center; gap: 6px; }
+.filter-part-label { font-size: 10px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: #869a73; }
+.filter-part .tag-chips { min-height: 28px; padding: 3px 4px; }
+.filter-remove { position: absolute; top: 6px; right: 5px; width: 22px; height: 22px; color: #9aa78f; }
+.filter-or { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: #9aa78f; }
+.filter-or::before, .filter-or::after { content: ''; flex: 1; height: 1px; background: #e1e8d8; }
+.filter-add-rule { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 11px; }

@@ -33,8 +33,10 @@ describe('persistent stacks', () => {
     next = applyCommand(next, { type: 'dropIntoStack', ids: [cards[0], cards[1]], stackId: 'starter-deck' });
     expect(members(next, 'starter-deck')).toEqual([cards[0], cards[1]]);
     expect(next.instances.find(i => i.id === cards[1])).toMatchObject({ x: 300, y: 320 });
-    // Only pieces that fit the stack's tag go in: untagged, it takes the same component as its pieces.
-    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [tokens[0]], stackId: 'starter-deck' })).toThrow();
+    // Only stackable pieces that fit the stack's filter (spirit cards) go in.
+    const die = next.instances.find(i => next.components.find(c => c.id === i.componentId)?.kind === 'dice')!;
+    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [die.id], stackId: 'starter-deck' })).toThrow("can't be stacked");
+    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [tokens[0]], stackId: 'starter-deck' })).toThrow('takes spirit');
     expect(() => validateProject(next)).not.toThrow();
     void token;
   });
@@ -43,7 +45,7 @@ describe('persistent stacks', () => {
     const { p, cards, tokens } = setup();
     let next = applyCommand(p, { type: 'persistStack', ids: [tokens[0]], stackId: 'amber-pile' });
     expect(members(next, 'amber-pile')).toEqual([tokens[0]]);
-    expect(record(next, 'amber-pile')!.tag).toBe('amber');
+    expect(record(next, 'amber-pile')!.filter).toEqual({ anyOf: [{ has: ['amber'], lacks: [] }] });
     // Dropping a token on it merges under the persistent stack's id, whatever id the drop asked for.
     next = applyCommand(next, { type: 'dropStack', ids: [tokens[1]], targetId: tokens[0], stackId: 'fresh' });
     expect(members(next, 'amber-pile')).toEqual([tokens[0], tokens[1]]);
@@ -58,15 +60,19 @@ describe('persistent stacks', () => {
     expect(record(next, 'pair')).toBeUndefined();
   });
 
-  it('keep their tag, which can change when the pieces in them allow it', () => {
-    const { p, tokens, cards } = setup();
-    let next = applyCommand(p, { type: 'persistStack', ids: [tokens[0]], stackId: 'pile' });
-    expect(() => applyCommand(next, { type: 'setStackTag', stackId: 'pile', tag: 'gold' })).toThrow('stack tag');
+  it('keep their filter, which decides who may join, even while empty', () => {
+    const { p, tokens, token } = setup();
+    const silver = { ...token, id: 'silver', name: 'Silver token', stackTags: ['silver'] };
+    let next = applyCommand(p, { type: 'addComponents', components: [silver] });
+    next = applyCommand(next, { type: 'spawn', instances: [{ ...next.instances.find(i => i.id === tokens[0])!, id: 'coin', componentId: 'silver', stack: null, group: undefined }] });
+    next = applyCommand(next, { type: 'persistStack', ids: [tokens[0]], stackId: 'pile' });
+    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: ['coin'], stackId: 'pile' })).toThrow('takes amber');
     next = applyCommand(next, { type: 'extractMove', id: tokens[0], x: 0, y: 0 });
-    next = applyCommand(next, { type: 'setStackTag', stackId: 'pile', tag: '' });
-    // Empty and untagged, it takes any stackable piece, and then only that component.
-    next = applyCommand(next, { type: 'dropIntoStack', ids: [cards[0]], stackId: 'pile' });
-    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: [tokens[1]], stackId: 'pile' })).toThrow();
-    expect(applyCommand(next, { type: 'dropIntoStack', ids: [cards[1]], stackId: 'pile' }).instances.filter(i => i.stack === 'pile')).toHaveLength(2);
+    // Empty, it keeps taking amber only; widening the filter lets silver in.
+    expect(() => applyCommand(next, { type: 'dropIntoStack', ids: ['coin'], stackId: 'pile' })).toThrow('takes amber');
+    next = applyCommand(next, { type: 'setStackFilter', stackId: 'pile', filter: { anyOf: [{ has: ['amber'], lacks: [] }, { has: ['silver'], lacks: [] }] } });
+    next = applyCommand(next, { type: 'dropIntoStack', ids: ['coin', tokens[1]], stackId: 'pile' });
+    expect(members(next, 'pile')).toEqual(['coin', tokens[1]]);
+    expect(next.instances.filter(i => i.stack === 'pile').every(i => !i.stackFilter)).toBe(true);
   });
 });

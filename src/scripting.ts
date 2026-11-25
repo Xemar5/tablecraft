@@ -15,7 +15,7 @@ import {
   type LuaCFunction, type LuaState,
 } from './vendor/fengari.js';
 import {
-  appendScriptLog, memoryAt, memoryPathText, setMemory, stackMembers, visibleBack, visibleStackMembers,
+  appendScriptLog, componentTags, memoryAt, memoryPathText, setMemory, stackFilterOf, stackMembers, visibleBack, visibleStackMembers,
   type Command, type Component, type Instance, type Memory, type MemoryPath, type MemoryValue, type Player, type Project, type Script, type ScriptLogEntry,
 } from './domain';
 
@@ -52,9 +52,9 @@ export const SCRIPT_API = [
   { name: 'game.pieces', args: '(filter?)', doc: 'Every piece (table first, in table order, then hands). filter is a table such as { component = "Spirit cards", kind = "card", holder = false, stack = id, row = 2, locked = true } or a function(piece) returning true to keep it.' },
   { name: 'game.piece', args: '(id)', doc: 'One piece, or nil. Pieces are snapshots: read them again after changing them.' },
   { name: 'game.hand', args: '(player)', doc: 'The pieces in a seat’s hand, in order.' },
-  { name: 'game.stackOf', args: '(idOrPiece)', doc: 'The stack a piece is in (or a stack by id): { id, pieces (bottom to top), top, count, x, y, persistent, tag }, or nil.' },
+  { name: 'game.stackOf', args: '(idOrPiece)', doc: 'The stack a piece is in (or a stack by id): { id, pieces (bottom to top), top, count, x, y, persistent, filter }, or nil. filter.anyOf lists rules { has = {...}, lacks = {...} }.' },
   { name: 'game.stacks', args: '()', doc: 'Every stack on the table, including empty persistent ones.' },
-  { name: 'game.components', args: '()', doc: 'Every component: { id, name, kind, variants, data }.' },
+  { name: 'game.components', args: '()', doc: 'Every component: { id, name, kind, variants, data, tags } (tags are its stack tags).' },
   { name: 'game.component', args: '(nameOrId)', doc: 'One component, or nil.' },
   { name: 'game.players', args: '()', doc: 'The seats in turn order: { id, name, color, seat, isTurn }.' },
   { name: 'game.player', args: '(idOrNameOrSeat)', doc: 'One seat, or nil.' },
@@ -75,6 +75,7 @@ export const SCRIPT_API = [
   { name: 'game.stack', args: '(pieces)', doc: 'Stacks pieces (the first at the bottom) and returns the stack id.' },
   { name: 'game.stackOnto', args: '(pieces, stack)', doc: 'Puts pieces on top of a stack or piece (or an empty persistent stack).' },
   { name: 'game.unstack', args: '(stack)', doc: 'Spreads a stack out.' },
+  { name: 'game.setStackFilter', args: '(stack, rules)', doc: 'Sets which pieces may join a stack: a list of rules { has = {"blue", "red"}, lacks = {"white"} }; a piece fits when it matches any rule (an empty list takes any piece).' },
   { name: 'game.shuffle', args: '(stack)', doc: 'Shuffles a stack.' },
   { name: 'game.draw', args: '(stack, player?, count?, faceUp?)', doc: 'Draws count pieces (1) from the top of a stack into a hand (the acting or current seat) and returns them.' },
   { name: 'game.give', args: '(pieces, player, faceUp?)', doc: 'Puts pieces from the table or another hand into a seat’s hand.' },
@@ -445,11 +446,11 @@ function stackInfo(project: Project, id: string): PieceInfo | undefined {
   const pieces = first ? visibleStackMembers(project, first).map(item => pieceInfo(project, item)) : [];
   return {
     id, pieces: pieces as MemoryValue[], top: pieces.at(-1) as MemoryValue | undefined, count: pieces.length,
-    x: first?.x ?? record!.x, y: first?.y ?? record!.y, persistent: !!record, tag: record?.tag ?? '',
+    x: first?.x ?? record!.x, y: first?.y ?? record!.y, persistent: !!record, filter: stackFilterOf(project, id) as unknown as MemoryValue,
   };
 }
 function componentInfo(component: Component): PieceInfo {
-  return { id: component.id, name: component.name, kind: component.kind, variants: Math.max(1, component.rows.length), data: component.rows as MemoryValue };
+  return { id: component.id, name: component.name, kind: component.kind, variants: Math.max(1, component.rows.length), data: component.rows as MemoryValue, tags: componentTags(component) };
 }
 
 // ---- The Lua state ----
@@ -695,6 +696,16 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       return 0;
     },
     unstack: L => { act({ type: 'unstack', id: stackPiece(arg(L, 1, 'stack')).id }); return 0; },
+    setStackFilter: L => {
+      const value = arg(L, 1, 'stack'), key = text(value, 'stack');
+      const stackId = state.live.stacks?.some(stack => stack.id === key) || state.live.instances.some(i => i.stack === key) ? key : stackPiece(value).stack;
+      if (!stackId) throw new ScriptError('That piece is not in a stack.');
+      const rules = arg(L, 2, 'rules') ?? [];
+      if (!Array.isArray(rules)) throw new ScriptError('game.setStackFilter takes a list of rules such as { { has = { "blue" } } }.');
+      const list = (rule: MemoryValue, key: string) => { const tags = (rule as Record<string, MemoryValue>)[key] ?? []; return (Array.isArray(tags) ? tags : [tags]).map(String); };
+      act({ type: 'setStackFilter', stackId, filter: { anyOf: rules.map(rule => ({ has: list(rule, 'has'), lacks: list(rule, 'lacks') })) } });
+      return 0;
+    },
     shuffle: L => { act({ type: 'shuffle', id: stackPiece(arg(L, 1, 'stack')).id, seed: Math.floor(random() * 0x7fffffff) }); return 0; },
     draw: L => {
       const from = stackPiece(arg(L, 1, 'stack')), target = arg(L, 2, 'player');

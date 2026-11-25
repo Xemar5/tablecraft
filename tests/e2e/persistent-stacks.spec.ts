@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-type Saved = { instances: { id: string; stack: string | null; holder: string | null }[]; stacks?: { id: string; tag: string }[] };
+type Saved = { instances: { id: string; stack: string | null; holder: string | null }[]; stacks?: { id: string; tag: string; filter?: unknown }[] };
 const saved = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0]) as Promise<Saved>;
 const grid = (page: Page) => page.locator('.action-grid');
 
@@ -36,16 +36,16 @@ test('a persistent stack stays as an empty slot that takes pieces back', async (
   await expect(page.locator('.stack-count.persistent')).toHaveCount(0);
 });
 
-test('a single piece becomes a persistent stack that keeps its tag, which can only change to one its pieces have', async ({ page }) => {
+test('a single piece becomes a persistent stack that keeps its filter, editable in the Selection tab', async ({ page }) => {
   await page.goto('/');
   const id = await page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first().getAttribute('data-piece-id');
   await page.locator(`.table-piece[data-piece-id="${id}"]`).click();
   await grid(page).getByRole('button', { name: 'Make a persistent stack' }).click();
-  const tag = page.getByRole('combobox', { name: /^Stack tag/ });
-  await expect(tag).toHaveValue('amber');
-  await tag.fill('gold');
-  await tag.press('Enter');
-  // Its amber token doesn't have that tag, so the tag stays.
-  await expect(tag).toHaveValue('amber');
-  await expect.poll(async () => (await saved(page)).stacks?.[0].tag).toBe('amber');
+  const filter = page.getByRole('group', { name: 'Stack filter', exact: true });
+  await expect(filter.locator('.filter-summary')).toContainText('Takes amber.');
+  await filter.getByRole('button', { name: 'Or pieces with…', exact: true }).click();
+  await filter.getByRole('combobox', { name: 'Tag pieces must have for rule 2', exact: true }).fill('gold');
+  await filter.getByRole('combobox', { name: 'Tag pieces must have for rule 2', exact: true }).press('Enter');
+  await expect(filter.locator('.filter-summary')).toContainText('Takes amber or gold.');
+  await expect.poll(async () => (await saved(page)).stacks?.[0].filter).toEqual({ anyOf: [{ has: ['amber'], lacks: [] }, { has: ['gold'], lacks: [] }] });
 });
