@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { link, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { z } from 'zod';
-import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Project } from '../src/domain';
+import { applyCommand, archiveSchema, commandSchema, componentSchema, makeInstance, memoryAt, memoryValueSchema, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type MemoryPath, type Project } from '../src/domain';
+import { scriptFunctions } from '../src/scripting';
 import { groupMembers, nextGroupName } from '../src/pieceGroups';
 import { exportComponentBundle, remapComponentBundle } from '../src/storage';
 import { createPortableZip, readPortableZip } from '../src/portable';
@@ -16,7 +17,7 @@ const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzer
 Usage: npm --silent run cli -- <command> [options]
 
   new --out FILE [--template blank|wildwood|chess|checkers|backgammon|go|tidewater] [--name NAME] [--force]
-  generate --file FILE --template blank|card|token|board|dice|book|artwork [--name NAME] [--data JSON_FILE]
+  generate --file FILE --template blank|card|token|board|dice|book|artwork|button [--name NAME] [--data JSON_FILE]
   import --file FILE --bundle COMPONENT_ZIP
   list --file FILE [--what components|instances|players|groups]
   inspect --file FILE [--component ID]
@@ -30,6 +31,11 @@ Usage: npm --silent run cli -- <command> [options]
   group lock|unlock --file FILE --group GROUP_IDS
   lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--actor PLAYER_ID]
   grid --file FILE [--show on|off] [--snap on|off] [--size N] [--offset-x N] [--offset-y N]
+  script list --file FILE
+  script set --file FILE --name NAME --source LUA_FILE
+  script remove --file FILE --name NAME
+  call --file FILE --function NAME [--piece ID] [--args JSON] [--actor PLAYER_ID]
+  memory --file FILE [--path KEY.KEY.N] [--set JSON | --remove]
   validate --file FILE
   export --file FILE --out FILE [--component ID] [--force]
   live host --file FILE --code CODE [live options]
@@ -48,6 +54,10 @@ put and can be dragged and box-selected over. grid prints the table grid setting
 the ones given: snap points sit at offset + n × size (size 5–200 px). The chess, checkers, backgammon, go
 and tidewater templates are ready-to-play games with grouped, partly locked pieces. Book pages and dice faces
 step with {"type":"cycleVariant","ids":[...],"delta":1} in apply.
+Scripts are Lua 5.3, run in order by the shared command engine (onLoad runs when they
+change). script set adds a script or replaces the one with that name. call runs a global
+function as the active seat (--actor) and prints memory and the new console lines. memory
+prints memory (or the value at --path; numbers index lists from 1) and --set/--remove change it.
 For archives with multiple projects use --project PROJECT_ID. Offline mutations
 replace --file atomically after the full batch succeeds. Offline apply supports
 {"type":"undo"} within the current batch only. Live batches commit one command
@@ -61,7 +71,7 @@ function parseArgs(args: string[]) {
     if (!arg.startsWith('--')) { positionals.push(arg); continue; }
     const key = arg.slice(2);
     if (!key || key in options) throw new Error(`Invalid or repeated option ${arg}.`);
-    if (['force', 'help', 'json'].includes(key)) options[key] = true;
+    if (['force', 'help', 'json', 'remove'].includes(key)) options[key] = true;
     else {
       if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error(`Option ${arg} requires a value.`);
       options[key] = args[++i];
@@ -111,7 +121,7 @@ async function main(args: string[]) {
   const { positionals, options: o } = parseArgs(args);
   const [cmd, sub] = positionals;
   if (o.help || !cmd) { console.log(help); return; }
-  if (positionals.length > (cmd === 'live' || cmd === 'group' ? 2 : 1)) throw new Error('Unexpected positional argument.');
+  if (positionals.length > (cmd === 'live' || cmd === 'group' || cmd === 'script' ? 2 : 1)) throw new Error('Unexpected positional argument.');
   let result: unknown;
   if (cmd === 'schema') {
     allowed(o, ['what']);
@@ -153,6 +163,7 @@ async function main(args: string[]) {
       group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id'],
       lock: [...common, 'pieces', 'groups', 'actor'], unlock: [...common, 'pieces', 'groups', 'actor'],
       grid: [...common, 'show', 'snap', 'size', 'offset-x', 'offset-y'],
+      script: [...common, 'name', 'source'], call: [...common, 'function', 'piece', 'args', 'actor'], memory: [...common, 'path', 'set', 'remove'],
     };
     if (!(cmd in supported)) throw new Error(`Unknown command ${cmd}. Use --help.`);
     allowed(o, supported[cmd]);
@@ -162,7 +173,7 @@ async function main(args: string[]) {
     let changed = false;
     if (cmd === 'generate') {
       const kind = option(o, 'template') as Parameters<typeof templateBundle>[0];
-      if (!['blank', 'card', 'token', 'board', 'dice', 'book', 'artwork'].includes(kind)) throw new Error('Unknown component template.');
+      if (!['blank', 'card', 'token', 'board', 'dice', 'book', 'artwork', 'button'].includes(kind)) throw new Error('Unknown component template.');
       const data = o.data ? await jsonFile(option(o, 'data')) : {};
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Component data must be a JSON object.');
       const bundle = templateBundle(kind);
@@ -237,6 +248,41 @@ async function main(args: string[]) {
       changed = Object.keys(patch).length > 0;
       const { grid, snap: snapping, gridSize, gridOffsetX = 0, gridOffsetY = 0 } = project.settings;
       result = { grid, snap: snapping, gridSize, gridOffsetX, gridOffsetY };
+    } else if (cmd === 'script') {
+      if (!['list', 'set', 'remove'].includes(sub)) throw new Error('Choose script list, set or remove.');
+      const named = () => (project.scripts ?? []).find(script => script.name.toLowerCase() === option(o, 'name').toLowerCase());
+      if (sub === 'set') {
+        const source = await readFile(option(o, 'source'), 'utf8');
+        const script = { id: named()?.id ?? uid('script'), name: option(o, 'name'), source };
+        ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'script', script }));
+        changed = true;
+      } else if (sub === 'remove') {
+        const script = named();
+        if (!script) throw new Error(`There is no script called ${option(o, 'name')}.`);
+        ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'removeScript', id: script.id }));
+        changed = true;
+      }
+      result = { scripts: (project.scripts ?? []).map(script => ({ id: script.id, name: script.name, lines: script.source.split('\n').length })),
+        functions: scriptFunctions(project.scripts), memory: project.memory ?? {}, log: project.scriptLog?.slice(-20) ?? [] };
+    } else if (cmd === 'call') {
+      const args = o.args ? z.array(memoryValueSchema).max(20).parse(JSON.parse(option(o, 'args'))) : [];
+      const before = project.scriptLog?.at(-1)?.seq ?? 0;
+      ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), {
+        type: 'call', name: option(o, 'function'), args, seed: Math.floor(Math.random() * 0x7fffffff), ...(o.piece ? { piece: option(o, 'piece') } : {}),
+      }, o.actor as string | undefined));
+      const lines = (project.scriptLog ?? []).filter(line => line.seq > before);
+      const failure = lines.find(line => line.level === 'error');
+      if (failure) throw new Error(failure.text);
+      changed = true; result = { memory: project.memory ?? {}, log: lines };
+    } else if (cmd === 'memory') {
+      const path: MemoryPath = typeof o.path === 'string' ? option(o, 'path').split('.').map(key => /^[1-9]\d*$/.test(key) ? Number(key) : key) : [];
+      if (o.set !== undefined && o.remove) throw new Error('Choose --set or --remove, not both.');
+      if (o.set !== undefined || o.remove) {
+        const value = o.remove ? undefined : memoryValueSchema.parse(JSON.parse(option(o, 'set')));
+        ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'memory', changes: [{ path, ...(value === undefined ? {} : { value }) }] }));
+        changed = true;
+      }
+      result = path.length ? { path, value: memoryAt(project.memory, path) ?? null } : project.memory ?? {};
     } else if (cmd === 'list') {
       const what = option(o, 'what', 'components');
       if (!['components', 'instances', 'players', 'groups'].includes(what)) throw new Error('Unknown list type.');
