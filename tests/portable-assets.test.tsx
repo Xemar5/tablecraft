@@ -135,6 +135,6 @@ describe('portable ZIP saves and imported assets', () => {
 
   it('preserves multiple projects in workspace exports', () => {
     const archive: Archive = { format: 'tablecraft', version: 1, projects: [blankProject('One'), blankProject('Two')] };
-    expect(readPortableZip(createPortableZip(archive))).toEqual({ kind: 'archive', archive });
+    expect(readPortableZip(createPortableZip(archive))).toEqual({ kind: 'archive', archive, histories: {} });
   });
 });
