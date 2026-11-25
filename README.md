@@ -125,6 +125,18 @@ Treat that token as a secret. Do not put it in source control or shared logs.
 
 On this Windows setup, the equivalent launch helpers are `.\Start-Tablecraft.ps1 -Database` and `.\Start-Tablecraft.ps1 -Publish`.
 
+**Windows launchers.** The `Tablecraft-*.bat` files in the project folder run the usual commands without setting anything up first: they use an installed Node.js, npm and SpaceTimeDB CLI when there are any, and otherwise the portable tools in `%LOCALAPPDATA%\prototyper-tools` (the portable npm and SpaceTimeDB CLI are reached through small shims in `scripts\windows-bin`, which only the launchers put on PATH). Double-click one, or run it from a terminal; double-clicked ones keep their window open at the end so you can read the result.
+
+| Launcher | Does |
+| --- | --- |
+| `Tablecraft-Dev.bat` | Starts the app (`npm run dev`) and opens it in your browser. |
+| `Tablecraft-Test.bat` / `Tablecraft-Build.bat` | Runs the unit tests (`npm test`) / type-checks and builds (`npm run build`). |
+| `Tablecraft-Database.bat` | Starts the local SpaceTimeDB server on `127.0.0.1:3000`, with its data in `%LOCALAPPDATA%\tablecraft-spacetimedb`. Leave it running. |
+| `Tablecraft-Publish.bat [database]` | Publishes the server module to that server, keeping existing data (`tablecraft-studio` when no name is given). |
+| `Tablecraft-Npm.bat <arguments>` | Runs any other npm command, for example `Tablecraft-Npm.bat run db:generate` or `Tablecraft-Npm.bat run cli -- --help`. |
+
+If publishing says the CLI "is not authorized to perform action on database", that database was first published under another SpaceTimeDB identity: sign in as that identity (`spacetime login`), or publish under a new name (`Tablecraft-Publish.bat tablecraft-dev`) and enter that database name when you host or join.
+
 In the app, choose **Invite players**, enter a room code, then **Host this table**; you play under the name from **Settings**. In another browser profile/device, choose **Join room** with the same server, database (`tablecraft-studio`) and code. Guests can also join straight from Home with **Join a table**; the room opens as a project in their workshop, and a local copy stays there after they leave. Hosting turns the table's hotseat seats into empty seats; the host keeps the seat they were playing. Joining never adds a seat: guests first choose **Pick your seat** (take an empty seat, which is renamed after them, take a new seat (also named after them), or **Watch as viewer**). Viewers can select and inspect everything, use the camera and edit component designs, but cannot move, draw, spawn, undo or change table settings. In **Players**, click any empty seat to switch to it, or use **Leave seat and watch** / **Take a new seat**. A seat is freed for others when its player leaves or their last connection closes. Separate browser profiles provide distinct identities; tabs in the same profile share an identity. A browser identity has one active live room at a time.
 
 For other computers, use a reachable SpaceTimeDB server and a reachable frontend. The default development listeners are deliberately loopback-only. For example, start Vite with `npm run dev -- --host 0.0.0.0`, bind SpaceTimeDB to a LAN interface, allow the chosen ports through your firewall, and enter that machine's LAN address in the connection dialog. Use HTTPS/WSS behind a reverse proxy for internet deployment.
