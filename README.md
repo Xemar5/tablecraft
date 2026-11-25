@@ -284,7 +284,7 @@ The preview's image is centred over the piece name and the shortcut list. Locked
 | Search/reorder | Select stack, then **Search stack**; list runs bottom to top |
 | Shuffle/roll | Hover/focus and press `R`; stack controls also offer shuffle/spread |
 | Lock/unlock | Hover/focus a piece and press `L`, or use the selection inspector |
-| Ping | Hover/focus a piece (or a stack) and press `P`, or choose **Ping** in the Selection grid: it pulses in a brightened version of your seat's colour for every player. Pings aren't undo steps. Scripts ping with `game.ping(pieces)` |
+| Ping | Hover/focus a piece (or a stack) and press `P`, or choose **Ping** in the Selection grid: it pulses in a brightened version of your seat's colour for every player. A pin with your avatar and name, at a fixed screen size, marks it for a few seconds; while it is off someone's screen the pin waits at the table's edge with an arrow pointing to it, and clicking the pin brings the camera there. Pings aren't undo steps. Scripts ping with `game.ping(pieces)` |
 | Hide from seats | Select table pieces and turn seats on under **Hidden from** in the Selection tab: those seats no longer see the pieces (with their whole stacks) on the table. **Visibility → Hidden pieces** shows pieces hidden from you, faded, and labels every hidden piece with who it's hidden from, like a stack's label. Pieces drawn into a hand stop being hidden, and pieces stacked onto a hidden stack are hidden with it. Scripts use `game.hideFrom(pieces, { "Player 2" })` (an empty list shows them to everyone) and read `piece.hiddenFrom` |
 | Focus camera | Select pieces and press `Shift+F` (or **Focus** in the selection inspector) to center and zoom on them, including whole stacks |
 | Scale | Selection inspector |

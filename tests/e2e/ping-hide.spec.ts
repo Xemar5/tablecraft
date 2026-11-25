@@ -12,6 +12,24 @@ test('P pings the hovered piece, and pieces hidden from a seat come back labelle
   await expect(piece.locator('.ping-pulse')).toBeVisible();
   await expect.poll(async () => (await savedWorkspace(page)).projects[0].instances.find(i => i.id === id)?.pings).toBe(1);
   await expect(piece.locator('.ping-pulse')).toHaveCount(0, { timeout: 4000 });
+  // A pin with the pinging player marks it, at a fixed size; off screen it waits at the edge and points the way.
+  const pin = page.locator('.ping-pin');
+  await expect(pin).toHaveCount(0, { timeout: 4000 });
+  await piece.hover();
+  await page.keyboard.press('p');
+  await expect(pin).toContainText('Player 1');
+  await expect(pin).not.toHaveClass(/pointing-away/);
+  await page.keyboard.press('Escape');
+  await piece.click();
+  const view = (await page.locator('.table-viewport').boundingBox())!;
+  for (let n = 0; n < 25; n++) await page.mouse.move(view.x + view.width - 30, view.y + view.height - 30), await page.mouse.wheel(0, -120);
+  await expect(piece).not.toBeInViewport();
+  await page.locator('.action-grid').getByRole('button', { name: /^Ping/ }).click();
+  await expect(pin).toHaveClass(/pointing-away/);
+  await expect(pin).toBeInViewport();
+  await pin.locator('.ping-pin-body').click();
+  await expect(piece).toBeInViewport();
+  await page.keyboard.press('Escape');
 
   // Hide the token from your own seat: it leaves the table until hidden pieces are shown.
   await piece.click();

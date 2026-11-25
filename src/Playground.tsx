@@ -19,6 +19,7 @@ import { PointsPanel } from './GridPoints';
 import { pointGroupAncestors } from './grids';
 import { cssPx } from './uiScale';
 import { scriptsMention } from './scripting';
+import { PingPins, type PingPin } from './PingPins';
 import { TagFilterEditor } from './TagEditors';
 import { describeFilter, filterTags, normalizeTags } from './tags';
 
@@ -133,6 +134,28 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const [seatPosition, setSeatPosition] = useState<{ id: string; x: number; y: number; rotation: number }>();
   const seatGesture = useRef<{ id: string; pointer: number; x: number; y: number; startX: number; startY: number; startWorld: { x: number; y: number }; rotation: number }>(null);
   const [hoveredSeat, setHoveredSeat] = useState<string>();
+  // Pings (from any player or script) show a pin with the pinging player for a few seconds; see PingPins.
+  const [pins, setPins] = useState<PingPin[]>([]);
+  const seenPings = useRef<Map<string, number>>(null);
+  useEffect(() => {
+    const first = !seenPings.current;
+    const seen = seenPings.current ??= new Map();
+    const fresh = new Map<string, string[]>();
+    for (const item of p.instances) {
+      const pings = item.pings ?? 0, previous = seen.get(item.id);
+      seen.set(item.id, pings);
+      if (!first && previous !== undefined && pings > previous) fresh.set(item.pingedBy ?? '', [...fresh.get(item.pingedBy ?? '') ?? [], item.id]);
+    }
+    if (!fresh.size) return;
+    const added = [...fresh].map(([by, ids]) => {
+      const seat = p.players.find(player => player.id === by);
+      return { key: `${by}:${ids.join(',')}:${performance.now()}`, ids, name: seat?.name ?? 'Script', color: seat?.color ?? '#e0a43a' };
+    });
+    // A new ping from the same player replaces their previous pin.
+    setPins(current => [...current.filter(pin => !added.some(entry => entry.name === pin.name)), ...added]);
+    const keys = added.map(pin => pin.key);
+    window.setTimeout(() => setPins(current => current.filter(pin => !keys.includes(pin.key))), 4000);
+  }, [p.instances, p.players]);
   const [rolling, setRolling] = useState<Record<string, number>>({});
   const seenRolls = useRef<Map<string, number>>(null);
   const rollTimers = useRef(new Map<string, number>());
@@ -450,10 +473,12 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     setZoom(z);
   };
   /** Centers the camera on the selected table pieces (whole stacks included) and zooms so they fill most of the view. */
-  const focusSelection = () => {
+  const focusSelection = () => focusOn(selected);
+  /** Centres and zooms the camera on these pieces (with their whole stacks). */
+  const focusOn = (ids: string[]) => {
     const rect = viewport.current?.getBoundingClientRect();
-    const stacks = new Set(p.instances.filter(i => selected.includes(i.id) && i.stack).map(i => i.stack));
-    const targets = p.instances.filter(i => !i.holder && (selected.includes(i.id) || (i.stack && stacks.has(i.stack))));
+    const stacks = new Set(p.instances.filter(i => ids.includes(i.id) && i.stack).map(i => i.stack));
+    const targets = p.instances.filter(i => !i.holder && (ids.includes(i.id) || (i.stack && stacks.has(i.stack))));
     if (!rect || !targets.length) return false;
     const angle = camera * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
     const xs: number[] = [], ys: number[] = [];
@@ -1194,6 +1219,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={gridColor(editedGrid, shownGrids.indexOf(editedGrid))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT}
             highlighted={pointGroup ? (editedGrid.points ?? []).filter(point => pointGroupAncestors(editedGrid.pointGroups ?? [], point.group).includes(pointGroup)).map(point => point.id) : undefined} />}
         </div>
+        <PingPins viewport={viewport} pins={pins} onFocus={ids => { focusOn(ids); }} />
         <div className="floating-tools" onPointerDown={e => e.stopPropagation()}>
           <button className={tool === 'select' ? 'active' : ''} title="Select & move" aria-label="Select and move" onClick={() => setTool('select')}><MousePointer2 size={19} /></button>
           <button className={tool === 'pan' ? 'active' : ''} title="Pan table" aria-label="Pan table" onClick={() => setTool('pan')}><Hand size={19} /></button>

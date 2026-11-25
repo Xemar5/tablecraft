@@ -284,3 +284,16 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hidden-seat { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: inherit; font-size: 11px; cursor: pointer; }
 .hidden-seat .mini-avatar { width: 18px; height: 18px; font-size: 9px; }
 .hidden-seat.hidden { background: #efe9f5; border-color: #cdbfdc; color: #5b4a6e; text-decoration: line-through; text-decoration-color: #a593b8; }
+/* Ping pins (PingPins.tsx): a fixed-size pin with the pinging player's avatar and name above what was pinged, or at
+   the table's edge pointing towards it. The pin's origin is the point it marks. */
+.ping-pins { position: absolute; inset: 0; z-index: 140; pointer-events: none; overflow: hidden; }
+.ping-pin { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; border: 0; background: none; pointer-events: auto; cursor: pointer; animation: ping-pin-in .22s cubic-bezier(.2, .8, .2, 1) both, ping-pin-out .4s ease 3.6s forwards; }
+.ping-pin-body { position: absolute; left: 0; top: 0; display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 3px; white-space: nowrap; border-radius: 16px; background: #fff; color: #293d36; font: 600 12px/1.2 'DM Sans', sans-serif;
+  border: 2px solid var(--ping-color); box-shadow: 0 4px 14px #1a302c40, 0 0 0 3px color-mix(in srgb, var(--ping-color) 35%, transparent); transform: translate(-50%, calc(-100% - 9px)); }
+.ping-pin-avatar { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--ping-color); color: #1f2e27; font-size: 11px; }
+.ping-pin-arrow { position: absolute; left: 0; top: 0; width: 0; height: 0; border: 7px solid transparent; border-top: 9px solid var(--ping-color); border-bottom: 0; transform: translate(-50%, -100%); }
+.ping-pin.pointing-away .ping-pin-body { transform: translate(-50%, -50%); }
+.ping-pin.pointing-away .ping-pin-arrow { transform: rotate(var(--ping-angle)) translateX(var(--ping-reach, 40px)) rotate(-90deg) translate(-50%, 0); transform-origin: 0 0; }
+@keyframes ping-pin-in { from { opacity: 0; scale: .7; } }
+@keyframes ping-pin-out { to { opacity: 0; visibility: hidden; } }
+@media (prefers-reduced-motion: reduce) { .ping-pin { animation: ping-pin-out .01s linear 3.8s forwards; } }
