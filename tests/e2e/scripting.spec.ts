@@ -114,11 +114,26 @@ test('scripts are listed in the component library and can be created from Add co
   await expect(scripts.locator('.script-list li.active')).toContainText('Rules');
   await page.getByRole('button', { name: 'Close Scripts', exact: true }).click();
   const entry = page.getByRole('button', { name: 'Open script Rules', exact: true });
-  await expect(entry).toContainText('1 line · 0 functions');
-  // The library search finds scripts too.
+  // Scripts are library items like the components, after them.
+  const items = page.locator('.component-library > .library-item');
+  await expect(items.last()).toHaveClass(/library-script-item/);
+  await expect(items.last()).toContainText('1 line · 0 functions');
+  // The library search finds scripts too, and the Scripts filter shows only them.
   await page.getByLabel('Search components', { exact: true }).fill('rul');
   await expect(entry).toBeVisible();
+  await expect(items).toHaveCount(1);
   await page.getByLabel('Search components', { exact: true }).fill('');
+  await page.locator('.library-filters').getByRole('button', { name: 'Scripts', exact: true }).click();
+  await expect(items).toHaveCount(1);
   await entry.click();
   await expect(scripts.locator('.script-list li.active')).toContainText('Rules');
+  await page.getByRole('button', { name: 'Close Scripts', exact: true }).click();
+  // Scripts reorder among themselves, like components.
+  await page.getByRole('button', { name: 'Add component', exact: true }).click();
+  await page.getByRole('dialog').getByRole('button', { name: /^Scripts Lua that buttons/ }).click();
+  await page.getByRole('button', { name: 'Close Scripts', exact: true }).click();
+  await expect(items).toHaveCount(2);
+  await page.getByRole('button', { name: 'Reorder Script', exact: true }).press('ArrowLeft');
+  await expect.poll(async () => (await savedWorkspace(page)).projects[0].scripts?.map(script => script.name)).toEqual(['Script', 'Rules']);
+  await expect(items.first()).toContainText('Script');
 });

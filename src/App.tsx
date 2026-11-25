@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, EyeOff, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Download, Eye, FileCode2, FilePlus2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { Armchair, ArrowRight, EyeOff, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Download, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Trash2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
@@ -27,12 +27,15 @@ import { HeaderMenu } from './HeaderMenu';
 import { createMemoryStore, MemoryBindings } from './memoryBindings';
 import { scriptFunctions, scriptsMention } from './scripting';
 import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, saveSettings, validName, watchTheme, type UserSettings } from './settings';
+import './library.css';
 
 // The code editor is large; it loads the first time the window opens.
 const ScriptEditor = lazy(() => import('./ScriptEditor').then(module => ({ default: module.ScriptEditor })));
 const MemoryEditor = lazy(() => import('./MemoryEditor').then(module => ({ default: module.MemoryEditor })));
 const loadingWindow = <div className="script-empty" role="status">Loading…</div>;
 
+type LibraryView = 'large' | 'small' | 'list';
+const LIBRARY_VIEW_KEY = 'tablecraft.libraryView';
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
   : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} />
   : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : kind === 'button' ? <MousePointerClick size={size} /> : <Square size={size} />;
@@ -91,6 +94,11 @@ export default function App() {
   const [curtain, setCurtain] = useState<Player & { endsTurn?: boolean }>();
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('all');
+  // How the component library lays out its items; remembered in this browser.
+  const [libraryView, setLibraryViewState] = useState<LibraryView>(() => {
+    try { const saved = localStorage.getItem(LIBRARY_VIEW_KEY); return saved === 'small' || saved === 'list' ? saved : 'large'; } catch { return 'large'; }
+  });
+  const setLibraryView = (view: LibraryView) => { setLibraryViewState(view); try { localStorage.setItem(LIBRARY_VIEW_KEY, view); } catch { /* a per-browser convenience only */ } };
   const [libraryDrag, setLibraryDrag] = useState<string>();
   const [openVariants, setOpenVariants] = useState<string[]>([]);
   const [libraryDrop, setLibraryDrop] = useState<{ id: string; position: 'before' | 'after' }>();
@@ -621,8 +629,47 @@ export default function App() {
     } catch (error) { notify(`Unable to copy component: ${String(error)}`, true); }
   };
   const visible = project.components.filter(c => c.name.toLowerCase().includes(search.toLowerCase()) && (filter === 'all' || c.kind === filter));
-  // Scripts are listed below the components (under All), and found by the library search too.
-  const visibleScripts = filter === 'all' ? (project.scripts ?? []).filter(script => script.name.toLowerCase().includes(search.toLowerCase())) : [];
+  // Scripts are listed after the components (under All and Scripts), and found by the library search too.
+  const visibleScripts = filter === 'all' || filter === 'script' ? (project.scripts ?? []).filter(script => script.name.toLowerCase().includes(search.toLowerCase())) : [];
+  // Grids reorder across (the left and right halves of a tile); the list reorders up and down. Components and scripts
+  // each reorder among themselves.
+  const dropSide = (e: React.DragEvent<HTMLElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return (libraryView !== 'list' ? e.clientX < rect.left + rect.width / 2 : e.clientY < rect.top + rect.height / 2) ? 'before' as const : 'after' as const;
+  };
+  const isScript = (id?: string) => !!id && !!project.scripts?.some(script => script.id === id);
+  const reorderTarget = (id: string, script: boolean, onDrop: (dragged: string, position: 'before' | 'after') => unknown) => ({
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!libraryDrag || libraryDrag === id || isScript(libraryDrag) !== script) return;
+      e.preventDefault(); e.dataTransfer.dropEffect = 'move';
+      setLibraryDrop({ id, position: dropSide(e) });
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setLibraryDrop(undefined);
+    },
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      if (!libraryDrag || isScript(libraryDrag) !== script) return;
+      e.preventDefault();
+      if (libraryDrag !== id) void onDrop(libraryDrag, dropSide(e));
+      setLibraryDrag(undefined); setLibraryDrop(undefined);
+    },
+  });
+  const reorderHandle = (id: string, name: string, index: number, ids: string[], move: (id: string, targetId: string, position: 'before' | 'after') => unknown) =>
+    <button className="icon-button library-reorder" draggable aria-label={`Reorder ${name}`} title="Drag to reorder; use the arrow keys when focused"
+      onDragStart={e => { e.dataTransfer.setData('text/plain', id); e.dataTransfer.effectAllowed = 'move'; setLibraryDrag(id); }}
+      onDragEnd={() => { setLibraryDrag(undefined); setLibraryDrop(undefined); }}
+      onKeyDown={e => {
+        const back = e.key === 'ArrowUp' || e.key === 'ArrowLeft', forward = e.key === 'ArrowDown' || e.key === 'ArrowRight';
+        if (!back && !forward) return;
+        e.preventDefault();
+        const target = ids[index + (back ? -1 : 1)];
+        if (target) void move(id, target, back ? 'before' : 'after');
+      }}><GripVertical size={14} /></button>;
+  const reorderScript = (id: string, targetId: string, position: 'before' | 'after') => {
+    const ids = (project.scripts ?? []).map(other => other.id).filter(other => other !== id);
+    ids.splice(ids.indexOf(targetId) + (position === 'after' ? 1 : 0), 0, id);
+    return dispatch({ type: 'reorderScripts', ids });
+  };
   const createScript = async () => {
     const taken = new Set((project.scripts ?? []).map(script => script.name.toLowerCase()));
     let name = project.scripts?.length ? 'Script' : 'Rules';
@@ -697,53 +744,35 @@ export default function App() {
         <div className="library-search search-input"><Search size={14} /><input placeholder="Find a component..." value={search} onChange={e => setSearch(e.target.value)} aria-label="Search components" /><kbd>⌕</kbd></div>
         <div className={`library-filter-scroll${filterEdges.left ? ' overflow-left' : ''}${filterEdges.right ? ' overflow-right' : ''}`}>
           <ScrollArrows target={filterStrip} {...filterEdges} label="library filters" />
-          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'book', label: 'Books' }, { id: 'artwork', label: 'Artwork' }, { id: 'texture', label: 'Textures' }, { id: 'font', label: 'Fonts' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
+          <div ref={filterStrip} className="library-filters">{[{ id: 'all', label: 'All' }, { id: 'card', label: 'Cards' }, { id: 'token', label: 'Tokens' }, { id: 'board', label: 'Boards' }, { id: 'dice', label: 'Dice' }, { id: 'book', label: 'Books' }, { id: 'artwork', label: 'Artwork' }, { id: 'texture', label: 'Textures' }, { id: 'font', label: 'Fonts' }, { id: 'script', label: 'Scripts' }].map(f => <button key={f.id} className={filter === f.id ? 'active' : ''} onClick={() => setFilter(f.id)}>{f.label}</button>)}</div>
         </div>
-        <div className="library-section-label">PROJECT LIBRARY <span>{visible.length}</span></div>
-        <div className="component-library">{visible.map((comp, index) => <div key={comp.id}
-          className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}${libraryDrag === comp.id ? ' library-dragging' : ''}${libraryDrop?.id === comp.id ? ` library-drop-${libraryDrop.position}` : ''}`}
-          onDragOver={e => {
-            if (!libraryDrag || libraryDrag === comp.id) return;
-            e.preventDefault(); e.dataTransfer.dropEffect = 'move';
-            const rect = e.currentTarget.getBoundingClientRect();
-            setLibraryDrop({ id: comp.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
-          }}
-          onDragLeave={e => {
-            if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) setLibraryDrop(undefined);
-          }}
-          onDrop={e => {
-            if (!libraryDrag) return;
-            e.preventDefault();
-            const rect = e.currentTarget.getBoundingClientRect();
-            if (libraryDrag !== comp.id) void dispatch({ type: 'reorderComponent', id: libraryDrag, targetId: comp.id, position: e.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
-            setLibraryDrag(undefined); setLibraryDrop(undefined);
-          }}>
+        <div className="library-section-label"><span>PROJECT LIBRARY <span className="library-count">{visible.length + visibleScripts.length}</span></span>
+          <span className="library-views" role="radiogroup" aria-label="Library view">{([['large', 'Large grid', LayoutGrid], ['small', 'Small grid', Grid3x3], ['list', 'List', LayoutList]] as const).map(([view, label, Icon]) =>
+            <button key={view} type="button" role="radio" aria-checked={libraryView === view} aria-label={label} title={label} className={libraryView === view ? 'active' : ''} onClick={() => setLibraryView(view)}><Icon size={13} /></button>)}</span></div>
+        <div className={`component-library library-${libraryView}`} role="list" aria-label="Project library">{visible.map((comp, index) => <div key={comp.id} role="listitem"
+          className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}${libraryDrag === comp.id ? ' library-dragging' : ''}${libraryDrop?.id === comp.id ? ` library-drop-${libraryDrop.position}` : ''}${openVariants.includes(comp.id) ? ' library-item-open' : ''}`}
+          {...reorderTarget(comp.id, false, (id, position) => dispatch({ type: 'reorderComponent', id, targetId: comp.id, position }))}>
           <div className="library-preview-wrap">
           <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'designer' || !isAsset(comp)}
             onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, hasVariants(comp) ? comp.rows.map((_, i) => i) : [0], hasVariants(comp))}
             onClick={() => mode === 'designer' || isAsset(comp) ? edit(comp.id) : spawn(comp)} aria-label={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
-            {hasVariants(comp) && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
-            <div className="preview-main"><ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} /></div>
+            {libraryView === 'large' && hasVariants(comp) && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
+            <div className="preview-main">{libraryView === 'large'
+              ? <ComponentThumbnail component={comp} components={project.components} width={comp.kind === 'board' ? 152 : comp.kind === 'token' ? 62 : comp.kind === 'dice' ? 52 : 70} />
+              // Small tiles and list icons fit the art inside their box, whatever its shape.
+              : <ComponentThumbnail component={comp} components={project.components} {...(comp.width >= comp.height ? { width: libraryView === 'small' ? 40 : 30 } : { height: libraryView === 'small' ? 34 : 28 })} />}</div>
             <span className="preview-kind">{kindIcon(comp.kind, 10)}{comp.kind}</span>
             {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
             {mode === 'playground' && !isAsset(comp) && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
             {mode === 'playground' && !isAsset(comp) && <span className="preview-add"><Plus size={17} /></span>}
           </button>
-          {mode === 'playground' && hasVariants(comp) && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
+          {mode === 'playground' && hasVariants(comp) && libraryView !== 'small' && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
             title={`Spawn all ${comp.rows.length} variants${comp.stackable ? ' as a stack' : ''}`} onClick={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)}><CopyPlus size={15} /></button>}
           </div>
-          <div className="library-item-label"><button className="icon-button library-reorder" draggable aria-label={`Reorder ${comp.name}`} title="Drag to reorder; use Up/Down arrows when focused"
-              onDragStart={e => { e.dataTransfer.setData('text/plain', comp.id); e.dataTransfer.effectAllowed = 'move'; setLibraryDrag(comp.id); }}
-              onDragEnd={() => { setLibraryDrag(undefined); setLibraryDrop(undefined); }}
-              onKeyDown={e => {
-                if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-                e.preventDefault();
-                const target = visible[index + (e.key === 'ArrowUp' ? -1 : 1)];
-                if (target) void dispatch({ type: 'reorderComponent', id: comp.id, targetId: target.id, position: e.key === 'ArrowUp' ? 'before' : 'after' });
-              }}><GripVertical size={14} /></button>
+          <div className="library-item-label">{reorderHandle(comp.id, comp.name, index, visible.map(c => c.id), (id, targetId, position) => dispatch({ type: 'reorderComponent', id, targetId, position }))}
             <button className="library-item-name" aria-label={`Edit ${comp.name}`} title="Click to edit in the designer" onClick={() => edit(comp.id)}>
-              <strong>{comp.name}<PencilLine size={10} aria-hidden="true" /></strong><small>{`${comp.width} × ${comp.height} px`}</small>
+              <strong>{comp.name}<PencilLine size={10} aria-hidden="true" /></strong><small>{`${comp.width} × ${comp.height} px`}{libraryView === 'list' && <> · {comp.kind}{hasVariants(comp) && ` · ${comp.rows.length} variants`}</>}</small>
               <span className="library-name-hint" aria-hidden="true"><PencilLine size={9} /> Click to edit in the designer</span></button>
             {mode === 'playground' && hasVariants(comp) && <button className="icon-button library-variants-toggle" aria-expanded={openVariants.includes(comp.id)}
               aria-label={`${openVariants.includes(comp.id) ? 'Hide' : 'Show'} ${comp.name} variants (${comp.rows.length})`}
@@ -755,17 +784,27 @@ export default function App() {
             {hasVariants(comp) && <LibraryVariants key={`${project.id}:${comp.id}`} projectId={project.id} component={comp} components={project.components} open={openVariants.includes(comp.id)} onSpawnAll={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)} />}
           </>}
         </div>)}
+        {/* Scripts sit after the components, as library items of their own kind. */}
+        {visibleScripts.map((script, index) => {
+          const count = scriptFunctions([script]).length, lines = script.source.replace(/\n$/, '').split('\n').length;
+          const info = `${lines} ${lines === 1 ? 'line' : 'lines'} · ${count} ${count === 1 ? 'function' : 'functions'}`;
+          return <div key={script.id} role="listitem" className={`library-item library-script-item${libraryDrag === script.id ? ' library-dragging' : ''}${libraryDrop?.id === script.id ? ` library-drop-${libraryDrop.position}` : ''}`}
+            {...reorderTarget(script.id, true, (id, position) => reorderScript(id, script.id, position))}>
+            <div className="library-preview-wrap">
+              <button className="library-preview library-preview-script" aria-label={`Open script ${script.name}`} title={`Open ${script.name} in the Scripts window`} onClick={() => openScript(script.id)}>
+                <div className="preview-texture" />
+                <div className="preview-main"><span className="library-script-icon" aria-hidden="true"><FileCode2 size={libraryView === 'large' ? 34 : 18} /></span></div>
+                <span className="preview-kind"><FileCode2 size={10} />script</span>
+              </button>
+            </div>
+            <div className="library-item-label">{reorderHandle(script.id, script.name, index, visibleScripts.map(other => other.id), reorderScript)}
+              <button className="library-item-name" aria-label={`Edit script ${script.name}`} title="Click to open in the Scripts window" onClick={() => openScript(script.id)}>
+                <strong>{script.name}<PencilLine size={10} aria-hidden="true" /></strong><small>{info}</small>
+                <span className="library-name-hint" aria-hidden="true"><PencilLine size={9} /> Click to open in the Scripts window</span></button>
+            </div>
+          </div>;
+        })}
           {!visible.length && !visibleScripts.length && <div className="empty-note">{search || filter !== 'all' ? 'No components match your search.' : 'Your first component is one click away.'}<button className="text-button" onClick={() => setModal('templates')}>Create a component <Plus size={13} /></button></div>}
-        {!!visibleScripts.length && <>
-          <div className="library-section-label">SCRIPTS <span>{visibleScripts.length}</span></div>
-          <div className="library-scripts">{visibleScripts.map(script => {
-            const count = scriptFunctions([script]).length, lines = script.source.replace(/\n$/, '').split('\n').length;
-            return <button key={script.id} className="library-script" aria-label={`Open script ${script.name}`} title={`Open ${script.name} in the Scripts window`} onClick={() => openScript(script.id)}>
-              <span className="library-script-icon" aria-hidden="true"><FileCode2 size={18} /></span>
-              <span className="library-script-text"><strong>{script.name}</strong><small>{lines} {lines === 1 ? 'line' : 'lines'} · {count} {count === 1 ? 'function' : 'functions'}</small></span>
-            </button>;
-          })}</div>
-        </>}
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
@@ -846,10 +885,9 @@ export default function App() {
         ['button', 'Buttons', 'Press to run a script for everyone at the table.'],
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kindIcon(kind, 48)}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
         <button className="template-card template-texture" onClick={() => textureInput.current?.click()}><div className="template-art"><ImageIcon size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Textures<ArrowRight size={15} /></strong><small>Import PNG, JPEG, WebP or GIF images. Embedded in your ZIP save.</small></button>
-        <button className="template-card template-script" disabled={!scriptEditor} title={scriptEditor ? undefined : 'Only the host can add scripts in this room'} onClick={() => void createScript()}><div className="template-art"><FileCode2 size={48} /></div><strong>Scripts<ArrowRight size={15} /></strong><small>Lua that buttons and events run for everyone at the table.</small></button>
         <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><Type size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>
+        <button className="template-card template-script" disabled={!scriptEditor} title={scriptEditor ? undefined : 'Only the host can add scripts in this room'} onClick={() => void createScript()}><div className="template-art"><FileCode2 size={48} /></div><strong>Scripts<ArrowRight size={15} /></strong><small>Lua that buttons and events run for everyone at the table.</small></button>
       </div>
-      <button className="blank-template" onClick={() => addTemplate('blank')}><FilePlus2 size={24} /><span><strong>Start from scratch</strong><small>A blank component for a brand new idea.</small></span><ArrowRight size={17} /></button>
     </Modal>}
     {settingsOpen && <Modal title={settings.onboarded ? 'Make it yours.' : 'Welcome to Tablecraft.'} subtitle={settings.onboarded ? 'Preferences for you on this device. They stay in this browser and are never shared with other players.' : 'Before you start, tell the table who you are. Everything here stays in this browser, and you can change it any time in Settings.'} wide onClose={closeSettings}>
       <div className="settings-dialog">

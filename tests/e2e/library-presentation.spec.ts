@@ -48,7 +48,8 @@ test('library drag ordering persists across modes, filters and reloads without s
   await expect(entries.locator('.library-item-label .icon-button[aria-label^="Edit "]')).toHaveCount(0);
   const target = entries.filter({ has: page.getByRole('button', { name: `Reorder ${initial[1]}`, exact: true }) });
   const bounds = (await target.boundingBox())!;
-  await source.dragTo(target, { targetPosition: { x: bounds.width / 2, y: bounds.height - 2 } });
+  // The library is a grid: the right half of a tile drops after it.
+  await source.dragTo(target, { targetPosition: { x: bounds.width - 4, y: bounds.height / 2 } });
   const reordered = [initial[1], initial[0], ...initial.slice(2)];
   await expect(names).toHaveText(reordered);
   await expect(page.locator('.table-piece')).toHaveCount(pieceCount);

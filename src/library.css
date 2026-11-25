@@ -1,0 +1,56 @@
+/* The component library's three views (App.tsx): a large grid, a small grid of tiles without labels, and a list. The
+   grids fit as many columns as the panel's width allows. */
+.library-section-label { align-items: center; }
+.library-section-label .library-count { margin-left: 4px; }
+.library-views { display: inline-flex; gap: 2px; }
+.library-views button { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0; border-radius: 4px; color: #9aa68e; }
+.library-views button:hover { background: #edf2e7; color: #48633e; }
+.library-views button.active { background: #e8efdf; color: #48633e; }
+
+.component-library { display: grid; align-content: start; }
+.component-library.library-large { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); column-gap: 12px; }
+.component-library.library-small { grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; }
+.component-library.library-list { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+.component-library > .empty-note { grid-column: 1 / -1; }
+/* An item showing its variants takes a whole row, so the variants have room. */
+.component-library .library-item-open { grid-column: 1 / -1; }
+.component-library .library-item { min-width: 0; }
+
+/* Small grid: a third of the size, art only; the name is in the tile's tooltip. The grip shows on hover or focus. */
+.component-library.library-small .library-item { margin-bottom: 0; }
+.component-library.library-small .library-preview { height: 48px; border-radius: 6px; }
+.component-library.library-small .preview-kind, .component-library.library-small .preview-hint, .component-library.library-small .preview-variants, .component-library.library-small .library-preview .preview-add { display: none; }
+.component-library.library-small .preview-main { transform: none; }
+.component-library.library-small .library-item-label { position: absolute; top: 1px; left: 1px; margin: 0; z-index: 4; }
+.component-library.library-small .library-item-label > :not(.library-reorder) { display: none; }
+.component-library.library-small .library-reorder { width: 18px !important; height: 18px !important; border-radius: 4px; background: #ffffffd9; opacity: 0; transition: opacity .12s; }
+.component-library.library-small .library-item:hover .library-reorder, .component-library.library-small .library-reorder:focus-visible { opacity: 1; }
+.component-library.library-small .library-link-note { display: none; }
+
+/* List: the grip, the name and its details on the left, a small icon on the right. */
+.component-library.library-list .library-item { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 0; padding: 4px 4px 4px 0; border-radius: 6px; }
+.component-library.library-list .library-item:hover { background: #f3f6ee; }
+.component-library.library-list .library-item.active { background: #eaf1df; }
+.component-library.library-list .library-item-label { order: 0; flex: 1 1 0; min-width: 0; margin: 0; }
+.component-library.library-list .library-preview-wrap { order: 1; flex: none; width: 44px; }
+.component-library.library-list .library-preview { height: 40px; border-radius: 6px; }
+.component-library.library-list .preview-kind, .component-library.library-list .preview-hint, .component-library.library-list .preview-variants, .component-library.library-list .library-preview .preview-add, .component-library.library-list .preview-spawn-all { display: none; }
+.component-library.library-list .preview-main { transform: none; }
+.component-library.library-list .library-name-hint { display: none; }
+.component-library.library-list .library-variants, .component-library.library-list .library-link-note { order: 2; flex-basis: 100%; }
+.component-library.library-small .library-item.active .library-preview, .component-library.library-list .library-item.active .library-preview { border-color: #9bb585; }
+
+/* Grids show where a dragged item lands with a line beside the tile; the list keeps the line above or below. */
+.component-library.library-large .library-drop-before::before, .component-library.library-large .library-drop-after::after,
+.component-library.library-small .library-drop-before::before, .component-library.library-small .library-drop-after::after { top: 0; bottom: 0; width: 3px; height: auto; }
+.component-library.library-large .library-drop-before::before { left: -7px; right: auto; }
+.component-library.library-large .library-drop-after::after { right: -7px; left: auto; }
+.component-library.library-small .library-drop-before::before { left: -4px; right: auto; }
+.component-library.library-small .library-drop-after::after { right: -4px; left: auto; }
+
+/* Scripts look like the other items, with a code icon for art. */
+.library-preview-script { background: #eaf1df; }
+.library-preview-script .preview-main { transform: none; }
+.library-preview-script .library-script-icon { display: inline-flex; align-items: center; justify-content: center; width: auto; height: auto; padding: 10px; border-radius: 10px; background: #fff; color: #4e6f3d; box-shadow: 0 2px 6px #1c33231a; }
+.component-library.library-small .library-preview-script .library-script-icon, .component-library.library-list .library-preview-script .library-script-icon { padding: 5px; border-radius: 6px; }
+.library-preview-script:hover .preview-main { transform: translateY(-2px); }
