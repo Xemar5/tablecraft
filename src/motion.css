@@ -91,11 +91,14 @@
 .hand-tray > .button[aria-pressed] { display: inline-flex; }
 [hidden] { display: none !important; }
 .app-header { height: 58px; min-height: 58px; padding: 0 16px; gap: 16px; justify-content: flex-start; }
+/* Three columns: the logo and modes, the project name centred on the bar, and the actions. The side columns are equal so the name stays centred, and it shrinks (with an ellipsis) before they do. */
+.app-header { display: grid; grid-template-columns: minmax(max-content, 1fr) minmax(0, auto) minmax(max-content, 1fr); }
+.header-start { display: flex; align-items: center; gap: inherit; grid-column: 1; }
 .app-header .brand, .app-header .mode-switch, .header-actions { flex-shrink: 0; }
 .app-header .mode-switch { position: static; transform: none; }
-.app-header .header-actions { margin-left: auto; }
-.compact-project { min-width: 90px; max-width: 210px; gap: 4px; margin-left: 16px; }
-.compact-project h1 { font-size: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.app-header .header-actions { grid-column: 3; justify-self: end; }
+.compact-project { grid-column: 2; min-width: 0; justify-content: center; gap: 4px; }
+.compact-project h1 { min-width: 0; font-size: 15px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .header-actions { gap: 8px; }
 .header-actions .icon-button[aria-pressed="true"], .hand-toolbar .icon-button[aria-pressed="true"] { background: #e7eedc; color: #365d46; }
 .hand-tray { height: 140px; min-height: 140px; padding: 0 16px; gap: 0; }
@@ -152,12 +155,10 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
   .app-header { gap: 10px; padding: 0 12px; }
   .app-header .brand { font-size: 20px; gap: 6px; }
   .app-header .brand-beta, .header-separator, .header-actions .connection-badge { display: none; }
-  .compact-project { max-width: 150px; margin-left: 10px; }
-}
+  }
 @media (max-width: 950px) {
   .app-header { gap: 6px; }
-  .compact-project { max-width: 110px; margin-left: 6px; }
-  .compact-project h1 { font-size: 12px; }
+    .compact-project h1 { font-size: 12px; }
   .header-actions { gap: 3px; }
   .header-actions .compact-invite { font-size: 0; gap: 0; padding: 7px; }
   .app-header .brand { font-size: 0; gap: 0; }

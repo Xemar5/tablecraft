@@ -922,10 +922,10 @@ export default function App() {
   return <MemoryBindings.Provider value={memoryStore}><div className={`app-shell ${mode === 'playground' ? 'playground-shell' : ''}`}>
     <AssetFonts components={fontCatalog} notify={notify} />
     <header className="app-header">
-      <a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
+      <div className="header-start"><a className="brand" href="#" aria-label="Tablecraft home" onClick={e => { e.preventDefault(); showHome(); }}><span className="brand-mark"><Layers size={23} strokeWidth={1.8} /></span>tablecraft<span className="brand-beta">BETA</span></a>
+      {!home && <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>}</div>
       {!home && <>
       <div className="project-heading compact-project"><h1>{project.name}</h1>{open && <span className="history-badge loaded project-context" title="Saving a snapshot adds it here">{contextLabel(open, histories[open.projectId])}</span>}</div>
-      <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
 
       <div className="header-actions"><HeaderMenu label="Actions" title="Undo, redo, save and print" icon={<Menu size={17} />} items={[
         ...mode === 'playground' ? [
