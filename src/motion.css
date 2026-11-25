@@ -297,3 +297,10 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 @keyframes ping-pin-in { from { opacity: 0; scale: .7; } }
 @keyframes ping-pin-out { to { opacity: 0; visibility: hidden; } }
 @media (prefers-reduced-motion: reduce) { .ping-pin { animation: ping-pin-out .01s linear 3.8s forwards; } }
+/* Piece and stack ids in the Selection tab, for scripts and the CLI. */
+.piece-ids { display: grid; gap: 2px; margin: 0 0 12px; font-size: 11px; }
+.piece-id-row { display: grid; grid-template-columns: 58px 1fr; align-items: center; gap: 6px; }
+.piece-id-row dt { color: #8a9a7c; }
+.piece-id-row dd { display: flex; align-items: center; gap: 2px; min-width: 0; margin: 0; }
+.piece-id-row code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px 'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace; color: #4b5c48; background: #f1f4ec; padding: 2px 5px; border-radius: 4px; }
+.piece-id-row .icon-button { width: 22px; height: 22px; flex-shrink: 0; color: #8a9b7d; }

@@ -1438,6 +1438,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           actions={<div className="seat-hand-actions" role="toolbar" aria-label={`${selectedSeat.name}'s hand actions`}>{handActions(selectedSeat)}</div>} /> :
         piece && c ? <div className="inspector-section selected-inspector"><div className="section-title"><h3>{items.length > 1 ? 'Stack selected' : `${selected.length > 1 ? selected.length + ' pieces' : 'Component'} selected`}</h3><button className="icon-button" title="Deselect" onClick={() => setSelected([])}><X size={14} /></button></div>
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
+          <PieceIds ids={selected} stack={selectionStack} notify={notify} />
           {viewer ? <div className="viewer-inspect">
             <p className="viewer-note" role="note"><Eye size={14} /> You are watching. Inspect freely; take a seat in Players to move or change pieces.</p>
             <div className="stack-actions"><button className="button" onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={14} /> Focus</button>
@@ -1832,3 +1833,19 @@ const DragOverlay = memo(function DragOverlay({ item, component, components, lef
     <ComponentView component={component} components={components} row={item.row} back={visibleBack(item)} />
   </div>;
 });
+
+/** The ids scripts and the CLI use for the selected pieces (and their stack), with copy buttons. */
+function PieceIds({ ids, stack, notify }: { ids: string[]; stack?: string; notify: (message: string, error?: boolean) => void }) {
+  const copy = (text: string, what: string) => {
+    if (!navigator.clipboard) { notify(`${what}: ${text}`); return; }
+    void navigator.clipboard.writeText(text).then(() => notify(`Copied the ${what}.`), () => notify(`Unable to copy. ${what}: ${text}`, true));
+  };
+  const row = (label: string, text: string, shown: string, what: string) => <div className="piece-id-row">
+    <dt>{label}</dt><dd><code title={text}>{shown}</code>
+      <button type="button" className="icon-button" aria-label={`Copy ${what}`} title={`Copy ${what}`} onClick={() => copy(text, what)}><Copy size={13} /></button></dd>
+  </div>;
+  return <dl className="piece-ids">
+    {ids.length === 1 ? row('Piece id', ids[0], ids[0], 'piece id') : row('Piece ids', ids.join(', '), `${ids.length} pieces`, 'piece ids')}
+    {stack && row('Stack id', stack, stack, 'stack id')}
+  </dl>;
+}

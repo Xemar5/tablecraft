@@ -48,3 +48,18 @@ test('Selection and Table isolate object controls and shared settings', async ({
   await expect(inspector.getByRole('button', { name: 'Add hotseat player', exact: true })).toBeVisible();
   await expectConsistentInsets();
 });
+
+test('the Selection tab shows the ids of selected pieces and their stack, ready to copy for scripts', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.goto('/');
+  const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).first();
+  await stack.click();
+  const ids = page.locator('.piece-ids');
+  await expect(ids.locator('.piece-id-row')).toHaveText([/^Piece ids12 pieces$/, /^Stack idstarter-deck$/]);
+  await ids.getByRole('button', { name: 'Copy stack id', exact: true }).click();
+  await expect(page.locator('.toast')).toContainText('Copied the stack id.');
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('starter-deck');
+  const id = (await page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first().getAttribute('data-piece-id'))!;
+  await page.locator(`.table-piece[data-piece-id="${id}"]`).click();
+  await expect(ids.locator('code')).toHaveText(id);
+});
