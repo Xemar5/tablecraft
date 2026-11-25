@@ -40,4 +40,30 @@ describe('pinging and hiding pieces', () => {
     expect(token).toMatchObject({ pings: 1, pingedBy: 'player-1', hiddenFrom: ['player-2'] });
     expect(next.memory).toEqual({ hidden: 'player-2' });
   });
+
+  it('let scripts show pieces again, and clear lists, with an empty table {}', () => {
+    const source = `
+      function hide() game.hideFrom(game.pieces({ kind = "token" })[1], { "Player 2" }) end
+      function show() game.hideFrom(game.pieces({ kind = "token" })[1], {}) end
+      function nothing() game.move({}, 10, 10) end
+      function filter() local deck = game.stackOf("starter-deck"); game.setStackFilter(deck, { { has = { "amber" }, lacks = {} } }) end
+      function clear() game.setStackFilter(game.stackOf("starter-deck"), {}) end`;
+    const p = applyCommand(starterProject(), { type: 'script', script: { id: 's', name: 'Rules', source } });
+    const errors = (project: typeof p) => (project.scriptLog ?? []).filter(line => line.level === 'error').map(line => line.text);
+    const token = (project: typeof p) => project.instances.find(i => project.components.find(c => c.id === i.componentId)?.kind === 'token')!;
+    const hidden = applyCommand(p, call('hide'), 'player-1');
+    const shown = applyCommand(hidden, call('show'), 'player-1');
+    expect(errors(shown)).toEqual([]);
+    expect(token(shown).hiddenFrom).toBeUndefined();
+    // An empty list of pieces does nothing.
+    const moved = applyCommand(p, call('nothing'), 'player-1');
+    expect([errors(moved), moved.instances]).toEqual([[], p.instances]);
+    // An empty list of tags adds no tag, and an empty list of rules takes every piece.
+    const filtered = applyCommand(p, call('filter'), 'player-1');
+    expect(errors(filtered)).toEqual([]);
+    expect(filtered.instances.find(i => i.stack === 'starter-deck')!.stackFilter).toEqual({ anyOf: [{ has: ['amber'], lacks: [] }] });
+    const cleared = applyCommand(filtered, call('clear'), 'player-1');
+    expect(errors(cleared)).toEqual([]);
+    expect(cleared.instances.find(i => i.stack === 'starter-deck')!.stackFilter).toEqual({ anyOf: [] });
+  });
 });

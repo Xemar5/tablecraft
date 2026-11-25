@@ -186,8 +186,7 @@ local function showButtons()
   local function shownWhen(shown, component)
     local pieces = onTable(component)
     if #pieces > 0 then
-      -- No seat list shows them to everyone (an empty {} reaches the engine as a table, not a list).
-      if shown then game.hideFrom(pieces) else game.hideFrom(pieces, everyone) end
+      if shown then game.hideFrom(pieces, {}) else game.hideFrom(pieces, everyone) end
     end
   end
   shownWhen(not memory.started, "Start game")

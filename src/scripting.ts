@@ -426,6 +426,15 @@ function readValue(L: LuaState, index: number, where: string, depth = 0): Memory
   return Object.fromEntries(entries.map(([key, value]) => [String(key), value]));
 }
 
+/**
+ * An argument that takes one value or a list of them, as a list. An empty Lua table `{}` has no keys to tell a list
+ * from named values and reads as an empty table of named values, so it counts as an empty list here.
+ */
+function asList(value: MemoryValue): MemoryValue[] {
+  if (Array.isArray(value)) return value;
+  return value && typeof value === 'object' && !Object.keys(value).length ? [] : [value];
+}
+
 function readMemory(L: LuaState): Memory | undefined {
   lua.lua_getglobal(L, to_luastring('memory'));
   try {
@@ -545,7 +554,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     return value;
   };
   const pieces = (value: MemoryValue | undefined, name = 'pieces'): Instance[] => {
-    const list = Array.isArray(value) ? value : [value];
+    const list = value === undefined ? [value] : asList(value);
     const found = new Map<string, Instance>();
     for (const entry of list) {
       const key = text(entry, name);
@@ -776,9 +785,9 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       const value = arg(L, 1, 'stack'), key = text(value, 'stack');
       const stackId = state.live.stacks?.some(stack => stack.id === key) || state.live.instances.some(i => i.stack === key) ? key : stackPiece(value).stack;
       if (!stackId) throw new ScriptError('That piece is not in a stack.');
-      const rules = arg(L, 2, 'rules') ?? [];
-      if (!Array.isArray(rules)) throw new ScriptError('game.setStackFilter takes a list of rules such as { { has = { "blue" } } }.');
-      const list = (rule: MemoryValue, key: string) => { const tags = (rule as Record<string, MemoryValue>)[key] ?? []; return (Array.isArray(tags) ? tags : [tags]).map(String); };
+      const given = arg(L, 2, 'rules') ?? [], rules = asList(given);
+      if (!Array.isArray(given) && rules.length) throw new ScriptError('game.setStackFilter takes a list of rules such as { { has = { "blue" } } }.');
+      const list = (rule: MemoryValue, key: string) => asList((rule as Record<string, MemoryValue>)[key] ?? []).map(String);
       act({ type: 'setStackFilter', stackId, filter: { anyOf: rules.map(rule => ({ has: list(rule, 'has'), lacks: list(rule, 'lacks') })) } });
       return 0;
     },
@@ -829,7 +838,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     ping: L => { const items = pieces(arg(L, 1, 'pieces')); if (items.length) act({ type: 'ping', ids: items.map(i => i.id) }, actor); return 0; },
     hideFrom: L => {
       const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder), list = arg(L, 2, 'players') ?? [];
-      const seats = (Array.isArray(list) ? list : [list]).map(value => player(value).id);
+      const seats = asList(list).map(value => player(value).id);
       if (items.length) act({ type: 'hideFrom', ids: items.map(i => i.id), players: seats });
       return 0;
     },
