@@ -4,6 +4,8 @@ import { GAME_PROJECTS, gameProject } from '../src/gameProjects';
 import { hasOpenFace } from '../src/ComponentView';
 import { snapToGrid } from '../src/playgroundPreview';
 import { snapOf, snapTarget } from '../src/grids';
+import { checkScriptSyntax, scriptFunctions } from '../src/scripting';
+import { TIDEWATER_SCRIPT } from '../src/tidewaterScript';
 import { groupMembers } from '../src/pieceGroups';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
@@ -68,7 +70,7 @@ describe('game projects', () => {
     expect(named(tidewater, 'Island').filter(item => !playing.instances.find(other => other.id === item.id)!.locked)
       .map(item => tidewater.components.find(component => component.id === item.componentId)!.name)).toEqual(['Squall']);
     // The locked island parts players read during play still show their hover preview.
-    expect(tidewater.components.filter(component => component.previewWhenLocked).map(component => component.name)).toEqual(['Island tile', 'Tide marker', 'Harbor', 'Building costs']);
+    expect(tidewater.components.filter(component => component.previewWhenLocked).map(component => component.name)).toEqual(['Island tile', 'Tide marker', 'Harbor', 'Building costs', 'Scoreboard']);
     expect(named(tidewater, 'Supply').some(item => item.locked)).toBe(false);
     for (const { name } of [{ name: 'Crimson' }, { name: 'Azure' }, { name: 'Ivory' }, { name: 'Amber' }]) {
       const pieces = named(tidewater, `${name} pieces`);
@@ -251,6 +253,95 @@ describe('game projects', () => {
     // Far from every spot (the bear-off tray), and for the dice and cube, nothing snaps.
     expect(snapTarget(game, checker, 980 + 330, 550)).toBeUndefined();
     for (const name of ['Die', 'Doubling cube', 'Backgammon board']) expect(snapTarget(game, componentNamed(game, name), first.x, first.y), name).toBeUndefined();
+  });
+
+  describe("Tidewater's rules script", () => {
+    const announcements = (p: Project) => (p.scriptLog ?? []).filter(line => line.level === 'announce').map(line => line.text);
+    const errors = (p: Project) => (p.scriptLog ?? []).filter(line => line.level === 'error').map(line => line.text);
+    const hand = (p: Project, seat: number) => p.instances.filter(item => item.holder === p.players[seat].id)
+      .map(item => p.components.find(c => c.id === item.componentId)!.rows[item.row].terrain).sort();
+    const near = (a: { x: number; y: number }, b: { x: number; y: number }, distance: number, slack: number) => Math.abs(Math.hypot(a.x - b.x, a.y - b.y) - distance) < slack;
+    const terrainOf = (p: Project, item: Instance) => componentNamed(p, 'Island tile').rows[item.row].terrain;
+    /** Tiles around a corner point that produce a resource. */
+    const tilesAt = (p: Project, at: { x: number; y: number }) => piecesOf(p, 'Island tile').filter(tile => near(tile, at, 56, 1) && terrainOf(p, tile) !== 'dunes');
+    const numberOn = (p: Project, tile: Instance) => {
+      const marker = piecesOf(p, 'Tide marker').find(item => Math.hypot(item.x - tile.x, item.y - tile.y) < 45);
+      return marker ? Number(componentNamed(p, 'Tide marker').rows[marker.row].number) : undefined;
+    };
+    const call = (name: string, seed: number): Parameters<typeof applyCommand>[1] => ({ type: 'call', name, args: [], seed });
+    // Crimson (seat 1) builds two huts on corners of the island, the second on a corner between three producing tiles.
+    const setup = () => {
+      let p = build('tidewater');
+      p = { ...p, memory: { ...p.memory, autoRoll: false } };
+      const corners = p.grids!.find(grid => grid.id === 'grid-corners')!.points!;
+      const inland = corners.filter(point => tilesAt(p, point).length === 3);
+      const [first, second] = [inland[0], inland.find(point => Math.hypot(point.x - inland[0].x, point.y - inland[0].y) > 150)!];
+      const huts = piecesOf(p, 'Hut').filter(item => p.components.find(c => c.id === item.componentId)!.rows[item.row].color === 'crimson')
+        .sort((a, b) => b.order - a.order);
+      const seat = p.players[0].id;
+      p = applyCommand(p, { type: 'extractMove', id: huts[0].id, x: first.x, y: first.y }, seat);
+      p = applyCommand(p, { type: 'extractMove', id: huts[1].id, x: second.x, y: second.y }, seat);
+      return { p, seat, huts: [huts[0], huts[1]], first, second };
+    };
+
+    it('is valid Lua with the buttons and events it promises, and starts with its memory', () => {
+      expect(checkScriptSyntax(TIDEWATER_SCRIPT)).toBeUndefined();
+      const game = build('tidewater');
+      // The buttons' functions, and the events it handles.
+      expect(scriptFunctions(game.scripts)).toEqual(expect.arrayContaining(['startGame', 'rollDice']));
+      for (const event of ['onTurnStart', 'onSnap', 'onMove']) expect(TIDEWATER_SCRIPT).toMatch(new RegExp(`^function ${event}\\(`, 'm'));
+      expect(game.memory).toMatchObject({ colors: ['crimson', 'azure', 'ivory', 'amber'], autoRoll: true, started: false, round: 0 });
+      expect(componentNamed(game, 'Start game')).toMatchObject({ kind: 'button', action: 'startGame' });
+      expect(componentNamed(game, 'Roll dice')).toMatchObject({ kind: 'button', action: 'rollDice' });
+    });
+
+    it('records the huts placed before the game, keeps building points, and deals starting resources for the second hut', () => {
+      const { p, seat, huts, second } = setup();
+      expect(errors(p)).toEqual([]);
+      expect(p.memory).toMatchObject({ placed: { crimson: huts.map(item => item.id) }, points: { crimson: 2, azure: 0 } });
+      const started = applyCommand(p, call('startGame', 3), seat);
+      expect(errors(started)).toEqual([]);
+      expect(started.memory).toMatchObject({ started: true, round: 1 });
+      // One resource for each tile touching the second hut.
+      expect(hand(started, 0)).toEqual(tilesAt(p, second).map(tile => terrainOf(p, tile)).sort());
+      expect(announcements(started).at(-1)).toMatch(/^The game begins\. Starting resources: .* takes /);
+    });
+
+    it('hands out resources for the huts beside the tiles showing the roll, and warns about the squall on a 7', () => {
+      const { p, seat, first, second } = setup();
+      const started = applyCommand(p, call('startGame', 3), seat);
+      const before = hand(started, 0).length;
+      const rolls = new Map<number, Project>();
+      for (let seed = 1; seed < 400 && rolls.size < 11; seed++) {
+        const rolled = applyCommand(started, call('rollDice', seed), seat);
+        const total = rolled.memory!.lastRoll as number;
+        if (!rolls.has(total)) rolls.set(total, rolled);
+      }
+      // Every roll from 2 to 12 came up.
+      expect([...rolls.keys()].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+      for (const [total, rolled] of rolls) {
+        expect(errors(rolled), String(total)).toEqual([]);
+        const expected = total === 7 ? 0 : [first, second].flatMap(at => tilesAt(started, at)).filter(tile => numberOn(started, tile) === total).length;
+        expect(hand(rolled, 0).length - before, `roll ${total}`).toBe(expected);
+        expect(announcements(rolled).at(-1)).toMatch(new RegExp(`rolled ${total} `));
+      }
+      expect(announcements(rolls.get(7)!).at(-1)).toMatch(/The squall! Move it to another tile/);
+    });
+
+    it('rolls by itself when a turn starts once the game is on, and names the players beside the squall', () => {
+      const { p, seat, second } = setup();
+      const started = applyCommand({ ...p, memory: { ...p.memory, autoRoll: true } }, call('startGame', 3), seat);
+      // Starting rolls for the current player straight away.
+      expect(announcements(started).at(-1)).toMatch(/rolled \d+ \(\d \+ \d\)/);
+      const next = applyCommand(started, { type: 'endTurn' }, seat);
+      expect(errors(next)).toEqual([]);
+      expect(announcements(next).at(-1)).toMatch(new RegExp(`^${next.players[1].name} rolled \\d+`));
+      // Moving the squall onto a tile beside crimson's hut names crimson.
+      const squall = piecesOf(next, 'Squall')[0], target = tilesAt(next, second).find(tile => Math.hypot(tile.x - squall.x, tile.y - squall.y) > 60)!;
+      const slot = next.grids!.find(grid => grid.id === 'grid-slots')!.points!.find(point => Math.hypot(point.x - target.x, point.y - target.y) < 45)!;
+      const moved = applyCommand(next, { type: 'move', ids: [squall.id], patch: { x: slot.x, y: slot.y } }, next.players[1].id);
+      expect(announcements(moved).at(-1)).toMatch(new RegExp(`^The squall settles on the .*\\. Take a random card from ${next.players[0].name}\\.$`));
+    });
   });
 
   it('gives every component with a transparent background a back design, so no printed back comes out blank', () => {

@@ -1,6 +1,7 @@
 import { componentTags, makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PersistentStack, type PieceGroup, type Player, type Project } from './domain';
 import { hexCorners, type Grid } from './grids';
 import { filterFromTags } from './tags';
+import { TIDEWATER_SCRIPT } from './tidewaterScript';
 
 /**
  * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
@@ -518,6 +519,25 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ],
   });
   const die = pipDie('Die', '#f4efe2', '#2b2622', 44);
+  // Buttons run the rules script (src/tidewaterScript.ts); the scoreboard shows its memory.
+  const button = (name: string, text: string, action: string, color: string) => component(name, 'button', 140, 40, {
+    color, action, front: [label('Label', { x: 0, y: 0, width: 140, height: 40, text, color: '#f2ead6', fontSize: 14, fontWeight: 600 })],
+  });
+  const startButton = button('Start game', 'Start game', 'startGame', '#24414b');
+  const rollButton = button('Roll dice', 'Roll dice', 'rollDice', '#2d6f86');
+  const scoreboard = component('Scoreboard', 'card', 160, 112, {
+    color: '#f4ecd8', previewWhenLocked: true,
+    front: [
+      label('Last roll title', { x: 0, y: 6, width: 160, height: 10, text: 'LAST ROLL', fontSize: 7, letterSpacing: 1.5, color: '#2d6f86' }),
+      label('Last roll', { x: 0, y: 16, width: 160, height: 26, text: '{{memory.lastRoll}}', font: 'Lora', fontSize: 22, fontWeight: 700, color: '#24414b' }),
+      label('Round', { x: 0, y: 42, width: 160, height: 11, text: 'Round {{memory.round}} · building points', fontSize: 6.5, color: '#6d6450' }),
+      ...PLAYER_COLORS.flatMap(({ color, name, fill, edge }, index) => [
+        shape(`${name} dot`, { shapeKind: 'ellipse', x: 34, y: 60 + index * 12, width: 8, height: 8, fill, stroke: edge, strokeWidth: 1 }),
+        label(`${name} name`, { x: 48, y: 57 + index * 12, width: 60, height: 14, text: name, fontSize: 8, align: 'start', color: '#33403a' }),
+        label(`${name} points`, { x: 96, y: 57 + index * 12, width: 30, height: 14, text: `{{memory.points.${color}}}`, fontSize: 8, fontWeight: 700, align: 'end', color: '#33403a' }),
+      ]),
+    ],
+  });
 
   // A balanced island: rows of 3, 4, 5, 4 and 3 tiles, with no 6 and 8 markers next to each other.
   const layout = [
@@ -557,9 +577,13 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   for (let index = deck.length - 1; index > 0; index--) { const swap = Math.floor(Math.random() * (index + 1)); [deck[index], deck[swap]] = [deck[swap], deck[index]]; }
   instances.push(...into(supply, [
     ...pile(tideCard, deck, 520, 330, { flipped: true }),
-    place(award, 0, 520, 470), place(award, 1, 520, 550),
-    place(die, 2, 495, 650, { rotation: 8 }), place(die, 4, 550, 655, { rotation: -6 }),
+    place(award, 0, 520, 460), place(award, 1, 520, 530),
+    place(die, 2, 495, 603, { rotation: 8 }), place(die, 4, 550, 607, { rotation: -6 }),
     place(book, 0, 520, 810, { scale: .55 }),
+  ]));
+  // The buttons and scoreboard stay put (buttons still press while locked).
+  instances.push(...into(add('Controls'), [
+    place(startButton, 0, 520, 105, { locked: true }), place(scoreboard, 0, 520, 190, { locked: true }), place(rollButton, 0, 520, 665, { locked: true }),
   ]));
 
   const players = seats(profile, PLAYER_COLORS.map(item => item.fill));
@@ -581,8 +605,15 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // table hands stay clear of the pieces laid out in front of them.
   for (const seat of players) if (Math.abs(seat.rotation) % 180 === 0) seat.y += Math.sign(seat.y - CENTER.y) * 60;
   // Only tiles, buildings, boardwalks, tide markers and the squall snap; everything else moves freely.
-  const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book].map(item => item.gridTags ? item : { ...item, snapToGrid: false });
-  return { ...project(name, description, components, instances, players, groups, true), grids: islandGrids() };
+  const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book, startButton, rollButton, scoreboard]
+    .map(item => item.gridTags ? item : { ...item, snapToGrid: false });
+  // The rules script rolls and hands out resources; its memory starts here, since onLoad only runs when scripts are saved.
+  const memory = {
+    colors: PLAYER_COLORS.map(item => item.color), autoRoll: true, started: false, round: 0, lastRoll: '–',
+    points: Object.fromEntries(PLAYER_COLORS.map(item => [item.color, 0])), placed: {},
+  };
+  return { ...project(name, description, components, instances, players, groups, true), grids: islandGrids(),
+    scripts: [{ id: 'tidewater-rules', name: 'Tidewater rules', source: TIDEWATER_SCRIPT }], memory };
 }
 
 export function gameProject(id: GameProjectId, name: string, description: string, profile: Profile): Project {
