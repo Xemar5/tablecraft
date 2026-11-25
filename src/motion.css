@@ -308,3 +308,6 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .debug-info summary { cursor: pointer; font-size: 10px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: #869a73; list-style-position: inside; }
 .debug-info[open] summary { margin-bottom: 8px; }
 .debug-info .piece-ids { margin: 0; }
+/* Selection buttons that can't be used look disabled but stay focusable, so their tooltip says why (see available()). */
+button[aria-disabled="true"] { opacity: .36; cursor: not-allowed; }
+.action-grid button[aria-disabled="true"]:hover { background: inherit; }

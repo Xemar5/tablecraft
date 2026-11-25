@@ -332,7 +332,19 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   // The stack the selection is in (all of it), whose filter the inspector shows.
   const selectionStack = piece?.stack && selectedPieces.every(i => i.stack === piece.stack) ? piece.stack : undefined;
   const stackTop = piece && !piece.holder ? visibleStackMembers(p, piece).at(-1) : undefined;
-  const canDrawSelection = !!currentPlayer && p.settings.hands && !selectedPieces.some(i => i.holder || !p.components.find(c => c.id === i.componentId)?.hand);
+  /**
+   * Props for a Selection button that may be unavailable. With a reason it looks disabled but stays focusable: hovering
+   * or focusing it shows why, and clicking it says why instead of acting.
+   */
+  const available = (reason: string | false | undefined, onClick: () => void, title?: string) => reason
+    ? { 'aria-disabled': true as const, title: reason, onClick: () => notify(reason) }
+    : { onClick, title };
+  const nameOf = (item?: Instance) => p.components.find(c => c.id === item?.componentId)?.name ?? 'This piece';
+  const onTable = selectedPieces.some(i => !i.holder) ? undefined : 'Pieces in a hand have no place on the table.';
+  const noHandPiece = selectedPieces.find(i => !p.components.find(c => c.id === i.componentId)?.hand);
+  const drawReason = !currentPlayer ? 'Take a seat to draw.' : !p.settings.hands ? 'Player hands are off (Table settings).'
+    : selectedPieces.some(i => i.holder) ? 'Some of these pieces are already in a hand.'
+    : noHandPiece ? `${nameOf(noHandPiece)} can't be held in a hand (see its Behavior settings).` : undefined;
   const selectHandCard = (id: string, event: React.MouseEvent) => {
     if (handClickSuppressed.current) { handClickSuppressed.current = false; return; }
     const anchor = held.findIndex(i => i.id === handSelectionAnchor.current);
@@ -1441,7 +1453,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           <div className="selected-component"><ComponentThumbnail component={c} components={p.components} row={piece.row} width={52} /><div><strong>{selected.length > 1 ? `${selected.length} pieces selected` : c.name}</strong><small>{items.length > 1 ? `${items.length} in stack` : c.kind}</small><button className="text-button" onClick={() => onEdit(c.id)}>Edit design <ChevronRight size={12} /></button></div></div>
           {viewer ? <div className="viewer-inspect">
             <p className="viewer-note" role="note"><Eye size={14} /> You are watching. Inspect freely; take a seat in Players to move or change pieces.</p>
-            <div className="stack-actions"><button className="button" onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={14} /> Focus</button>
+            <div className="stack-actions"><button className="button" {...available(onTable, focusSelection)}><Focus size={14} /> Focus</button>
               {items.length > 1 && <button className="button" onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={14} /> Search stack</button>}</div>
           </div> : <>
           {hasPages(c) && <p className="page-status" role="status">{c.kind === 'book' ? 'Page' : 'Face'} {piece.row + 1} of {Math.max(1, c.rows.length)}</p>}
@@ -1452,37 +1464,40 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             {c.action && <button title={`Run the script function ${c.action} for everyone`} onClick={() => runAction(piece)}><CirclePlay size={17} /><span>{c.kind === 'button' ? 'Press' : 'Run'} {c.action}</span></button>}
             {selectedPieces.some(i => p.components.find(c => c.id === i.componentId)?.flippable) && <button onClick={flip}><FlipHorizontal2 size={17} /><span>Flip<kbd>F</kbd></span></button>}
             {hasPages(c) && <>
-              <button disabled={c.kind === 'book' && piece.row <= 0} onClick={() => turnPages(-1)}><ChevronLeft size={17} /><span>{c.kind === 'book' ? 'Previous page' : 'Previous face'}<kbd>Shift Q</kbd></span></button>
-              <button disabled={c.kind === 'book' && piece.row >= c.rows.length - 1} onClick={() => turnPages(1)}><ChevronRight size={17} /><span>{c.kind === 'book' ? 'Next page' : 'Next face'}<kbd>Shift E</kbd></span></button>
+              <button {...available(c.kind === 'book' && piece.row <= 0 && 'This is the first page.', () => turnPages(-1))}><ChevronLeft size={17} /><span>{c.kind === 'book' ? 'Previous page' : 'Previous face'}<kbd>Shift Q</kbd></span></button>
+              <button {...available(c.kind === 'book' && piece.row >= c.rows.length - 1 && 'This is the last page.', () => turnPages(1))}><ChevronRight size={17} /><span>{c.kind === 'book' ? 'Next page' : 'Next face'}<kbd>Shift E</kbd></span></button>
             </>}
             {c.kind === 'dice' && <button onClick={() => dispatch({ type: 'roll', ids: [piece.id], seed: crypto.getRandomValues(new Uint32Array(1))[0] })}><Dices size={17} /><span>Roll die<kbd>R</kbd></span></button>}
-            {selected.length > 1 && !wholeStack && <button disabled={!!plan?.error} title={plan?.error ? `Can't stack: ${plan.error}` : plan ? 'The first selected piece goes on the bottom, the last on top' : undefined} onClick={() => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') })}><Layers size={17} /><span>Stack selected pieces<kbd>G</kbd></span></button>}
+            {selected.length > 1 && !wholeStack && <button {...available(plan?.error && `Can't stack: ${plan.error}`, () => dispatch({ type: 'stack', ids: selected, stackId: uid('stack') }), plan ? 'The first selected piece goes on the bottom, the last on top' : undefined)}><Layers size={17} /><span>Stack selected pieces<kbd>G</kbd></span></button>}
             {items.length > 1 && <>
               <button onClick={() => { setSearch(items.map(i => i.id)); setQuery(''); }}><Search size={17} /><span>Search stack</span></button>
-              <button disabled={!items.every(i => p.components.find(c => c.id === i.componentId)?.shufflable)} onClick={() => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); }}><Shuffle size={17} /><span>Shuffle<kbd>R</kbd></span></button>
+              <button {...available((() => { const fixed = items.find(i => !p.components.find(c => c.id === i.componentId)?.shufflable); return fixed && `${nameOf(fixed)} can't be shuffled (see its Behavior settings).`; })(),
+                () => { void dispatch({ type: 'shuffle', id: piece.id, seed: crypto.getRandomValues(new Uint32Array(1))[0] }).then(success => { if (success) notify('A fresh shuffle. A new possibility.'); }); })}><Shuffle size={17} /><span>Shuffle<kbd>R</kbd></span></button>
               <button onClick={() => dispatch({ type: 'unstack', id: piece.id })}><Layers size={17} /><span>Spread stack</span></button>
             </>}
             {canPersist && <button title="Keep this stack on the table even with one piece or none; players can drop pieces into it" onClick={() => dispatch({ type: 'persistStack', ids: selected, stackId: uid('stack') })}><Pin size={17} /><span>Make a persistent stack</span></button>}
             {pieceStack && inPieceStack && !viewer && <button title="Let this stack go when it's down to one piece" onClick={() => dispatch({ type: 'unpersistStack', stackId: pieceStack.id })}><PinOff size={17} /><span>Make an ordinary stack</span></button>}
             <button onClick={() => clone()}><Copy size={17} /><span>Clone<kbd>Ctrl D</kbd></span></button>
-            <button onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={17} /><span>Focus<kbd>Shift F</kbd></span></button>
+            <button {...available(onTable, focusSelection)}><Focus size={17} /><span>Focus<kbd>Shift F</kbd></span></button>
             <button title="Highlight these pieces for every player" onClick={() => void dispatch({ type: 'ping', ids: selected })}><Radar size={17} /><span>Ping<kbd>P</kbd></span></button>
             {p.settings.hands && <>
             {wholeStack ? <>
-              <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
-              <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Layers size={17} /><span>Draw all</span></button>
-            </> : <button onClick={() => dispatch({ type: 'drawSelection', ids: selected, playerId: actor })} disabled={!canDrawSelection}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
+              <button {...available(!currentPlayer ? 'Take a seat to draw.' : !p.settings.hands ? 'Player hands are off (Table settings).' : stackTop?.holder ? 'The top piece is already in a hand.'
+                : !p.components.find(c => c.id === stackTop?.componentId)?.hand && `${nameOf(stackTop)} can't be held in a hand (see its Behavior settings).`,
+                () => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); })}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
+              <button {...available(drawReason, () => dispatch({ type: 'drawSelection', ids: selected, playerId: actor }))}><Layers size={17} /><span>Draw all</span></button>
+            </> : <button {...available(drawReason, () => dispatch({ type: 'drawSelection', ids: selected, playerId: actor }))}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
             </>}
-            <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'forward' })} disabled={selectedPieces.every(i => i.holder)} title="Bring forward (Ctrl/Cmd+]; with Shift, to the front)"><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
-            <button onClick={() => dispatch({ type: 'zOrder', ids: selected, move: 'backward' })} disabled={selectedPieces.every(i => i.holder)} title="Send backward (Ctrl/Cmd+[; with Shift, to the back)"><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
+            <button {...available(onTable && 'Pieces in a hand aren\'t in the table\'s order.', () => dispatch({ type: 'zOrder', ids: selected, move: 'forward' }), 'Bring forward (Ctrl/Cmd+]; with Shift, to the front)')}><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
+            <button {...available(onTable && 'Pieces in a hand aren\'t in the table\'s order.', () => dispatch({ type: 'zOrder', ids: selected, move: 'backward' }), 'Send backward (Ctrl/Cmd+[; with Shift, to the back)')}><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !ownLock(piece.id) } })}>{ownLock(piece.id) ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{ownLock(piece.id) ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
           {piece.locked && !ownLock(piece.id) && <p className="help-text">Held in place by its locked group. Unlock the group in the Pieces panel to move it.</p>}
           {tablePieces.length > 0 && p.players.length > 0 && <div className="field hidden-from" role="group" aria-label="Hidden from">
             <span>Hidden from<InfoTip text="These seats don't see the selected pieces on the table (with their whole stacks). Like hidden hands this is visual privacy: every player's browser still receives the whole table. Show hidden pieces from Visibility in the header." /></span>
-            <div className="hidden-from-seats">{p.players.map(player => <button key={player.id} type="button" className={`hidden-seat${hiddenFrom.includes(player.id) ? ' hidden' : ''}`} aria-pressed={hiddenFrom.includes(player.id)} disabled={viewer}
-              title={`${hiddenFrom.includes(player.id) ? 'Show to' : 'Hide from'} ${player.name}`} onClick={() => toggleHidden(player.id)}>
+            <div className="hidden-from-seats">{p.players.map(player => <button key={player.id} type="button" className={`hidden-seat${hiddenFrom.includes(player.id) ? ' hidden' : ''}`} aria-pressed={hiddenFrom.includes(player.id)}
+              {...available(viewer && 'Take a seat to hide pieces. Viewers can only look.', () => toggleHidden(player.id), `${hiddenFrom.includes(player.id) ? 'Show to' : 'Hide from'} ${player.name}`)}>
               <span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span>{player.name}{player.id === actor && ' (you)'}{hiddenFrom.includes(player.id) && <EyeOff size={12} />}</button>)}</div>
           </div>}
           {selectionStack && <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, selectionStack)} suggestions={stackTags} disabled={viewer}
@@ -1497,7 +1512,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           </>}
           {/* Ids for scripts and the CLI, out of the way until needed; open or closed, it stays so across selections. */}
           <details className="debug-info" open={debugOpen} onToggle={event => setDebugOpen(event.currentTarget.open)}>
-            <summary>Debug</summary>
+            <summary>Scripting</summary>
             <PieceIds ids={selected} stack={selectionStack} notify={notify} />
           </details>
         </div> : slotRecord ? <div className="inspector-section selected-inspector">

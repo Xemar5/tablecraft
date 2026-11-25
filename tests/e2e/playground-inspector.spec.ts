@@ -54,7 +54,7 @@ test('the Selection tab shows the ids of selected pieces and their stack, ready 
   await page.goto('/');
   const stack = page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).first();
   await stack.click();
-  // The ids sit in a Debug section at the bottom of the Selection tab, closed at first.
+  // The ids sit in a Scripting section at the bottom of the Selection tab, closed at first.
   const ids = page.locator('.piece-ids');
   await expect(ids).toBeHidden();
   await page.locator('.debug-info summary').click();
@@ -65,4 +65,19 @@ test('the Selection tab shows the ids of selected pieces and their stack, ready 
   const id = (await page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first().getAttribute('data-piece-id'))!;
   await page.locator(`.table-piece[data-piece-id="${id}"]`).click();
   await expect(ids.locator('code')).toHaveText(id);
+});
+
+test('unavailable Selection buttons say why on hover and when clicked', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('.debug-info summary')).toHaveCount(0);
+  const die = page.locator('.table-viewport').getByRole('button', { name: /^Spirit die/ });
+  await die.click();
+  await expect(page.locator('.debug-info summary')).toHaveText('Scripting');
+  const draw = page.locator('.action-grid').getByRole('button', { name: /^Draw to hand/ });
+  await expect(draw).toHaveAttribute('aria-disabled', 'true');
+  await expect(draw).toHaveAttribute('title', "Spirit die can't be held in a hand (see its Behavior settings).");
+  await draw.click({ force: true }); // Playwright won't click an aria-disabled button by itself; people can.
+  await expect(page.locator('.toast')).toContainText("Spirit die can't be held in a hand");
+  // Nothing was drawn.
+  await expect(page.locator('.hand-card')).toHaveCount(0);
 });
