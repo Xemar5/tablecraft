@@ -18,6 +18,9 @@ test('Q and E rotate in opposite directions, R shuffles and rolls, and preview h
   expect(await hints.nth(1).evaluate(el => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(await hints.first().evaluate(el => el.getBoundingClientRect().bottom));
   expect(await shortcuts.evaluate(el => getComputedStyle(el).color)).not.toBe(await shortcuts.evaluate(el => getComputedStyle(el.parentElement!).color));
   const die = initial.instances.find(i => initial.components.find(c => c.id === i.componentId)?.kind === 'dice')!;
+  // Leave the card first: its preview covers the die's corner of the table.
+  await page.mouse.move(0, 0);
+  await expect(page.locator('.hover-preview')).toHaveCount(0);
   await page.locator(`[data-piece-id="${die.id}"]`).hover();
   await page.evaluate(() => { crypto.getRandomValues = <T extends ArrayBufferView | null>(array: T): T => { if (array instanceof Uint32Array) array.fill(0); return array; }; });
   await page.keyboard.press('s');

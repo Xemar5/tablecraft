@@ -11,7 +11,7 @@ import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
 import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
-import { hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgroundPreview';
+import { hoverPreviewSize, hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgroundPreview';
 import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids';
 import { gridColor, GridLayers, GridPointHandles } from './GridLayers';
 import { GridEditor } from './GridEditor';
@@ -125,6 +125,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const [previewItem, setPreviewItem] = useState<string>();
   const [previewScale, setPreviewScale] = useState(1);
   const [previewOnLeft, setPreviewOnLeft] = useState(false);
+  // The table's size and the preview's height without its art, so the art can shrink to keep the preview on screen.
+  const previewBox = useRef<HTMLDivElement>(null);
+  const [previewRoom, setPreviewRoom] = useState<{ width: number; height: number; chrome: number }>();
   // The pointer position at opening lets a large preview start aimed where the pointer already is.
   const [fullscreen, setFullscreen] = useState<{ id: string; pointer?: { x: number; y: number } }>();
   const lastPointer = useRef<{ x: number; y: number }>(undefined);
@@ -381,6 +384,22 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     return () => document.removeEventListener('pointerdown', clear, true);
   }, [selected, held, setSelected]);
   const activePreviewId = handDrag?.id ?? (gesture.current && !gesture.current.pan ? Object.keys(gesture.current.positions).at(-1) : undefined) ?? previewItem;
+  // Measure the room the preview has (in the page's own CSS pixels) when it opens, grows, or the table resizes. Only real
+  // changes are stored, and only on these events, so text re-wrapping at a new width can't make it measure forever.
+  const previewShown = !!activePreviewId && !altDown;
+  useLayoutEffect(() => {
+    const box = previewBox.current, parent = box?.offsetParent as HTMLElement | null | undefined;
+    if (!previewShown || !box || !parent) return;
+    const measure = () => {
+      const art = box.querySelector<HTMLElement>('.component-thumbnail');
+      const next = { width: parent.clientWidth, height: parent.clientHeight, chrome: box.offsetHeight - (art?.offsetHeight ?? 0) };
+      setPreviewRoom(room => room && Math.abs(room.width - next.width) < 1 && Math.abs(room.height - next.height) < 1 && Math.abs(room.chrome - next.chrome) < 1 ? room : next);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [previewShown, activePreviewId, previewScale]);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Alt') {
@@ -424,7 +443,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const positionPreview = (clientX: number) => {
     const rect = viewport.current?.getBoundingClientRect();
     if (!rect) return;
-    setPreviewOnLeft(placePreviewOnLeft(cssPx(clientX), cssPx(rect.left), cssPx(rect.width), hoverPreviewWidth(previewScale)));
+    setPreviewOnLeft(placePreviewOnLeft(cssPx(clientX), cssPx(rect.left), cssPx(rect.width), previewBox.current?.offsetWidth ?? hoverPreviewWidth(previewScale)));
   };
   const enterPiece = (event: React.PointerEvent, id: string) => {
     pointer.current = { x: event.clientX, y: event.clientY };
@@ -1255,13 +1274,14 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         </div>}
         <div className="zoom-control" onPointerDown={e => e.stopPropagation()}><button aria-label="Rotate camera left" onClick={() => rotateCamera(-90)}>↶</button><button aria-label="Rotate camera right" onClick={() => rotateCamera(90)}>↷</button><button aria-label="Zoom out" onClick={() => changeZoom(zoom - .1)}><Minus size={14} /></button><ZoomPresets levels={[.25, .5, .75, 1, 1.5, 2, 3]} zoom={zoom} onSelect={level => changeZoom(level)}><button title="Fit table" aria-label="Fit table" onClick={fit}><Maximize size={14} /><ZoomPercent zoom={zoom} /></button></ZoomPresets><button aria-label="Zoom in" onClick={() => changeZoom(zoom + .1)}><Plus size={14} /></button></div>
         {activePreviewId && !altDown && !fullscreenItem && (() => {
+          const fitted = (comp: Component) => hoverPreviewSize(previewScale, comp.height / comp.width, previewRoom, previewRoom?.chrome);
           const item = p.instances.find(i => i.id === activePreviewId && (!i.locked || !!p.components.find(c => c.id === i.componentId)?.previewWhenLocked) && (!i.holder || i.holder === actor));
           const comp = p.components.find(c => c.id === item?.componentId);
           const count = item && !item.holder ? stackMembers(p, item).length : 1;
-          return item && comp ? <div className="hover-preview" style={{ width: hoverPreviewWidth(previewScale), ...(previewOnLeft ? { left: 16, right: 'auto' } : {}) }} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
+          return item && comp ? <div ref={previewBox} className="hover-preview" style={{ width: fitted(comp).width, ...(previewOnLeft ? { left: 16, right: 'auto' } : {}) }} aria-label={`Preview ${comp.name}`} onPointerDown={e => e.stopPropagation()}
             onPointerLeave={() => setPreviewItem(undefined)} onWheel={e => {
             if (e.ctrlKey) { e.preventDefault(); e.stopPropagation(); setPreviewScale(scale => Math.max(.5, Math.min(3, scale * (e.deltaY > 0 ? .9 : 1.1)))); }
-          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={160 * previewScale} /><strong>{comp.name}{count > 1 && <span className="preview-stack-count" aria-label={`Stack of ${count}`}><Layers size={11} /> {count}</span>}{comp.kind === 'book' && <span className="preview-stack-count" aria-label={`Page ${item.row + 1} of ${Math.max(1, comp.rows.length)}`}><BookOpen size={11} /> {item.row + 1} / {Math.max(1, comp.rows.length)}</span>}</strong>
+          }}><ComponentThumbnail component={comp} components={p.components} row={item.row} back={visibleBack(item)} width={fitted(comp).art} /><strong>{comp.name}{count > 1 && <span className="preview-stack-count" aria-label={`Stack of ${count}`}><Layers size={11} /> {count}</span>}{comp.kind === 'book' && <span className="preview-stack-count" aria-label={`Page ${item.row + 1} of ${Math.max(1, comp.rows.length)}`}><BookOpen size={11} /> {item.row + 1} / {Math.max(1, comp.rows.length)}</span>}</strong>
             <table className="preview-shortcuts" aria-label="Piece shortcuts"><tbody>
               <tr><th scope="row">Flip</th><td><kbd>F</kbd></td></tr>
               <tr><th scope="row">Rotate −{comp.rotationStep ?? 90}° / +{comp.rotationStep ?? 90}°</th><td><kbd>Q / E</kbd></td></tr>

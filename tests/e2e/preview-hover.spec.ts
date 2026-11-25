@@ -89,6 +89,16 @@ test('scaled previews have no empty horizontal overflow and locked pieces have n
   await page.keyboard.up('Control');
   await expect.poll(async () => (await thumbnail.boundingBox())!.width).toBeLessThan(initialWidth);
   await expect.poll(() => preview.evaluate(el => el.scrollWidth - el.clientWidth)).toBe(0);
+  // The art fills the preview inside its 8px padding, and zoomed all the way up the preview still fits the table: no scrolling.
+  const fit = () => preview.evaluate((el: HTMLElement) => {
+    const box = el.getBoundingClientRect(), art = el.querySelector('.component-thumbnail')!.getBoundingClientRect(), table = el.offsetParent!.getBoundingClientRect();
+    return { margin: Math.round(art.left - box.left), inside: box.bottom <= table.bottom + 1 && box.left >= table.left - 1, scrolls: el.scrollHeight > el.clientHeight + 1 };
+  });
+  expect(await fit()).toEqual({ margin: 9, inside: true, scrolls: false });
+  await page.keyboard.down('Control');
+  for (let n = 0; n < 20; n++) await page.mouse.wheel(0, -100);
+  await page.keyboard.up('Control');
+  await expect.poll(fit).toMatchObject({ inside: true, scrolls: false });
   await token.click();
   await page.locator('.action-grid').getByRole('button', { name: /^Lock/ }).click();
   await token.hover();

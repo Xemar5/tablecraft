@@ -82,7 +82,7 @@
 .hand-order button { font-size: 13px; padding: 1px 5px; }
 .hand-order button:disabled { opacity: .3; }
 .hand-drag-preview { position: fixed; z-index: 1000; pointer-events: none; transform: translate(-50%, -50%); filter: drop-shadow(0 8px 8px #29433155); }
-.hover-preview { position: absolute; top: 16px; right: 16px; z-index: 110; pointer-events: auto; max-width: min(90%, 500px); max-height: 90%; overflow: auto; padding: 8px; background: #fff; border: 1px solid #dce5d2; border-radius: 8px; box-shadow: 0 5px 18px #29433133; display: grid; gap: 5px; font-size: 12px; }
+.hover-preview { position: absolute; top: 16px; right: 16px; z-index: 110; pointer-events: auto; padding: 8px; background: #fff; border: 1px solid #dce5d2; border-radius: 8px; box-shadow: 0 5px 18px #29433133; display: grid; gap: 5px; font-size: 12px; }
 .hover-preview .component-thumbnail { overflow: clip; }
 .preview-shortcuts { border-collapse: collapse; color: var(--muted, #7d806c); font-size: 10px; }
 .preview-shortcuts th { text-align: left; font-weight: normal; padding: 2px 12px 2px 0; }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { starterProject } from '../src/templates';
-import { hoverPreviewWidth, previewOnLeft, previewPermission, snappedPositions } from '../src/playgroundPreview';
+import { hoverPreviewSize, hoverPreviewWidth, previewOnLeft, previewPermission, snappedPositions } from '../src/playgroundPreview';
 
 const project = starterProject();
 const component = { ...project.components.find(c => c.kind === 'card')!, flippable: true, hideInHand: true };
@@ -42,7 +42,18 @@ it('hover side placement has no dependency on mounted thumbnail geometry', () =>
   expect(previewOnLeft(100, 0, 900)).toBe(false);
   expect(previewOnLeft(800, 0, 900)).toBe(true);
   expect(previewOnLeft(348, 0, 600)).toBe(true);
-  expect(hoverPreviewWidth(1)).toBe(240);
-  expect(hoverPreviewWidth(3)).toBe(498);
+  expect(hoverPreviewWidth(1)).toBe(288);
+  expect(hoverPreviewWidth(3)).toBe(600);
   expect(previewOnLeft(300, 0, 600, hoverPreviewWidth(3))).toBe(true);
+});
+
+it('hover preview art fills the preview inside its padding and shrinks to keep the preview on the table', () => {
+  // Room to spare: the art is the preview's inner width.
+  expect(hoverPreviewSize(1, 1.4, { width: 1200, height: 900 }, 200)).toEqual({ width: 288, art: 270 });
+  // A short table: the art's height fits the table less the margins and the name and shortcuts.
+  expect(hoverPreviewSize(3, 1.4, { width: 1200, height: 600 }, 200)).toEqual({ width: 280, art: 262 });
+  // A narrow table: the preview takes at most half of it, so it can switch sides.
+  expect(hoverPreviewSize(3, 0.5, { width: 800, height: 900 }, 200)).toEqual({ width: 372, art: 354 });
+  // Very short art keeps the preview wide enough for its shortcuts; the art stays centred.
+  expect(hoverPreviewSize(1, 4, { width: 1200, height: 400 }, 200)).toEqual({ width: 180, art: 42 });
 });
