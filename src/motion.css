@@ -268,3 +268,19 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .artboard-note{display:block;margin:-2px 0 8px;font-size:11px;color:#8a6a3a}
 /* The designer's hover outline: drawn in screen space above every layer, like the selection box. */
 .hover-box{position:absolute;pointer-events:none;box-shadow:0 0 0 1px #a9c787;z-index:4}
+/* Pings: rings in a brightened version of the pinging seat's colour spread from the piece for every player, at a constant screen width. */
+.ping-pulse { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+/* [data-theme-fixed] keeps the night theme from darkening the brightened colour. */
+.ping-pulse i, [data-theme-fixed] .ping-pulse i { position: absolute; inset: 0; border-radius: 12px; border: calc(3px / (var(--table-zoom, 1) * var(--piece-scale, 1))) solid color-mix(in srgb, var(--ping-color) 55%, white);
+  box-shadow: 0 0 calc(18px / (var(--table-zoom, 1) * var(--piece-scale, 1))) color-mix(in srgb, var(--ping-color) 70%, white); animation: ping-ring 0.9s cubic-bezier(.2, .7, .3, 1) 2 both; }
+.ping-pulse i + i { animation-delay: .3s; }
+@keyframes ping-ring { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(1.45); } }
+@media (prefers-reduced-motion: reduce) { .ping-pulse i { animation: ping-ring-still 1.8s linear both; } @keyframes ping-ring-still { 0%, 80% { opacity: 1; } 100% { opacity: 0; } } }
+/* Pieces hidden from your seat, shown from Visibility, are faded; their label says who they're hidden from. */
+.table-piece.hidden-from-you .piece-face { opacity: .45; }
+.stack-count.hidden-count { background: #5b4a6e; color: #f4eefa; }
+.hidden-from > span { display: flex; align-items: center; gap: 4px; }
+.hidden-from-seats { display: flex; flex-wrap: wrap; gap: 5px; }
+.hidden-seat { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: inherit; font-size: 11px; cursor: pointer; }
+.hidden-seat .mini-avatar { width: 18px; height: 18px; font-size: 9px; }
+.hidden-seat.hidden { background: #efe9f5; border-color: #cdbfdc; color: #5b4a6e; text-decoration: line-through; text-decoration-color: #a593b8; }

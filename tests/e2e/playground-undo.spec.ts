@@ -40,7 +40,7 @@ test('offline toolbar and Ctrl/Cmd+Z undo while typing, dialogs and Designer kee
   expect((await state(page)).instances).toHaveLength(before.instances.length + 1);
   await page.getByLabel('Search components', { exact: true }).fill('');
   // A modal and its input must not route undo to the table.
-  await chooseHeader(page, 'Save playground');
+  await chooseHeader(page, 'Save/Load');
   await page.getByLabel('Snapshot name').fill('Typing stays local');
   await page.keyboard.press('Control+z');
   expect((await state(page)).instances).toHaveLength(before.instances.length + 1);

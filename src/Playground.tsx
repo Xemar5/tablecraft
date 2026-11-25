@@ -1,12 +1,12 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Radar, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
 import { componentTags, fitsPersistentStack, handPermissions, stackFilterOf, stackJoinError, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, selectedGroups } from './pieceGroups';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ZoomPresets } from './ZoomPresets';
-import { ColorField, Field, HorizontalScroll, Modal, NumberField, Toggle } from './ui';
+import { ColorField, Field, HorizontalScroll, InfoTip, Modal, NumberField, Toggle } from './ui';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { PlaygroundPieces } from './PlaygroundPieces';
 import { stackPlan, stackSlot } from './stackOrder';
@@ -43,6 +43,8 @@ type Props = {
   libraryVisible?: boolean;
   /** Dragging a stack takes its top piece (Shift moves the whole stack), or the other way round when false. */
   stackDragTakesTop?: boolean;
+  /** Show pieces hidden from your seat (faded and labelled), and label every hidden piece. */
+  showHidden?: boolean;
   /** A transient table message (such as why undo history was cleared), shown as a dismissible toast. */
   notice?: string; onDismissNotice?: () => void;
 };
@@ -58,10 +60,15 @@ const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo his
 const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, onEndTurn, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, notice, onDismissNotice }: Props) {
+export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, onEndTurn, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, showHidden = false, notice, onDismissNotice }: Props) {
   // Play works from the project with group locks applied, so pieces in a locked group behave as locked everywhere;
   // a piece's own lock (the Lock button and L) still toggles its own flag.
-  const p = useMemo(() => withGroupLocks(source), [source]);
+  // Pieces hidden from your seat are left out of the table (visual privacy only), unless Visibility shows them.
+  const p = useMemo(() => {
+    const locked = withGroupLocks(source);
+    if (showHidden || !actor || !locked.instances.some(item => item.hiddenFrom?.includes(actor))) return locked;
+    return { ...locked, instances: locked.instances.filter(item => !item.hiddenFrom?.includes(actor)) };
+  }, [source, showHidden, actor]);
   const ownLock = (id: string) => source.instances.find(item => item.id === id)?.locked ?? false;
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
@@ -283,6 +290,18 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const inPieceStack = !!pieceStack && selectedPieces.every(i => i.stack === pieceStack.id);
   const canPersist = !viewer && !!piece && !pieceStack && selectedPieces.length > 0 &&
     selectedPieces.every(i => !i.holder && !i.locked && !!p.components.find(c => c.id === i.componentId)?.stackable);
+  /** Who a piece is hidden from, in words: "Hidden from you", "Hidden from Bob and Ada". */
+  const hiddenText = (ids: string[]) => {
+    const names = ids.map(id => id === actor ? 'you' : p.players.find(player => player.id === id)?.name ?? 'a removed seat');
+    return `Hidden from ${names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]}`;
+  };
+  // Table pieces in the selection, and the seats the first of them is hidden from (they're hidden together).
+  const tablePieces = selectedPieces.filter(i => !i.holder);
+  const hiddenFrom = tablePieces[0]?.hiddenFrom ?? [];
+  const toggleHidden = (seat: string) => {
+    const players = hiddenFrom.includes(seat) ? hiddenFrom.filter(id => id !== seat) : [...hiddenFrom, seat];
+    void dispatch({ type: 'hideFrom', ids: tablePieces.map(i => i.id), players });
+  };
   // Tags offered when editing a stack's filter: every component's stack tags and the tags filters already use.
   const stackTags = useMemo(() => normalizeTags([...p.components.flatMap(componentTags), ...(p.stacks ?? []).flatMap(record => filterTags(record.filter)),
     ...p.instances.flatMap(i => filterTags(i.stackFilter))]).sort((a, b) => a.localeCompare(b)), [p.components, p.stacks, p.instances]);
@@ -736,6 +755,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         const count = e.key === '0' ? 10 : Number(e.key);
         dispatch(count === 1 ? { type: 'draw', id: shortcutPiece.id, playerId: actor } : { type: 'drawMany', id: shortcutPiece.id, playerId: actor, count });
       }
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'p' && shortcutPiece) { e.preventDefault(); void dispatch({ type: 'ping', ids: shortcutIds }); }
       if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'l' && shortcutPiece) { e.preventDefault(); dispatch({ type: 'move', ids: shortcutIds, patch: { locked: !ownLock(shortcutPiece.id) } }); }
       if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); dispatch({ type: 'delete', ids: shortcutIds }); setSelected([]); }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd') { e.preventDefault(); clone(shortcutIds); }
@@ -1166,7 +1186,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handTarget}
               dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} shuffling={!!item.stack && shuffling.has(item.stack)} hovered={isHovered}
               persistent={!!item.stack && persistentIds.has(item.stack)} pressed={pressed === item.id}
-              {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
+              pingColor={item.pingedBy ? p.players.find(player => player.id === item.pingedBy)?.color : undefined}
+              hiddenLabel={showHidden && item.hiddenFrom?.length ? hiddenText(item.hiddenFrom) : undefined} hiddenFromYou={!!actor && !!item.hiddenFrom?.includes(actor)}
+              {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) || (showHidden && item.hiddenFrom?.length) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
           {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={gridColor(editedGrid, shownGrids.indexOf(editedGrid))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT}
@@ -1209,6 +1231,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               <tr><th scope="row">Stack selection</th><td><kbd>G</kbd></td></tr>
               <tr><th scope="row">Draw cards</th><td><kbd>1–0</kbd></td></tr>
               <tr><th scope="row">Lock / unlock</th><td><kbd>L</kbd></td></tr>
+              <tr><th scope="row">Ping for everyone</th><td><kbd>P</kbd></td></tr>
               <tr><th scope="row">Fullscreen preview</th><td><kbd>Z</kbd></td></tr>
               <tr><th scope="row">Hide this preview</th><td><kbd>Alt</kbd></td></tr>
             </tbody></table></div> : null;
@@ -1416,6 +1439,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             {pieceStack && inPieceStack && !viewer && <button title="Let this stack go when it's down to one piece" onClick={() => dispatch({ type: 'unpersistStack', stackId: pieceStack.id })}><PinOff size={17} /><span>Make an ordinary stack</span></button>}
             <button onClick={() => clone()}><Copy size={17} /><span>Clone<kbd>Ctrl D</kbd></span></button>
             <button onClick={focusSelection} disabled={selectedPieces.every(i => i.holder)}><Focus size={17} /><span>Focus<kbd>Shift F</kbd></span></button>
+            <button title="Highlight these pieces for every player" onClick={() => void dispatch({ type: 'ping', ids: selected })}><Radar size={17} /><span>Ping<kbd>P</kbd></span></button>
             {p.settings.hands && <>
             {wholeStack ? <>
               <button onClick={() => { const rest = items.filter(i => i.id !== stackTop?.id).map(i => i.id); void dispatch({ type: 'draw', id: piece.id, playerId: actor }).then(ok => { if (ok) setSelected(rest); }); }} disabled={!p.settings.hands || !!stackTop?.holder || !p.components.find(c => c.id === stackTop?.componentId)?.hand}><Hand size={17} /><span>Draw one<kbd>1</kbd></span></button>
@@ -1428,6 +1452,12 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
           {piece.locked && !ownLock(piece.id) && <p className="help-text">Held in place by its locked group. Unlock the group in the Pieces panel to move it.</p>}
+          {tablePieces.length > 0 && p.players.length > 0 && <div className="field hidden-from" role="group" aria-label="Hidden from">
+            <span>Hidden from<InfoTip text="These seats don't see the selected pieces on the table (with their whole stacks). Like hidden hands this is visual privacy: every player's browser still receives the whole table. Show hidden pieces from Visibility in the header." /></span>
+            <div className="hidden-from-seats">{p.players.map(player => <button key={player.id} type="button" className={`hidden-seat${hiddenFrom.includes(player.id) ? ' hidden' : ''}`} aria-pressed={hiddenFrom.includes(player.id)} disabled={viewer}
+              title={`${hiddenFrom.includes(player.id) ? 'Show to' : 'Hide from'} ${player.name}`} onClick={() => toggleHidden(player.id)}>
+              <span className="mini-avatar" style={{ background: player.color }}>{player.name[0]}</span>{player.name}{player.id === actor && ' (you)'}{hiddenFrom.includes(player.id) && <EyeOff size={12} />}</button>)}</div>
+          </div>}
           {selectionStack && <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, selectionStack)} suggestions={stackTags} disabled={viewer}
             hint="Which pieces may join this stack, by their components' stack tags (Behavior tab). A new stack takes every tag its pieces share."
             onChange={filter => void dispatch({ type: 'setStackFilter', stackId: selectionStack, filter })} />}
@@ -1572,6 +1602,10 @@ type PieceEvents = {
 type TablePieceProps = {
   item: Instance; component: Component; components: Component[]; x: number; y: number; zIndex: number; count: number;
   selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number; shuffling?: boolean; pressed?: boolean;
+  /** The colour of the seat that pinged the piece last (it pulses when pinged). */
+  pingColor?: string;
+  /** Who the piece is hidden from, when hidden pieces are shown; `hiddenFromYou` fades it. */
+  hiddenLabel?: string; hiddenFromYou?: boolean;
   /** In a persistent stack, which keeps its label (with a pin) even with one piece. */
   persistent?: boolean;
   /** The table zoom times the piece's scale; only set for selected, hovered and drop-target pieces, whose order badge
@@ -1584,7 +1618,7 @@ type TablePieceProps = {
   compactLabel?: boolean;
   badgeIndex: number; badgeTotal: number; badgeError?: string; events: React.RefObject<PieceEvents>;
 };
-const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, persistent, pressed, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
+const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, persistent, pressed, pingColor, hiddenLabel, hiddenFromYou, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
   const slot = badgeIndex >= 0 ? stackSlot(badgeIndex, badgeTotal) : undefined;
   // A book is one piece whose pages are its rows; it looks like a stack but nothing can be taken from it.
   const pages = comp.kind === 'book' ? Math.max(1, comp.rows.length) : 0;
@@ -1617,7 +1651,20 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     void getComputedStyle(node).left;
     node.style.transition = '';
   }, [dragging]);
-  return <div ref={element} className={`table-piece ${comp.kind === 'button' ? `button-piece${pressed ? ' pressed' : ''} ` : ''}${rollingRow !== undefined ? 'rolling' : ''} ${shuffling ? 'shuffling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
+  // A ping (from any player) pulses the piece for a moment; the count was already there when it mounted.
+  const pings = useRef(item.pings ?? 0);
+  const [pinged, setPinged] = useState(0);
+  useEffect(() => {
+    const count = item.pings ?? 0;
+    if (count > pings.current) setPinged(n => n + 1);
+    pings.current = count;
+  }, [item.pings]);
+  useEffect(() => {
+    if (!pinged) return;
+    const timer = window.setTimeout(() => setPinged(0), 1800);
+    return () => window.clearTimeout(timer);
+  }, [pinged]);
+  return <div ref={element} className={`table-piece ${hiddenFromYou && hiddenLabel ? 'hidden-from-you ' : ''}${comp.kind === 'button' ? `button-piece${pressed ? ' pressed' : ''} ` : ''}${rollingRow !== undefined ? 'rolling' : ''} ${shuffling ? 'shuffling' : ''} ${selected ? 'selected' : ''} ${item.locked ? 'locked' : ''} ${dragging ? `dragging drag-source ${miniDropSource ? 'mini-drop-source' : ''}` : ''} ${dropTarget ? 'stack-drop-target' : ''}`}
     data-testid="table-piece" data-piece-id={item.id}
     style={{ ...(pieceZoom !== undefined ? { '--piece-zoom': pieceZoom } : {}), '--piece-scale': item.scale, left: dragging ? item.x : x, top: dragging ? item.y : y, width: comp.width, height: comp.height, zIndex, transform } as React.CSSProperties}
     onPointerDown={e => events.current.start(e, item)}
@@ -1633,12 +1680,14 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     <div className="piece-face" style={ring && pieceZoom !== undefined ? { filter: `url(#${ringId})` } : undefined}>
       <ComponentView component={comp} components={components} row={rollingRow ?? item.row} back={visibleBack(item)} />
     </div>
-    {(count > 1 || pages > 0 || persistent) && (() => {
+    {!!pinged && <span key={pinged} className="ping-pulse" aria-hidden="true" style={{ '--ping-color': pingColor ?? '#e0a43a' } as React.CSSProperties}><i /><i /></span>}
+    {(count > 1 || pages > 0 || persistent || hiddenLabel) && (() => {
       // The labels sit on the piece's edge that faces down on screen, upright for the viewer and a fixed screen size.
       const angle = labelAngle ?? item.rotation, turn = angle * Math.PI / 180, dx = Math.sin(turn), dy = Math.cos(turn);
       const reach = Math.min(Math.abs(dx) > 1e-6 ? comp.width / 2 / Math.abs(dx) : Infinity, Math.abs(dy) > 1e-6 ? comp.height / 2 / Math.abs(dy) : Infinity);
       return <div className={`piece-labels${compactLabel ? ' compact' : ''}`} style={{ left: comp.width / 2 + dx * reach, top: comp.height / 2 + dy * reach, '--label-turn': `${-angle}deg` } as React.CSSProperties}>
         {(count > 1 || persistent) && <span className={`stack-count${persistent ? ' persistent' : ''}`} title={`${persistent ? 'Persistent stack' : 'Stack'} of ${count}`}>{persistent ? <Pin size={13} /> : <Layers size={13} />}{compactLabel ? <span className="visually-hidden">{count}</span> : <> {count}</>}</span>}
+        {hiddenLabel && <span className="stack-count hidden-count" title={hiddenLabel}><EyeOff size={13} />{compactLabel ? <span className="visually-hidden">{hiddenLabel}</span> : <> {hiddenLabel}</>}</span>}
         {pages > 0 && <span className="stack-count book-page-count" data-testid="book-page" title={`Page ${item.row + 1} of ${pages}`}><BookOpen size={13} />{compactLabel ? <span className="visually-hidden">{item.row + 1} / {pages}</span> : <> {item.row + 1} / {pages}</>}</span>}
       </div>;
     })()}

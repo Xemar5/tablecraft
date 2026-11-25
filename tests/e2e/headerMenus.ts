@@ -2,9 +2,9 @@ import { expect, type Page } from '@playwright/test';
 
 /** Header menu items and the menu they're in. */
 const MENU: Record<string, 'Actions' | 'Visibility' | 'Scripting'> = {
-  Undo: 'Actions', Redo: 'Actions', 'Save playground': 'Actions', 'Print to PDF': 'Actions',
+  Undo: 'Actions', Redo: 'Actions', 'Save/Load': 'Actions', 'Print to PDF': 'Actions',
   'Component library': 'Visibility', 'Pieces panel': 'Visibility', 'Layers panel': 'Visibility', 'Hand panel': 'Visibility',
-  'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
+  'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', 'Hidden pieces': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
 };
 
 export const headerMenu = (page: Page, item: string) => page.getByRole('button', { name: MENU[item], exact: true });

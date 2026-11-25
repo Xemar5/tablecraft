@@ -14,7 +14,7 @@ test('Q and E rotate in opposite directions, R shuffles and rolls, and preview h
   await expect.poll(async () => (await project()).instances.find(i => i.id === card.id)?.rotation).toBe(card.rotation);
   const shortcuts = page.getByLabel('Piece shortcuts', { exact: true });
   const hints = shortcuts.getByRole('row');
-  await expect(hints).toHaveCount(8);
+  await expect(hints).toHaveCount(9);
   expect(await hints.nth(1).evaluate(el => el.getBoundingClientRect().top)).toBeGreaterThanOrEqual(await hints.first().evaluate(el => el.getBoundingClientRect().bottom));
   expect(await shortcuts.evaluate(el => getComputedStyle(el).color)).not.toBe(await shortcuts.evaluate(el => getComputedStyle(el.parentElement!).color));
   const die = initial.instances.find(i => initial.components.find(c => c.id === i.componentId)?.kind === 'dice')!;

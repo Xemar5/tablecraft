@@ -176,6 +176,11 @@ export const instanceSchema = z.object({
   rolls: z.number().int().min(0).optional(),
   /** Counts shuffles of the stack this piece is in, so every player sees the shuffle animate. */
   shuffles: z.number().int().min(0).optional(),
+  /** Counts pings, so every player sees the piece pulse; `pingedBy` is the seat that pinged it last. */
+  pings: z.number().int().min(0).optional(),
+  pingedBy: id.optional(),
+  /** Seats this table piece is hidden from (visual privacy only, like hidden hands). Stacks share it. */
+  hiddenFrom: z.array(id).max(100).optional(),
   /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
   group: id.optional(),
   /** The filter of the (ordinary) stack this piece is in, shared by every piece in it. Persistent stacks keep theirs on their record. */
@@ -355,6 +360,10 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** Runs the scripts' update(dt). Live rooms get these from the server's timer, offline tables from the app's. */
   z.object({ type: z.literal('tick'), dt: num.min(0).max(3600), seed: z.number().int() }),
   z.object({ type: z.literal('clearScriptLog') }),
+  /** Highlights pieces for every player (not an undo step). */
+  z.object({ type: z.literal('ping'), ids: z.array(id).min(1).max(1000) }),
+  /** Hides table pieces (with their whole stacks) from these seats; an empty list shows them to everyone. */
+  z.object({ type: z.literal('hideFrom'), ids: z.array(id).min(1).max(10000), players: z.array(id).max(100) }),
   /** Adds a grid layer, or replaces the one with its id in place. */
   z.object({ type: z.literal('grid'), grid: gridSchema }),
   z.object({ type: z.literal('removeGrid'), id }),
@@ -1547,6 +1556,22 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (!p.memory) delete p.memory;
       break;
     case 'clearScriptLog': delete p.scriptLog; break;
+    case 'ping':
+      for (const key of new Set(command.ids)) {
+        const item = get(key);
+        item.pings = (item.pings ?? 0) + 1;
+        if (actor) item.pingedBy = actor; else delete item.pingedBy;
+      }
+      break;
+    case 'hideFrom': {
+      if (command.players.some(player => !p.players.some(seat => seat.id === player))) throw new Error('That seat no longer exists.');
+      const items = new Set(command.ids.map(get).flatMap(item => {
+        if (item.holder) throw new Error('Only table pieces can be hidden.');
+        return stackMembers(p, item);
+      }));
+      items.forEach(item => { if (command.players.length) item.hiddenFrom = [...new Set(command.players)]; else delete item.hiddenFrom; });
+      break;
+    }
     case 'grid': {
       const grids = projectGrids(p);
       const index = grids.findIndex(grid => grid.id === command.grid.id);
@@ -1595,6 +1620,15 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     }
   });
   normalizeStackFilters(p);
+  // Held pieces are never hidden on the table, removed seats leave hidden lists, and a stack is hidden as its bottom piece is.
+  const seats = new Set(p.players.map(player => player.id));
+  const stackBottoms = new Map<string, Instance>();
+  for (const item of p.instances) if (item.stack && (!stackBottoms.has(item.stack) || item.order < stackBottoms.get(item.stack)!.order)) stackBottoms.set(item.stack, item);
+  const hiddenOf = new Map(p.instances.map(item => [item, (item.stack ? stackBottoms.get(item.stack)! : item).hiddenFrom]));
+  for (const item of p.instances) {
+    const kept = item.holder ? [] : (hiddenOf.get(item) ?? []).filter(player => seats.has(player));
+    if (kept.length) item.hiddenFrom = kept; else delete item.hiddenFrom;
+  }
   normalizeGroups(p);
   syncPersistentStacks(p);
   // Commands that change table order or grouping keep each group's pieces together (see gatherGroups), so raising a

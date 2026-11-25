@@ -91,6 +91,8 @@ export const SCRIPT_API = [
   { name: 'game.play', args: '(pieces, x, y)', doc: 'Puts held pieces on the table at x, y.' },
   { name: 'game.spawn', args: '(component, options?)', doc: 'Adds a piece and returns its id. options: { x, y, row, rotation, scale, faceUp, locked, count } (count returns a list of ids).' },
   { name: 'game.delete', args: '(pieces)', doc: 'Removes pieces.' },
+  { name: 'game.ping', args: '(pieces)', doc: 'Highlights pieces for every player, like pressing P (not an undo step).' },
+  { name: 'game.hideFrom', args: '(pieces, players)', doc: 'Hides table pieces (with their stacks) from these seats; an empty list {} shows them to everyone. piece.hiddenFrom lists the seat ids.' },
   { name: 'game.toFront', args: '(pieces)', doc: 'Raises pieces above the others.' },
   { name: 'game.toBack', args: '(pieces)', doc: 'Lowers pieces below the others (boards stay underneath).' },
   { name: 'game.endTurn', args: '()', doc: 'Passes the turn to the next seat.' },
@@ -447,7 +449,7 @@ function pieceInfo(project: Project, item: Instance): PieceInfo {
     id: item.id, componentId: item.componentId, component: component?.name, kind: component?.kind,
     row: item.row + 1, data: component?.rows[item.row] ?? {},
     x: item.x, y: item.y, rotation: item.rotation, scale: item.scale,
-    faceUp: !visibleBack(item), locked: item.locked, holder: item.holder ?? undefined, stack: item.stack ?? undefined,
+    faceUp: !visibleBack(item), locked: item.locked, holder: item.holder ?? undefined, stack: item.stack ?? undefined, hiddenFrom: item.hiddenFrom ?? [],
     group: item.group, snap: snapInfo(project, item),
   };
 }
@@ -822,6 +824,13 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     },
     delete: L => {
       byHolder(pieces(arg(L, 1, 'pieces')), (ids, holder) => act({ type: 'delete', ids }, holder));
+      return 0;
+    },
+    ping: L => { const items = pieces(arg(L, 1, 'pieces')); if (items.length) act({ type: 'ping', ids: items.map(i => i.id) }, actor); return 0; },
+    hideFrom: L => {
+      const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder), list = arg(L, 2, 'players') ?? [];
+      const seats = (Array.isArray(list) ? list : [list]).map(value => player(value).id);
+      if (items.length) act({ type: 'hideFrom', ids: items.map(i => i.id), players: seats });
       return 0;
     },
     toFront: L => { const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder); if (items.length) act({ type: 'zOrder', ids: items.map(i => i.id), move: 'front' }); return 0; },

@@ -5,7 +5,7 @@ test('the header groups panel and scripting toggles into Visibility and Scriptin
   await page.goto('/');
   const visibility = page.getByRole('button', { name: 'Visibility', exact: true });
   await visibility.click();
-  await expect(page.getByRole('menu', { name: 'Visibility' }).getByRole('menuitemcheckbox')).toHaveText(['Component library', 'Pieces panel', 'Hand panel', 'Table inspector']);
+  await expect(page.getByRole('menu', { name: 'Visibility' }).getByRole('menuitemcheckbox')).toHaveText(['Component library', 'Pieces panel', 'Hand panel', 'Table inspector', 'Hidden pieces']);
   // Items toggle without closing the menu; a click elsewhere closes it.
   await headerItem(page, 'Hand panel').click();
   await expect(headerItem(page, 'Hand panel')).toHaveAttribute('aria-checked', 'false');
@@ -54,7 +54,7 @@ test('the designer inspector can be hidden from the Visibility menu, separately 
 test('the Actions menu undoes and redoes table actions, also with Ctrl+Z and Ctrl+Y, and saves and prints', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['UndoCtrl Z', 'RedoCtrl Y', 'Save playground', 'Print to PDF']);
+  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['UndoCtrl Z', 'RedoCtrl Y', 'Save/Load', 'Print to PDF']);
   await page.keyboard.press('Escape');
   await expectHeaderEnabled(page, 'Undo', false);
   await expectHeaderEnabled(page, 'Redo', false);
