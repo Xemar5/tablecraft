@@ -3,6 +3,7 @@ import { fillServer, pickSeat, settleJoin, setProfileName } from './liveSeat';
 import type { Archive } from '../../src/domain';
 import { createPortableZip } from '../../src/portable';
 import { savedWorkspace } from './savedWorkspace';
+import { expectHeaderChecked, toggleHeader } from './headerMenus';
 
 const workspace = (page: Page): Promise<Archive> => savedWorkspace(page);
 async function openDesigner(page: Page) {
@@ -28,9 +29,9 @@ test('playground draws repeatedly, flips hands, duplicates stacks and toggles th
   const before = (await workspace(page)).projects[0].instances.find(i => i.id === cardId)!;
   await card.dblclick();
   await expect.poll(async () => (await workspace(page)).projects[0].instances.find(i => i.id === before.id)?.flipped).toBe(!before.flipped);
-  await page.getByRole('button', { name: 'Toggle hand panel' }).click();
+  await toggleHeader(page, 'Hand panel');
   await expect(page.locator('.hand-tray')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Toggle hand panel' }).click();
+  await toggleHeader(page, 'Hand panel');
   await expect(page.locator('.hand-card')).toHaveCount(2);
   await stack.click();
   await page.keyboard.press('Control+d');
@@ -658,17 +659,17 @@ test('compact chrome toggles panes without resetting camera and retains library 
   await expect(page.locator('.project-heading h1')).toBeVisible();
   await page.getByRole('button', { name: 'Rotate camera right' }).click();
   const camera = await page.locator('.table-world').evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return [m.a, m.b, m.c, m.d]; });
-  await page.getByRole('button', { name: 'Toggle component library' }).click();
-  await page.getByRole('button', { name: 'Toggle table inspector' }).click();
+  await toggleHeader(page, 'Component library');
+  await toggleHeader(page, 'Table inspector');
   await expect(page.locator('.library-panel')).toBeHidden();
   await expect(page.locator('.playground-inspector')).toBeHidden();
-  await expect(page.getByRole('button', { name: 'Toggle component library' })).toHaveAttribute('aria-pressed', 'false');
+  await expectHeaderChecked(page, 'Component library', false);
   await expect.poll(() => page.locator('.table-world').evaluate(el => { const m = new DOMMatrix(getComputedStyle(el).transform); return [m.a, m.b, m.c, m.d]; })).toEqual(camera);
   expect((await page.locator('.table-viewport').boundingBox())!.width).toBeGreaterThan(table.width);
   await page.getByRole('button', { name: 'Switch seat', exact: true }).click();
   await expect(page.locator('.playground-inspector')).toBeVisible();
   await expect(page.locator('.player-list')).toBeVisible();
-  await page.getByRole('button', { name: 'Toggle table inspector' }).click();
+  await toggleHeader(page, 'Table inspector');
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
   await expect(page.locator('.library-panel')).toBeHidden();
   await expect(page.locator('.designer-layout .inspector')).toBeVisible();

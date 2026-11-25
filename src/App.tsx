@@ -23,6 +23,7 @@ import { LibraryVariants } from './LibraryVariants';
 import { PrintDialog } from './PrintProject';
 import { startLibraryDrag } from './libraryDrag';
 import { FloatingWindow } from './FloatingWindow';
+import { HeaderMenu } from './HeaderMenu';
 import { createMemoryStore, MemoryBindings } from './memoryBindings';
 import { scriptFunctions, scriptsMention } from './scripting';
 import { cleanName, DEFAULT_DATABASE, DEFAULT_SERVER, loadSettings, NAME_LIMIT, saveSettings, validName, watchTheme, type UserSettings } from './settings';
@@ -79,6 +80,8 @@ export default function App() {
   const [selected, setSelected] = useState<string[]>([]);
   const [libraryVisible, setLibraryVisible] = useState(true);
   const [inspectorVisible, setInspectorVisible] = useState(true);
+  // The designer's inspector (right panel) is shown and hidden on its own, apart from the table inspector.
+  const [designerInspectorVisible, setDesignerInspectorVisible] = useState(true);
   const [layersVisible, setLayersVisible] = useState(true);
   const [handVisible, setHandVisible] = useState(true);
   const [actor, setActor] = useState(initialProject.players[0]?.id ?? '');
@@ -188,7 +191,7 @@ export default function App() {
   };
   const [designerTab, setDesignerTab] = useState<'design' | 'behavior'>('design');
   const [playgroundTab, setPlaygroundTab] = useState<'selection' | 'table' | 'players'>('selection');
-  const panels = usePanelLayout(mode, libraryVisible, inspectorVisible, layersVisible, notify);
+  const panels = usePanelLayout(mode, libraryVisible, mode === 'designer' ? designerInspectorVisible : inspectorVisible, layersVisible, notify);
   useEffect(() => watchTheme(settings.theme), [settings.theme]);
   useEffect(() => applyUiScale(settings.uiScale), [settings.uiScale]);
   // Defaults prefill the session form; an open live session keeps the address it connected with.
@@ -613,7 +616,16 @@ export default function App() {
       <div className="project-heading compact-project"><h1>{project.name}</h1></div>
       <nav className="mode-switch" aria-label="Workspace mode"><button className={mode === 'playground' ? 'active' : ''} onClick={() => setMode('playground')}><Table2 size={16} /> Playground</button><button className={mode === 'designer' ? 'active' : ''} onClick={() => { if (!activeComponent) setModal('templates'); else setMode('designer'); }}><Palette size={16} /> Component designer</button></nav>
       {mode === 'playground' && <button className="icon-button" aria-label="Undo playground action" title={undoNotice || `Undo latest playground action for everyone (Ctrl/Cmd+Z) · ${undoCount} available`} disabled={!undoCount || !!modal || !!curtain || viewer} onClick={undo}><Undo2 size={18} /></button>}
-      <div className="header-actions"><button className="icon-button" title="Toggle component library" aria-label="Toggle component library" aria-pressed={libraryVisible} onClick={() => setLibraryVisible(!libraryVisible)}><LibraryBig size={17} /></button><button className="icon-button" title={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-label={mode === 'playground' ? 'Toggle pieces panel' : 'Toggle layers panel'} aria-pressed={layersVisible} onClick={() => setLayersVisible(!layersVisible)}><PanelLeft size={17} /></button>{mode === 'playground' && <><button className="icon-button" title="Toggle hand panel" aria-label="Toggle hand panel" aria-pressed={handVisible} onClick={() => setHandVisible(!handVisible)}><PanelBottom size={17} /></button><button className="icon-button" title="Toggle table inspector" aria-label="Toggle table inspector" aria-pressed={inspectorVisible} onClick={() => setInspectorVisible(!inspectorVisible)}><PanelRight size={17} /></button></>}<button className="icon-button" title="Scripts: Lua that buttons and events run for everyone" aria-label="Toggle scripts window" aria-pressed={scriptWindow} onClick={() => setScriptWindow(!scriptWindow)}><FileCode2 size={17} /></button><button className="icon-button" title="Memory: values shared by scripts and players" aria-label="Toggle memory window" aria-pressed={memoryWindow} onClick={() => setMemoryWindow(!memoryWindow)}><Database size={17} /></button><button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button compact-save" aria-label="Print to PDF" title="Print every piece, or save them as a PDF" onClick={() => setModal('print')}><Printer size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
+      <div className="header-actions"><HeaderMenu label="Visibility" title="Show or hide panels" icon={<Eye size={17} />} items={[
+        { label: 'Component library', icon: <LibraryBig size={16} />, checked: libraryVisible, onToggle: () => setLibraryVisible(!libraryVisible) },
+        { label: mode === 'playground' ? 'Pieces panel' : 'Layers panel', icon: <PanelLeft size={16} />, checked: layersVisible, onToggle: () => setLayersVisible(!layersVisible) },
+        ...mode === 'playground' ? [{ label: 'Hand panel', icon: <PanelBottom size={16} />, checked: handVisible, onToggle: () => setHandVisible(!handVisible) },
+          { label: 'Table inspector', icon: <PanelRight size={16} />, checked: inspectorVisible, onToggle: () => setInspectorVisible(!inspectorVisible) }]
+          : [{ label: 'Designer inspector', icon: <PanelRight size={16} />, checked: designerInspectorVisible, onToggle: () => setDesignerInspectorVisible(!designerInspectorVisible) }],
+      ]} /><HeaderMenu label="Scripting" title="Scripts and memory" icon={<FileCode2 size={17} />} items={[
+        { label: 'Scripts', icon: <FileCode2 size={16} />, checked: scriptWindow, onToggle: () => setScriptWindow(!scriptWindow), hint: 'Lua that buttons and events run for everyone' },
+        { label: 'Memory', icon: <Database size={16} />, checked: memoryWindow, onToggle: () => setMemoryWindow(!memoryWindow), hint: 'Values shared by scripts and players' },
+      ]} /><button className="button compact-save" aria-label="Save playground" title="Save playground" onClick={() => { setSaveName(`${project.name} - playtest`); setModal('save'); }}><Save size={15} /></button><button className="button compact-save" aria-label="Print to PDF" title="Print every piece, or save them as a PDF" onClick={() => setModal('print')}><Printer size={15} /></button><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
       </>}
             {home && <div className="header-actions">{settingsButton}</div>}
     </header>
@@ -719,7 +731,7 @@ export default function App() {
         activeComponent && isAsset(activeComponent) ? <AssetInspector key={activeComponent.id} component={activeComponent} components={project.components} notify={notify} onChange={component => dispatch({ type: 'component', component })} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} /> :
-        activeComponent ? <Designer key={activeComponent.id} flushRef={designerFlush} component={activeComponent} components={project.components} functions={functions} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} onChange={editDesign} onDelete={async () => {
+        activeComponent ? <Designer key={activeComponent.id} flushRef={designerFlush} component={activeComponent} components={project.components} functions={functions} tab={designerTab} setTab={setDesignerTab} panels={panels} layersVisible={layersVisible} inspectorVisible={designerInspectorVisible} onChange={editDesign} onDelete={async () => {
           if (await dispatch({ type: 'removeComponent', id: activeComponent.id })) { setComponentId(undefined); setSelected([]); }
         }} notify={notify} /> : <div className="no-component"><Palette size={40} /><h2>A blank page is a beautiful thing.</h2><button className="button primary" onClick={() => setModal('templates')}>Create your first component</button></div>)}</div>
     </main>

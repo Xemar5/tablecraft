@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { toggleHeader } from './headerMenus';
 
 test('wheel scrolling eases toward accumulated input and respects reduced motion', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 800 });
@@ -46,8 +47,8 @@ test('hand cards use wheel scrolling, edge shadows and hold arrows without a scr
   await right.hover(); await page.mouse.down();
   await expect.poll(() => content.evaluate(el => el.scrollLeft)).toBeGreaterThan(initial + 30);
   await page.mouse.up();
-  await page.getByRole('button', { name: 'Toggle hand panel', exact: true }).click();
-  await page.getByRole('button', { name: 'Toggle hand panel', exact: true }).click();
+  await toggleHeader(page, 'Hand panel');
+  await toggleHeader(page, 'Hand panel');
   await expect(wrapper).toHaveClass(/overflow-right/);
 });
 

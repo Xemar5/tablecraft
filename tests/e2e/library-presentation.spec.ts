@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { expectHeaderChecked, headerItem, toggleHeader } from './headerMenus';
 
 test('dragging a filtered library item preserves hidden components and their relative order', async ({ page }) => {
   await page.goto('/');
@@ -73,21 +74,22 @@ test('library drag ordering persists across modes, filters and reloads without s
 
 test('pieces and layers panels toggle in both modes with their own icon, separate from the library toggle', async ({ page }) => {
   await page.goto('/');
-  const libraryToggle = page.getByRole('button', { name: 'Toggle component library', exact: true });
-  for (const [mode, id, label, heading] of [['Playground', '#playground-pieces-panel', 'Toggle pieces panel', 'Pieces'], ['Component designer', '#designer-layers-panel', 'Toggle layers panel', 'Layers']] as const) {
+  for (const [mode, id, label, heading] of [['Playground', '#playground-pieces-panel', 'Pieces panel', 'Pieces'], ['Component designer', '#designer-layers-panel', 'Layers panel', 'Layers']] as const) {
     await page.getByRole('button', { name: mode, exact: true }).click();
-    const layersToggle = page.getByRole('button', { name: label, exact: true });
-    expect(await libraryToggle.locator('svg').getAttribute('class')).not.toEqual(await layersToggle.locator('svg').getAttribute('class'));
+    // The panels have their own icons in the Visibility menu.
+    await page.getByRole('button', { name: 'Visibility', exact: true }).click();
+    expect(await headerItem(page, 'Component library').locator('svg').first().getAttribute('class')).not.toEqual(await headerItem(page, label).locator('svg').first().getAttribute('class'));
+    await page.keyboard.press('Escape');
     await expect(page.locator(id).locator('.panel-heading')).toContainText(heading);
     const panel = page.locator(id);
     await expect(panel).toBeVisible();
     const library = (await page.locator('#component-library-panel').boundingBox())!;
     expect((await panel.boundingBox())!.x).toBeGreaterThan(library.x + library.width - 1);
-    await layersToggle.click();
-    await expect(layersToggle).toHaveAttribute('aria-pressed', 'false');
+    await toggleHeader(page, label);
+    await expectHeaderChecked(page, label, false);
     await expect(panel).toBeHidden();
     await expect(page.locator('#component-library-panel')).toBeVisible();
-    await layersToggle.click();
+    await toggleHeader(page, label);
     await expect(panel).toBeVisible();
   }
 });
@@ -95,24 +97,23 @@ test('pieces and layers panels toggle in both modes with their own icon, separat
 test('component library can be toggled in the designer and stays hidden across modes', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Spirit cards', exact: true }).click();
-  const toggle = page.getByRole('button', { name: 'Toggle component library', exact: true });
   const library = page.locator('#component-library-panel');
   const separator = page.getByRole('separator', { name: 'Resize component library', exact: true });
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expectHeaderChecked(page, 'Component library', true);
   const width = await library.evaluate(el => el.getBoundingClientRect().width);
-  await toggle.click();
+  await toggleHeader(page, 'Component library');
   await expect(library).toBeHidden();
   await expect(separator).toHaveCount(0);
-  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await expectHeaderChecked(page, 'Component library', false);
   await expect(page.getByRole('button', { name: 'Add text', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await expect(library).toBeHidden();
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
   await expect(library).toBeHidden();
-  await toggle.click();
+  await toggleHeader(page, 'Component library');
   await expect(library).toBeVisible();
   await expect(separator).toBeVisible();
-  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expectHeaderChecked(page, 'Component library', true);
   await expect.poll(() => library.evaluate(el => el.getBoundingClientRect().width)).toBe(width);
 });
 

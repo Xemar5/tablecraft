@@ -37,7 +37,7 @@ export function resolvePanelSizes(preferred: Sizes, width: number, height: numbe
   const active: PanelName[] = [
     ...(libraryVisible ? ['library' as const] : []),
     ...(layersVisible ? ['layers' as const] : []),
-    ...(mode === 'designer' ? ['designerInspector' as const] : inspectorVisible ? ['playgroundInspector' as const] : []),
+    ...(inspectorVisible ? [mode === 'designer' ? 'designerInspector' as const : 'playgroundInspector' as const] : []),
   ];
   const sizes = { ...preferred };
   const budget = Math.max(0, width - 200 - active.length * 6);

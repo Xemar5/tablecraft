@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { toggleHeader } from './headerMenus';
 
 async function size(page: Page, selector: string, dimension: 'width' | 'height') {
   return (await page.locator(selector).boundingBox())![dimension];
@@ -99,13 +100,13 @@ test('panel separators resize by pointer and keyboard, survive toggles, modes an
   await hand.focus();
   await page.keyboard.press('ArrowUp');
   await expect.poll(() => size(page, '#hand-tray-panel', 'height')).toBe(handHeight + 10);
-  await page.getByRole('button', { name: 'Toggle component library' }).click();
+  await toggleHeader(page, 'Component library');
   await expect(library).toHaveCount(0);
-  await page.getByRole('button', { name: 'Toggle component library' }).click();
+  await toggleHeader(page, 'Component library');
   await expect.poll(() => size(page, '#component-library-panel', 'width')).toBe(libraryWidth);
-  await page.getByRole('button', { name: 'Toggle hand panel' }).click();
+  await toggleHeader(page, 'Hand panel');
   await expect(hand).toHaveCount(0);
-  await page.getByRole('button', { name: 'Toggle hand panel' }).click();
+  await toggleHeader(page, 'Hand panel');
   await expect.poll(() => size(page, '#hand-tray-panel', 'height')).toBe(handHeight + 10);
   await page.reload();
   await expect.poll(() => size(page, '#component-library-panel', 'width')).toBe(libraryWidth);

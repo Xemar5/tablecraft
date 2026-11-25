@@ -203,11 +203,13 @@ function transformBox(node: DesignNode, nodes: DesignNode[]) {
   return center && { ...center, angle: nodeAngle(node, nodes) + node.rotation * Math.PI / 180 };
 }
 
-export function Designer({ component: incoming, components, functions = [], onChange, onDelete, notify, tab, setTab, panels, layersVisible = true, flushRef }: {
+export function Designer({ component: incoming, components, functions = [], onChange, onDelete, notify, tab, setTab, panels, layersVisible = true, inspectorVisible = true, flushRef }: {
   component: Component; components: Component[];
   /** Global functions in the project's scripts, for the component's script action. */
   functions?: string[]; onChange: (c: Component, removedDataRow?: number) => Promise<boolean>; onDelete: () => void; notify: (message: string, error?: boolean) => void;
   tab: 'design' | 'behavior'; setTab: (tab: 'design' | 'behavior') => void; panels: ReturnType<typeof usePanelLayout>; layersVisible?: boolean;
+  /** Whether the inspector (the right panel) is shown; Visibility in the header hides it. */
+  inspectorVisible?: boolean;
   /** Set to a function that hands any held edit to `onChange` at once (the app calls it before its own commands). */
   flushRef?: { current: (() => void) | undefined };
 }) {
@@ -1112,8 +1114,8 @@ export function Designer({ component: incoming, components, functions = [], onCh
       <div className="canvas-bottom"><span><Square size={12} /> {component.kind} component</span>
         <div><button title="Zoom out" aria-label="Zoom out" disabled={zoom <= ZOOM_MIN} onClick={() => setZoom(value => clampZoom(value / 1.25))}>-</button><ZoomPresets levels={ZOOM_LEVELS} zoom={zoom} onSelect={setZoom}><button title="Reset zoom" aria-label="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button></ZoomPresets><button title="Zoom in" aria-label="Zoom in" disabled={zoom >= ZOOM_MAX} onClick={() => setZoom(value => clampZoom(value * 1.25))}>+</button></div></div>
     </section>
-    <PanelSeparator label="Resize designer inspector" controls="designer-inspector-panel" value={panels.sizes.designerInspector} {...panels.limits.designerInspector} direction={-1} onResize={value => panels.resize('designerInspector', value)} />
-    <aside id="designer-inspector-panel" className="inspector" style={{ width: panels.sizes.designerInspector, minWidth: 0, flex: `0 0 ${panels.sizes.designerInspector}px` }}>
+    {inspectorVisible && <PanelSeparator label="Resize designer inspector" controls="designer-inspector-panel" value={panels.sizes.designerInspector} {...panels.limits.designerInspector} direction={-1} onResize={value => panels.resize('designerInspector', value)} />}
+    <aside id="designer-inspector-panel" className="inspector" hidden={!inspectorVisible} style={{ width: panels.sizes.designerInspector, minWidth: 0, flex: `0 0 ${panels.sizes.designerInspector}px` }}>
       <HorizontalScroll contentClassName="inspector-tabs" label="Designer inspector tabs"><button className={tab === 'design' ? 'active' : ''} onClick={() => setTab('design')}>Design</button><button className={tab === 'behavior' ? 'active' : ''} onClick={() => setTab('behavior')}>Behavior</button></HorizontalScroll>
       <div className="inspector-scroll">
         {tab === 'behavior' ? <>

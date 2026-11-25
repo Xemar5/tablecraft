@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { savedWorkspace } from './savedWorkspace';
 import { choose } from './searchSelect';
+import { toggleHeader } from './headerMenus';
 
 const RULES = `function onLoad()
   memory.round = memory.round or 1
@@ -22,7 +23,7 @@ async function writeScript(page: Page, source: string) {
 
 test('scripts run from the editor and from button pieces, with memory shown on components and undone in one step', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Toggle scripts window', exact: true }).click();
+  await toggleHeader(page, 'Scripts');
   const scripts = page.getByRole('region', { name: 'Scripts', exact: true });
   await scripts.getByRole('button', { name: 'Create a script', exact: true }).click();
   await expect(scripts.locator('.script-list li')).toHaveCount(1);
@@ -70,7 +71,7 @@ test('scripts run from the editor and from button pieces, with memory shown on c
   await expect(button).toHaveText('Round 2');
 
   // Memory edits show on the table at once.
-  await page.getByRole('button', { name: 'Toggle memory window', exact: true }).click();
+  await toggleHeader(page, 'Memory');
   const memory = page.getByRole('region', { name: 'Memory', exact: true });
   const value = memory.getByRole('textbox', { name: 'Value of round', exact: true });
   await value.fill('7');
@@ -89,7 +90,7 @@ test('scripts run from the editor and from button pieces, with memory shown on c
 
 test('a failing function reports its line and changes nothing', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Toggle scripts window', exact: true }).click();
+  await toggleHeader(page, 'Scripts');
   const scripts = page.getByRole('region', { name: 'Scripts', exact: true });
   await scripts.getByRole('button', { name: 'Create a script', exact: true }).click();
   await writeScript(page, 'function crash()\n  game.move("missing", 0, 0)\nend\n');

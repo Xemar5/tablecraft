@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { makeInstance } from '../../src/domain';
 import { starterProject, template } from '../../src/templates';
 import { fillServer, pickSeat } from './liveSeat';
+import { toggleHeader } from './headerMenus';
 
 const SOURCE = `function onLoad() memory.round = memory.round or 1 end
 function nextRound(piece, player) memory.round = memory.round + 1; memory.by = player.name end
@@ -46,12 +47,12 @@ test('scripts run on the server for everyone: button presses, update ticks and t
     await expect(button(host)).toHaveText('Round 2');
 
     // update(dt) runs on the server's timer while players are connected.
-    await guest.getByRole('button', { name: 'Toggle memory window', exact: true }).click();
+    await toggleHeader(guest, 'Memory');
     const ticks = guest.getByRole('region', { name: 'Memory', exact: true }).getByRole('textbox', { name: 'Value of ticks', exact: true });
     await expect.poll(async () => Number(await ticks.inputValue().catch(() => '0')), { timeout: 15000 }).toBeGreaterThan(1);
 
     // Only the host edits scripts until the host lets players do it.
-    await guest.getByRole('button', { name: 'Toggle scripts window', exact: true }).click();
+    await toggleHeader(guest, 'Scripts');
     const guestScripts = guest.getByRole('region', { name: 'Scripts', exact: true });
     await expect(guestScripts.getByText('Only the host can edit scripts in this room.', { exact: false })).toBeVisible();
     await expect(guestScripts.getByRole('button', { name: 'New script', exact: true })).toHaveCount(0);
@@ -59,8 +60,7 @@ test('scripts run on the server for everyone: button presses, update ticks and t
     await host.getByRole('checkbox', { name: /^Players can edit scripts/ }).check();
     await expect(guestScripts.getByRole('button', { name: 'New script', exact: true })).toBeVisible();
     await guestScripts.getByRole('button', { name: 'New script', exact: true }).click();
-    await expect(host.getByRole('button', { name: 'Toggle scripts window', exact: true })).toBeVisible();
-    await host.getByRole('button', { name: 'Toggle scripts window', exact: true }).click();
+    await toggleHeader(host, 'Scripts');
     await expect(host.getByRole('region', { name: 'Scripts', exact: true }).locator('.script-list li')).toHaveCount(2);
   } finally {
     await Promise.all(contexts.map(context => context.close()));

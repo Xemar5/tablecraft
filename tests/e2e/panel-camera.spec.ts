@@ -1,9 +1,13 @@
 import { expect, test } from '@playwright/test';
+import { headerItem } from './headerMenus';
 
 test('opening and closing panels keeps the table centred on every frame', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.table-viewport [aria-label="Forest clearing"]')).toBeVisible();
-  for (const toggle of ['Toggle component library', 'Toggle component library', 'Toggle table inspector', 'Toggle table inspector']) {
+  for (const toggle of ['Component library', 'Component library', 'Table inspector', 'Table inspector']) {
+    // The item is clicked in the open Visibility menu, which doesn't move anything by itself.
+    const menu = page.getByRole('button', { name: 'Visibility', exact: true });
+    if (await menu.getAttribute('aria-expanded') !== 'true') await menu.click();
     // Record, on every frame, how far the board's centre is from the view's centre.
     await page.evaluate(() => {
       const w = window as unknown as { offsets: number[]; sampling: boolean };
@@ -18,7 +22,7 @@ test('opening and closing panels keeps the table centred on every frame', async 
       requestAnimationFrame(sample);
     });
     await page.waitForTimeout(100);
-    await page.getByRole('button', { name: toggle, exact: true }).click();
+    await headerItem(page, toggle).click();
     await page.waitForTimeout(400);
     const offsets = await page.evaluate(() => { const w = window as unknown as { offsets: number[]; sampling: boolean }; w.sampling = false; return w.offsets; });
     expect(offsets.length).toBeGreaterThan(10);
