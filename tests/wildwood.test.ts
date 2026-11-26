@@ -51,6 +51,19 @@ describe('Wildwood sample', () => {
     expect(after.scriptLog?.at(-1)?.text).toBe('Player 1 gathers amber.');
   });
 
+  it('marks the supply empty in memory, which the Amber tally shows, and full again once amber goes back', () => {
+    let p = wildwoodProject();
+    const tally = p.components.find(component => component.name === 'Amber tally')!;
+    expect(tally.front.find(node => node.name === 'Supply empty')).toMatchObject({ visibilityField: 'memory.supplyEmpty', visibilityValue: 'true' });
+    const count = p.instances.filter(item => item.stack === 'amber-supply').length;
+    for (let n = 0; n < count; n++) p = applyCommand(p, { type: 'call', name: 'gatherAmber', args: [], seed: n }, 'player-1');
+    expect(p.memory).toMatchObject({ gathered: count, supplyEmpty: true });
+    const held = p.instances.find(item => item.holder === 'player-1')!;
+    p = applyCommand(p, { type: 'releaseMany', ids: [held.id], x: 0, y: 0 }, 'player-1');
+    p = applyCommand(p, { type: 'dropIntoStack', ids: [held.id], stackId: 'amber-supply' }, 'player-1');
+    expect(p.memory).toMatchObject({ supplyEmpty: false });
+  });
+
   it('carries the path stones on the path board, snapping wanderers (only) onto them wherever the board goes', () => {
     const project = wildwoodProject();
     const byName = (name: string) => project.components.find(component => component.name === name)!;

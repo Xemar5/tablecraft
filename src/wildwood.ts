@@ -30,7 +30,7 @@ const guidePages = [
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
   { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer: its Stepping stones grid sits above its layers in the Layers panel. Select it to list its stones and see how close a wanderer must come to snap to each.' },
-  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows. Every fifth amber, the Amber milestone popup shows on the gatherer’s screen only (game.popup with players), filled in with data; its buttons run a script action.\n\nWanderers announce the stone they reach.' },
+  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows. When the supply runs out, the tally shows Supply empty: a layer whose Conditional visibility reads memory. Every fifth amber, the Amber milestone popup shows on the gatherer’s screen only (game.popup with players), filled in with data; its buttons run a script action.\n\nWanderers announce the stone they reach.' },
   { page: '7', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots from Actions → Save/Load, and invite players to play together.' },
 ];
 
@@ -59,6 +59,7 @@ local SUPPLY = "amber-supply"
 function gatherAmber(button, player)
   local supply = game.stackOf(SUPPLY)
   if not supply or supply.count == 0 then
+    memory.supplyEmpty = true
     game.announce("The amber supply is empty. Put some amber back on it.")
     return
   end
@@ -69,6 +70,9 @@ function gatherAmber(button, player)
   end
   game.draw(SUPPLY, seat, 1, true)
   memory.gathered = (memory.gathered or 0) + 1
+  -- The Amber tally's "Supply empty" note shows while memory.supplyEmpty is true (its Conditional visibility).
+  local left = game.stackOf(SUPPLY)
+  memory.supplyEmpty = not left or left.count == 0
   game.announce(seat.name .. " gathers amber.")
   if memory.gathered % 5 == 0 then
     -- A popup only the gatherer sees (players), its {{name}} and {{count}} fields filled in by data.
@@ -84,6 +88,11 @@ function amberMilestone(popup, player, layer)
   if layer == "Share" or layer == "Keep gathering" then
     game.closePopup(popup.id, player)
   end
+end
+
+-- Amber put back on the supply fills it again.
+function onStack(stack, pieces, player)
+  if stack.id == SUPPLY then memory.supplyEmpty = false end
 end
 
 function onSnap(pieces, player)
@@ -312,6 +321,8 @@ function amberTally(artId: string): Component {
       makeNode('text', { name: 'Label', x: 66, y: 18, width: 76, height: 14, text: 'AMBER GATHERED', fontSize: 7, letterSpacing: 1.2, color: '#7d806c', align: 'start' }),
       // Bound to script memory: the number changes as Gather amber counts.
       makeNode('text', { name: 'Count', x: 66, y: 32, width: 76, height: 40, text: '{{memory.gathered}}', fontSize: 30, font: 'Lora', color: '#24413a', align: 'start', verticalAlign: 'center' }),
+      // Shown only while the script's memory says the supply is empty (a memory condition, so it follows memory).
+      makeNode('text', { name: 'Supply empty', x: 66, y: 74, width: 80, height: 12, text: 'SUPPLY EMPTY', fontSize: 7, letterSpacing: 1.2, color: '#a8463a', align: 'start', ...when('memory.supplyEmpty', 'true') }),
     ],
   });
 }

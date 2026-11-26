@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
+import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type PointerEvent, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { AlignCenter, AlignJustify, AlignLeft, AlignRight, AlignVerticalJustifyCenter, AlignVerticalJustifyEnd, AlignVerticalJustifyStart, BringToFront, CaseLower, CaseSensitive, CaseUpper, ChevronDown, ChevronRight, Crop, Database, Download, Eye, EyeOff, FileSpreadsheet, Frame, FolderPlus, Grid2X2, ImagePlus, Italic, Layers, Link2, MousePointer2, MoveHorizontal, MoveVertical, PenTool, Redo2, RemoveFormatting, RotateCcw, RotateCw, SendToBack, Spline, Square, Strikethrough, Trash2, Type, Underline, Undo2, Ungroup, Upload } from 'lucide-react';
 import Papa from 'papaparse';
@@ -10,6 +10,7 @@ import { ComponentGrids, gridColor, opaqueColor } from './GridLayers';
 import { GRID_SHAPES, GridEditor, gridShapeIcon, newGrid, type GridActions } from './GridEditor';
 import { PointsPanel } from './GridPoints';
 import { PopupSettingsEditor } from './PopupSettingsEditor';
+import { MemoryBindings } from './memoryBindings';
 import { ComponentGridCanvas } from './ComponentGridCanvas';
 import { normalizeTags } from './tags';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
@@ -287,6 +288,9 @@ export function Designer({ component: incoming, components, functions = [], onCh
   const [hoverLayer, setHoverLayer] = useState<{ id: string; left: number; top: number; width: number; height: number }>();
   useEffect(() => setHoverLayer(undefined), [zoom, pan]);
   const [handlePreview, setHandlePreview] = useState<{ id: string; patch: Partial<DesignNode> }>();
+  // Where a new layer visibility condition reads from, until it has a field (one with a field says so itself).
+  const [visibilitySource, setVisibilitySource] = useState<'csv' | 'memory'>('csv');
+  const memoryFields = useContext(MemoryBindings);
   // Double-clicking an image layer edits where its picture sits inside the layer's frame.
   const [imageEdit, setImageEdit] = useState<string>();
   // The component's grid selected in the Layers panel (its settings in the inspector, its bounds and points on the
@@ -1612,11 +1616,27 @@ export function Designer({ component: incoming, components, functions = [], onCh
               <NumberField label="Shadow blur" value={node.textShadowBlur ?? 0} min={0} max={200} onChange={textShadowBlur => updateNode({ textShadowBlur })} />
             </div>
           </div>}
-          {selected.length === 1 && <div className="inspector-section design-section visibility-rules">
-            <SectionTitle title="Conditional visibility" hint="Show this layer only on data rows where a CSV field equals a value. Leave the field empty to always show it." />
-            <Field label="Show when CSV field"><input value={node.visibilityField} placeholder="Always visible" onChange={event => updateNode({ visibilityField: event.target.value })} /></Field>
-            {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}
-          </div>}
+          {selected.length === 1 && (() => {
+            // A memory condition is stored as the field "memory.<path>", which reads script memory like {{memory.<path>}}.
+            const fromMemory = node.visibilityField ? node.visibilityField.startsWith('memory.') : visibilitySource === 'memory';
+            const path = fromMemory ? node.visibilityField.replace(/^memory\./, '') : node.visibilityField;
+            const setPath = (next: string) => updateNode({ visibilityField: next ? `${fromMemory ? 'memory.' : ''}${next}` : '' });
+            const memoryPaths = Object.keys(memoryFields?.get() ?? {}).map(key => key.slice('memory.'.length)).filter(key => !key.endsWith('#'));
+            return <div className="inspector-section design-section visibility-rules">
+              <SectionTitle title="Conditional visibility" hint="Show this layer only when a CSV field of the data row, or a value in the scripts’ memory, equals a value. Memory conditions follow memory as it changes, on every piece. Leave the field empty to always show it." />
+              <Field label="Condition reads"><select aria-label="Condition reads" value={fromMemory ? 'memory' : 'csv'} onChange={event => {
+                const source = event.target.value as 'csv' | 'memory';
+                setVisibilitySource(source);
+                if (path) updateNode({ visibilityField: source === 'memory' ? `memory.${path}` : path });
+              }}><option value="csv">A CSV field of the data row</option><option value="memory">A value in memory</option></select></Field>
+              <Field label={fromMemory ? 'Show when memory value' : 'Show when CSV field'}><input value={path} list={fromMemory ? 'visibility-memory-paths' : 'visibility-csv-fields'}
+                placeholder={fromMemory ? 'A path, such as round or score.red' : 'Always visible'} onChange={event => setPath(event.target.value)} /></Field>
+              <datalist id="visibility-csv-fields">{variantFields.map(field => <option key={field} value={field} />)}</datalist>
+              <datalist id="visibility-memory-paths">{memoryPaths.map(key => <option key={key} value={key} />)}</datalist>
+              {!!node.visibilityField && <Field label="Equals value"><input value={node.visibilityValue} placeholder={fromMemory ? 'Text, a number, true or false' : undefined}
+                onChange={event => updateNode({ visibilityValue: event.target.value })} /></Field>}
+            </div>;
+          })()}
         </> : <>
           <div className="inspector-section design-section">
             <SectionTitle title="Component" hint="Select one or more layers to move, edit, group or delete them. Add transparent groups, responsive frames and grids with the toolbar." />

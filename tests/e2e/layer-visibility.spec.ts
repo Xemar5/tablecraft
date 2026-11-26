@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { savedWorkspace } from './savedWorkspace';
+import { toggleHeader } from './headerMenus';
 
 test('layer and group visibility controls preserve the design and support undo', async ({ page }) => {
   await page.goto('/');
@@ -44,4 +45,32 @@ test('layer and group visibility controls preserve the design and support undo',
   await expect(page.getByRole('button', { name: 'Visible', exact: true })).toHaveAttribute('aria-pressed', 'false');
   await page.getByRole('button', { name: 'Visible', exact: true }).click();
   await expect(face).toContainText('Unique child text');
+});
+
+test('a layer can show only while a memory value equals a value, and follows memory as it changes', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Edit Forest clearing', exact: true }).click();
+  await page.locator('#designer-layers-panel').getByRole('button', { name: 'Board title', exact: true }).click();
+  const rules = page.locator('#designer-inspector-panel .visibility-rules');
+  await rules.getByRole('combobox', { name: 'Condition reads', exact: true }).selectOption('memory');
+  await rules.getByLabel('Show when memory value', { exact: true }).fill('season');
+  await rules.getByLabel('Equals value', { exact: true }).fill('spring');
+  await expect.poll(async () => (await savedWorkspace(page)).projects[0].components.find(c => c.name === 'Forest clearing')!.front
+    .find(node => node.name === 'Board title')).toMatchObject({ visibilityField: 'memory.season', visibilityValue: 'spring' });
+  await page.getByRole('button', { name: 'Playground', exact: true }).click();
+  const board = page.locator('[data-testid="table-piece"][aria-label="Forest clearing"]');
+  // Memory has no season yet, so the title is hidden; setting it shows the title at once, and changing it hides it again.
+  await expect(board).not.toContainText('THE CLEARING');
+  await toggleHeader(page, 'Memory');
+  const memory = page.getByRole('region', { name: 'Memory', exact: true });
+  await memory.getByRole('button', { name: 'Add value', exact: true }).click();
+  await page.keyboard.insertText('season');
+  await page.keyboard.press('Enter');
+  const value = memory.getByRole('textbox', { name: 'Value of season', exact: true });
+  await value.fill('spring');
+  await value.press('Enter');
+  await expect(board).toContainText('THE CLEARING');
+  await value.fill('winter');
+  await value.press('Enter');
+  await expect(board).not.toContainText('THE CLEARING');
 });
