@@ -61,12 +61,14 @@ function seats(profile: Profile, colors: string[]): Player[] {
 }
 /**
  * Piece groups for the Pieces panel: `add` creates a group, `into` files pieces (whole stacks) under one. A locked
- * group holds its pieces in place, so unlocking the group in the Pieces panel frees them all.
+ * group holds its pieces in place, so unlocking the group in the Pieces panel frees them all. An order-locked group
+ * keeps its place in the order: picking up its pieces doesn't raise them over the pieces played on top of them, and
+ * the group doesn't jump to the top of the Pieces panel.
  */
 function grouping() {
   const groups: PieceGroup[] = [];
-  const add = (name: string, parent: string | null = null, locked = false) => {
-    const id = uid('group'); groups.push({ id, name, parent, ...locked ? { locked } : {} }); return id;
+  const add = (name: string, parent: string | null = null, locked = false, orderLocked = false) => {
+    const id = uid('group'); groups.push({ id, name, parent, ...locked ? { locked } : {}, ...orderLocked ? { orderLocked } : {} }); return id;
   };
   const into = (group: string, items: Instance[]) => items.map(item => ({ ...item, group }));
   return { groups, add, into };
@@ -185,7 +187,7 @@ export function chessProject(name: string, description: string, profile: Profile
     ...Array.from({ length: 8 }, (_, file) => place(pieces, 5 + offset, square(file, pawns).x, square(file, pawns).y)),
   ];
   const instances = [
-    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
+    ...into(add('Board', null, true, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('White pieces'), army(0, 0, 1)), ...into(add('Black pieces'), army(6, 7, 6)),
   ];
   return project(name, description, [board, pieces], instances, seats(profile, ['#f1ead8', '#3a3029']), groups, false, boardGrid(60, square(0, 0)));
@@ -211,7 +213,7 @@ export function checkersProject(name: string, description: string, profile: Prof
   const side = (row: number, ranks: number[]) => ranks.flatMap(rank => Array.from({ length: 8 }, (_, file) => file)
     .filter(file => (rank + file) % 2 === 0).map(file => place(checker, row, square(file, rank).x, square(file, rank).y)));
   const instances = [
-    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
+    ...into(add('Board', null, true, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('Light checkers'), side(0, [0, 1, 2])), ...into(add('Dark checkers'), side(1, [5, 6, 7])),
   ];
   return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']), groups, false, boardGrid(60, square(0, 0)));
@@ -242,10 +244,11 @@ export function goProject(name: string, description: string, profile: Profile): 
   const bowl = component('Stone bowl', 'token', 96, 96, { color: '#6b4a2b',
     front: [shape('Hollow', { shapeKind: 'ellipse', x: 10, y: 10, width: 76, height: 76, fill: '#8a6440', stroke: '#5a3d22', strokeWidth: 2 })] });
   const { groups, add, into } = grouping();
-  // Each player's stones sit in their bowl, which is locked so the stones can be dragged off it.
-  const stones = (row: number, count: number, x: number, y: number) => [place(bowl, 0, x, y, { locked: true }), ...pile(stone, Array<number>(count).fill(row), x, y)];
+  // Each player's stones sit in their bowl, which is locked so the stones can be dragged off it, and order-locked so it
+  // stays under them.
+  const stones = (row: number, count: number, x: number, y: number) => [place(bowl, 0, x, y, { locked: true, orderLocked: true }), ...pile(stone, Array<number>(count).fill(row), x, y)];
   const instances = [
-    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
+    ...into(add('Board', null, true, true), [place(board, 0, CENTER.x, CENTER.y)]),
     ...into(add('Black stones'), stones(0, 181, CENTER.x - 390, CENTER.y + 200)),
     ...into(add('White stones'), stones(1, 180, CENTER.x + 390, CENTER.y - 200)),
   ];
@@ -491,9 +494,10 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   const markers = [[10, 2, 9], [12, 6, 4, 10], [9, 11, 0, 3, 8], [8, 3, 4, 5], [5, 6, 11]];
   // The island is laid out in locked groups: the sea, tiles, tide markers and harbors stay put while huts, boardwalks
   // and the squall are placed on them (tiles, markers and harbors still show their hover preview). Unlock a group in the Pieces panel to rearrange it, for example to deal a
-  // random island.
+  // random island. The whole island has its order locked, so moving the squall doesn't raise it over the huts and
+  // boardwalks or move the island up the Pieces panel.
   const { groups, add, into } = grouping();
-  const island = add('Island'), tiles: Instance[] = [], tides: Instance[] = [], harborPieces: Instance[] = [];
+  const island = add('Island', null, false, true), tiles: Instance[] = [], tides: Instance[] = [], harborPieces: Instance[] = [];
   let storm: Instance | undefined;
   layout.forEach((row, rowIndex) => row.forEach((terrain, column) => {
     const x = CENTER.x + ISLAND[rowIndex][column].x, y = CENTER.y + ISLAND[rowIndex][column].y;
@@ -524,10 +528,10 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ...pile(tideCard, deck, 520, 330, { flipped: true }),
     place(award, 0, 520, 460), place(award, 1, 520, 530),
     place(die, 2, 495, 603, { rotation: 8 }), place(die, 4, 550, 607, { rotation: -6 }),
-    place(book, 0, 520, 810, { scale: .55 }),
+    place(book, 0, 520, 810, { scale: .55, orderLocked: true }),
   ]));
-  // The buttons and scoreboard stay put (buttons still press while locked).
-  instances.push(...into(add('Controls'), [
+  // The buttons and scoreboard stay put (buttons still press while locked) and keep their place in the order.
+  instances.push(...into(add('Controls', null, false, true), [
     place(startButton, 0, 520, 105, { locked: true }), place(scoreboard, 0, 520, 190, { locked: true }), place(rollButton, 0, 520, 665, { locked: true }),
   ]));
 
@@ -542,8 +546,9 @@ export function tidewaterProject(name: string, description: string, profile: Pro
       ...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }),
       // Across the seat, turned to the nearest tile-edge angle.
       ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: (30 + 60 * Math.floor((seat.rotation + 60) / 60) + 360) % 360 }),
-      // The building costs card is a reference, so it is locked in front of its player (it still shows its preview).
-      place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true }),
+      // The building costs card is a reference, so it is locked in front of its player, its order too (it still shows
+      // its preview).
+      place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true, orderLocked: true }),
     ]));
   });
   // The top and bottom seats sit a little further out than the default ring, so the cards fanned out above their

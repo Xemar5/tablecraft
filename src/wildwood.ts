@@ -294,10 +294,11 @@ export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.des
   }));
   const supply = { x: 600, y: 640 };
   const groups: PieceGroup[] = [
-    { id: 'group-clearing', name: 'Clearing', parent: null, locked: true },
+    // The boards keep their places in the order too, under everything played on them.
+    { id: 'group-clearing', name: 'Clearing', parent: null, locked: true, orderLocked: true },
     { id: 'group-spirits', name: 'Spirit cards', parent: null },
     { id: 'group-amber', name: 'Amber and die', parent: null },
-    { id: 'group-path', name: 'Wanderer’s path', parent: null, locked: true },
+    { id: 'group-path', name: 'Wanderer’s path', parent: null, locked: true, orderLocked: true },
     { id: 'group-wanderers', name: 'Wanderers', parent: null },
     // Its order is locked: it keeps its place in the Pieces panel (and the table order) while the game goes on.
     { id: 'group-guide', name: 'Guide and controls', parent: null, orderLocked: true },

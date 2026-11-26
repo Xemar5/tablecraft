@@ -124,6 +124,25 @@ describe('game projects', () => {
     expect(moved.instances.find(item => item.id === tile.id)!.x).toBe(tile.x + 40);
   });
 
+  it('keeps boards, the island and reference pieces in their place in the order, under the pieces played on them', () => {
+    const orderGroups = (project: Project) => (project.groups ?? []).filter(group => group.orderLocked).map(group => group.name);
+    const orderPieces = (project: Project) =>
+      [...new Set(project.instances.filter(item => item.orderLocked).map(item => project.components.find(c => c.id === item.componentId)!.name))];
+    for (const id of ['chess', 'checkers', 'go'] as const) expect(orderGroups(build(id)), id).toEqual(['Board']);
+    expect(orderPieces(build('go'))).toEqual(['Stone bowl']);
+    expect(orderGroups(build('wildwood'))).toEqual(['Clearing', 'Wanderer’s path', 'Guide and controls']);
+    const game = build('tidewater');
+    expect(orderGroups(game)).toEqual(['Island', 'Controls']);
+    expect(orderPieces(game)).toEqual(['Tidewater rules', 'Building costs']);
+    // Picking up the squall (which raises the pieces picked up) leaves it under the huts and the table order as it was;
+    // a hut still comes to the front.
+    const squall = piecesOf(game, 'Squall')[0], hut = piecesOf(game, 'Hut')[0];
+    const order = (project: Project) => project.instances.map(item => item.id);
+    expect(order(applyCommand(game, { type: 'front', ids: [squall.id] }))).toEqual(order(game));
+    expect(order(applyCommand(game, { type: 'front', ids: [hut.id] })).at(-1)).toBe(hut.id);
+    expect(() => applyCommand(game, { type: 'zOrder', ids: [squall.id], move: 'front' })).toThrow('order is locked');
+  });
+
   it("puts every tide marker, and the squall on the dunes, in its island tile's number slot", () => {
     const game = build('tidewater');
     const tile = componentNamed(game, 'Island tile'), slot = tile.front.find(node => node.name === 'Number slot')!;

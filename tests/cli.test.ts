@@ -90,7 +90,8 @@ describe('agent CLI', () => {
     run('new', '--out', file, '--template', 'wildwood');
     // Wildwood has groups of its own; these checks look only at the ones made here.
     const instances: { id: string; stack: string | null; group?: string }[] = run('list', '--file', file, '--what', 'instances');
-    const deck = instances.find(i => i.stack === 'starter-deck')!, loose = instances.filter(i => !i.stack);
+    // The boards' groups keep their place in the order, so the loose pieces regrouped here come from elsewhere.
+    const deck = instances.find(i => i.stack === 'starter-deck')!, loose = instances.filter(i => !i.stack && i.group === 'group-spirits');
     const ours = <T extends { id: string }>(groups: T[]) => groups.filter(group => ['deck', 'outer'].includes(group.id));
     const created = run('group', 'create', '--file', file, '--name', 'Deck', '--pieces', deck.id, '--id', 'deck');
     expect(ours(created.groups)).toEqual([{ id: 'deck', name: 'Deck', parent: null }]);
