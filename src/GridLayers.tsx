@@ -3,7 +3,16 @@ import { hexCorners, type Grid } from './grids';
 import './grids.css';
 
 export const GRID_COLORS = ['#7d9b60', '#b08c4f', '#5f8fae', '#a2679a', '#c07457'];
-export const gridColor = (grid: Grid, index: number) => grid.color || GRID_COLORS[index % GRID_COLORS.length];
+/** The alpha of a square or hex grid's default colour: 10%, so a lattice stays in the background. */
+export const DEFAULT_GRID_ALPHA = '1a';
+/**
+ * A grid's colour: its own, or one of GRID_COLORS by its place in the list, at 10% alpha for square and hex grids
+ * (points grids' markers are opaque).
+ */
+export const gridColor = (grid: Pick<Grid, 'color' | 'shape'>, index: number) =>
+  grid.color || `${GRID_COLORS[index % GRID_COLORS.length]}${grid.shape === 'points' ? '' : DEFAULT_GRID_ALPHA}`;
+/** A colour without its alpha (for #rgba and #rrggbbaa; other formats are kept), for swatches and edit handles. */
+export const opaqueColor = (color: string) => /^#[0-9a-f]{8}$/i.test(color) ? color.slice(0, 7) : /^#[0-9a-f]{4}$/i.test(color) ? color.slice(0, 4) : color;
 
 export type GridArea = { x: number; y: number; width: number; height: number };
 

@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowUp, Eye, EyeOff, Grid2X2, Hexagon, LocateFixed, Magnet, Plus, Trash2, X } from 'lucide-react';
 import { uid, type Command } from './domain';
 import { DEFAULT_POINT_RADIUS, type Grid } from './grids';
-import { gridColor } from './GridLayers';
+import { gridColor, opaqueColor } from './GridLayers';
 import { TagFilterEditor } from './TagEditors';
 import { ColorField, Field, IconChoice, NumberField, Toggle } from './ui';
 import { ANY_TAGS } from './tags';
@@ -51,7 +51,7 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
       <p className="help-text grid-intro">Pieces snap to the first grid in this list that takes them. With the grid tool on, drag the table to move the selected grid{selected?.shape === 'points' ? ', or click it to add a snap point' : ''}.</p>
       <ol className="grid-list" aria-label="Grid layers">{grids.map((grid, index) => <li key={grid.id} className={grid.id === selected?.id ? 'active' : ''}>
         <button className="grid-row" aria-pressed={grid.id === selected?.id} onClick={() => { onSelect(grid.id); onSelectPoint(undefined); }}>
-          <span className="grid-swatch" style={{ color: gridColor(grid, index) }}>{shapeIcon(grid.shape)}</span><span className="grid-name">{grid.name}</span>
+          <span className="grid-swatch" style={{ color: opaqueColor(gridColor(grid, index)) }}>{shapeIcon(grid.shape)}</span><span className="grid-name">{grid.name}</span>
         </button>
         <span className="grid-row-actions">
           <button className="icon-button" aria-label={`${grid.visible ? 'Hide' : 'Show'} ${grid.name}`} title={grid.visible ? 'Shown on the table' : 'Hidden'} aria-pressed={grid.visible} disabled={disabled}

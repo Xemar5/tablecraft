@@ -13,7 +13,7 @@ import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
 import { hoverPreviewSize, hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgroundPreview';
 import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids';
-import { gridArea, gridColor, GridLayers, GridPointHandles } from './GridLayers';
+import { gridArea, gridColor, GridLayers, GridPointHandles, opaqueColor } from './GridLayers';
 import { GridEditor } from './GridEditor';
 import { PointsPanel } from './GridPoints';
 import { pointGroupAncestors } from './grids';
@@ -1274,7 +1274,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) || (showHidden && item.hiddenFrom?.length) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
           })}
-          {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={gridColor(editedGrid, shownGrids.indexOf(editedGrid))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT}
+          {editedGrid?.shape === 'points' && <GridPointHandles grid={editedGrid} color={opaqueColor(gridColor(editedGrid, shownGrids.indexOf(editedGrid)))} selected={gridPoint} width={TABLE_WIDTH} height={TABLE_HEIGHT}
             highlighted={pointGroup ? (editedGrid.points ?? []).filter(point => pointGroupAncestors(editedGrid.pointGroups ?? [], point.group).includes(pointGroup)).map(point => point.id) : undefined} />}
         </div>
         <PingPins viewport={viewport} pins={pins} onFocus={ids => { focusOn(ids); }} />

@@ -2,10 +2,8 @@
    the same on screen at any zoom. */
 .grid-layers, .grid-handles { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .grid-layers { z-index: 0; }
-.grid-fill { opacity: .55; }
-.grid-fill.grid-fill-hex { opacity: .4; }
+/* A square or hex grid shows at its colour's own alpha (10% by default). */
 .grid-fill.hidden-grid, .grid-points.hidden-grid { opacity: .25; }
-.grid-fill.selected-grid { opacity: .95; }
 .grid-dot { r: calc(1.6px / var(--table-zoom, 1)); fill: currentColor; }
 .grid-hex { fill: none; stroke: currentColor; stroke-width: calc(1px / var(--table-zoom, 1)); }
 .grid-points { opacity: .8; }
