@@ -217,11 +217,11 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .stack-shadow.open-stack-shadow>.component-face{filter:brightness(0) invert(.91) sepia(.12) drop-shadow(0 0 .7px #8f927e)}
 .hand-selected{outline:none;filter:drop-shadow(2px 0 0 #6b8c4f) drop-shadow(-2px 0 0 #6b8c4f) drop-shadow(0 2px 0 #6b8c4f) drop-shadow(0 -2px 0 #6b8c4f)}
 :root[data-theme=dark] .stack-shadow.open-stack-shadow>.component-face{filter:brightness(0) invert(.24) drop-shadow(0 0 .7px #74786a)}
-/* The Pieces panel's group locks (PlaygroundPieces): shown on hover or focus, and always while the group is locked.
-   Hidden ones take no room, so the group's name and count use the whole row. Focusing the row shows them, so the
-   keyboard still reaches them. */
+/* The Pieces panel's group locks (PlaygroundPieces): shown on hover or keyboard focus, and always while the group is
+   locked. Hidden ones take no room, so the group's name and count use the whole row. Keyboard focus on the row shows
+   them, so Tab still reaches them; a click doesn't, so they hide as soon as the pointer leaves. */
 .group-lock{display:none;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;padding:0;color:#8a9b79;border-radius:4px}
-.layer-tree-row:hover .group-lock,.layer-tree-row:focus-within .group-lock,.group-lock.is-locked{display:flex}
+.layer-tree-row:hover .group-lock,.layer-tree-row:has(:focus-visible) .group-lock,.group-lock.is-locked{display:flex}
 .group-lock:hover:not(:disabled){background:#e8efdf}
 .group-lock.is-locked{color:#4f6b45}
 /* Stack and book labels (TablePiece): upright for the viewer at the piece's screen-bottom edge, a fixed screen size,

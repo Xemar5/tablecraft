@@ -11,8 +11,10 @@
 .layer-tree-row {display:flex;align-items:center;min-width:0;padding-right:4px;border-left:2px solid transparent}
 .layer-tree-row .layer-row {min-width:0;flex:1}
 .layer-tree-row .layer-row.active {border-left-color:transparent}
-.layer-visibility {display:flex;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;color:#8a9b79;border-radius:4px;opacity:0}
-.layer-tree-row:hover .layer-visibility,.layer-tree-row:focus-within .layer-visibility,.layer-visibility.is-hidden {opacity:1}
+/* A layer's eye button shows on hover or keyboard focus (not after a click, so it hides as the pointer leaves), and
+   always while the layer is hidden. Hidden, it takes no room from the layer's name. */
+.layer-visibility {display:none;align-items:center;justify-content:center;flex:0 0 24px;width:24px;height:24px;color:#8a9b79;border-radius:4px}
+.layer-tree-row:hover .layer-visibility,.layer-tree-row:has(:focus-visible) .layer-visibility,.layer-visibility.is-hidden {display:flex}
 .layer-visibility:hover {background:#e8efdf}
 .tree-disclosure {display:flex;align-items:center;justify-content:center;flex:0 0 18px;width:18px;height:24px;color:#8a9b79;border-radius:4px}
 .tree-disclosure:hover {background:#e8efdf}

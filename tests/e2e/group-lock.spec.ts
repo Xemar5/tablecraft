@@ -34,6 +34,10 @@ test('a group locks separately from its pieces, and selecting locked pieces neve
 
   await panel.getByRole('button', { name: /^Lock group / }).click();
   await expect(groupRow).toHaveAttribute('aria-label', /, locked$/);
+  // Once the pointer leaves, the order lock (still off) hides again, though the clicked lock button keeps focus.
+  await page.mouse.move(5, 5);
+  await expect(panel.getByRole('button', { name: /^Lock order of group / })).toHaveCount(0);
+  await expect(locks.first()).toBeVisible();
   await expect.poll(async () => (await saved(page)).groups[0].locked).toBe(true);
   // The pieces keep their own (unlocked) flags but can't be dragged.
   expect((await saved(page)).instances.filter((i: { id: string }) => ids.includes(i.id)).map((i: { locked: boolean }) => i.locked)).toEqual([false, false]);
