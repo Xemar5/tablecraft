@@ -14,13 +14,21 @@ const project = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getI
 test('a component carries grids whose bounds are set in the designer, and pieces snap to them on its table pieces', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Edit Forest clearing', exact: true }).click();
-  await page.getByRole('button', { name: 'Add a grid', exact: true }).click();
-  await page.getByRole('group', { name: 'Add a grid' }).getByRole('button', { name: 'Square' }).click();
+  await page.getByRole('button', { name: 'Add grid', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Square grid', exact: true }).click();
+  // The grid is a row above the layers in the Layers panel, selected, with its settings in the inspector.
+  const layers = page.locator('#designer-layers-panel');
+  const squareRow = layers.getByRole('group', { name: 'Grids' }).getByRole('button', { name: 'Square grid', exact: true });
+  await expect(squareRow).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.grid-settings h3').first()).toHaveText('Square grid');
   // A new grid covers the whole component, its points half a cell in from the corner.
   await expect(field(page, 'Bounds width (px)')).toHaveValue('640');
   await expect(field(page, 'Offset X (px)')).toHaveValue('25');
   const area = page.locator('.artboard .component-grids rect.grid-fill');
   await expect(area).toHaveAttribute('width', '640');
+  // It takes pieces up to half a cell past its bounds, which a dotted frame shows.
+  await expect(page.locator('.grid-reach')).toContainText('half a cell outside them (25 px)');
+  await expect(page.locator('.grid-snap-reach-bounds')).toHaveCount(1);
 
   // Bounds from the fields, and from the dashed frame's handles on the canvas.
   await field(page, 'Bounds X (px)').fill('100');
@@ -39,8 +47,29 @@ test('a component carries grids whose bounds are set in the designer, and pieces
   // Each change is a design edit: undo takes back the move.
   await page.getByRole('button', { name: 'Undo design edit', exact: true }).click();
   await expect(field(page, 'Offset X (px)')).toHaveValue('25');
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Edit grids', exact: true })).toBeVisible();
+  // Escape deselects it like a layer; its row selects it again.
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.grid-settings')).toHaveCount(0);
+  await expect(squareRow).toHaveAttribute('aria-pressed', 'false');
+  await squareRow.click();
+  await expect(page.locator('.grid-settings h3').first()).toHaveText('Square grid');
+
+  // A points grid lists its points in the inspector, and shows each point's snap distance on the canvas.
+  await page.getByRole('button', { name: 'Add grid', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Snap points', exact: true }).click();
+  const canvas = await centre(page, '.grid-edit-layer');
+  await page.mouse.click(canvas.x, canvas.y);
+  await page.mouse.click(canvas.x + 120 * zoom, canvas.y);
+  const points = page.locator('.grid-points-list').getByRole('treeitem');
+  await expect(points).toHaveCount(2);
+  await expect(points.nth(1)).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.grid-edit-layer circle.grid-snap-reach')).toHaveCount(2);
+  await expect(page.locator('.grid-edit-layer circle.grid-snap-reach').first()).toHaveAttribute('r', String(50 * zoom));
+  // Delete removes the selected point, then (with no point selected) the grid itself.
+  await page.keyboard.press('Delete');
+  await expect(points).toHaveCount(1);
+  await page.keyboard.press('Delete');
+  await expect(layers.locator('.grid-layer-row .layer-row')).toHaveText(['Square grid']);
 
   // On the table the clearing shows its grid, and a token dropped on it snaps to one of its points inside the bounds.
   await page.getByRole('button', { name: 'Playground', exact: true }).click();

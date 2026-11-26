@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, makeInstance, validateProject, type Component, type Instance, type Project } from '../src/domain';
-import { fromFrame, nearestBoundedPoint, placedGrids, placedPointPosition, snapOf, snapTarget, toFrame, type ComponentGrid, type Grid } from '../src/grids';
+import { boundsReach, fromFrame, nearestBoundedPoint, placedGrids, placedPointPosition, snapOf, snapTarget, toFrame, type ComponentGrid, type Grid } from '../src/grids';
 import { blankProject, template } from '../src/templates';
 import { filterFromTags } from '../src/tags';
 
@@ -25,6 +25,17 @@ describe('grids components carry', () => {
     expect(corner.x).toBeCloseTo(1300); expect(corner.y).toBeCloseTo(100);
     const back = toFrame(frame, corner.x, corner.y);
     expect(back.x).toBeCloseTo(0); expect(back.y).toBeCloseTo(0);
+  });
+
+  it('reach half a cell past their bounds (what the designer shows), and points grids none', () => {
+    expect(boundsReach(cells())).toEqual({ x: 25, y: 25 });
+    expect(boundsReach(cells({ sizeY: 30 }))).toEqual({ x: 25, y: 15 });
+    expect(boundsReach(cells({ shape: 'hex', size: 60 }))).toEqual({ x: 30, y: 30 });
+    expect(boundsReach(cells({ shape: 'points', points: [] }))).toEqual({ x: 0, y: 0 });
+    // A piece dropped just inside that reach snaps; just past it, it doesn't.
+    const project: Project = { ...blankProject(), grids: [], components: [board(), token()], instances: [{ ...makeInstance('board', 0, 200, 150), id: 'b' }] };
+    expect(snapTarget(project, token(), 0 - 24, 0)).toBeDefined();
+    expect(snapTarget(project, token(), 0 - 26, 0)).toBeUndefined();
   });
 
   it('offer only the points inside their bounds', () => {

@@ -13,7 +13,8 @@ const SHAPES = [
   { value: 'hex', label: 'Hex grid', icon: <Hexagon size={15} /> },
   { value: 'points', label: 'Snap points', icon: <LocateFixed size={15} /> },
 ] as const;
-const shapeIcon = (shape: Grid['shape'], size = 14) => shape === 'hex' ? <Hexagon size={size} /> : shape === 'points' ? <LocateFixed size={size} /> : <Grid2X2 size={size} />;
+export const GRID_SHAPES = SHAPES;
+export const gridShapeIcon = (shape: Grid['shape'], size = 14) => shape === 'hex' ? <Hexagon size={size} /> : shape === 'points' ? <LocateFixed size={size} /> : <Grid2X2 size={size} />;
 
 /** A new grid layer of a shape, named after it, numbered when the name is taken. */
 export function newGrid(shape: Grid['shape'], grids: Grid[]): Grid {
@@ -33,14 +34,19 @@ export type GridActions<G extends Grid> = {
 /**
  * A grid list and the selected grid's settings, its snap points included: the grid tool's panel for the table's grids
  * (the first one wins where several could take a piece), and the designer's for a component's grids, which add
- * `bounds` settings (from `boundsEditor`).
+ * `bounds` settings (from `boundsEditor`). Without `list` it's only the selected grid's settings, with its show, snap
+ * and delete buttons in its title: the designer lists a component's grids in its Layers panel instead.
  */
-export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, onSelectPoint, actions, disabled, tags, onDone, intro, boundsEditor, surface = 'the table' }: {
+export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, onSelectPoint, actions, disabled, tags, onDone, intro, boundsEditor, pointsList, list = true, surface = 'the table' }: {
   grids: G[]; selected?: G; onSelect: (id: string) => void; point?: string; onSelectPoint: (id: string | undefined) => void;
   actions: GridActions<G>; disabled: boolean; tags: string[]; onDone: () => void;
   /** The panel's explanation under its title (the table grid tool's by default). */
   intro?: ReactNode;
   boundsEditor?: (grid: G) => ReactNode;
+  /** The selected points grid's points, listed under its snap distance. */
+  pointsList?: ReactNode;
+  /** Whether to show the grid list (with the add buttons) above the settings. */
+  list?: boolean;
   /** Where the grid is dragged and points are added: the table (with the grid tool), or the designer's canvas. */
   surface?: string;
 }) {
@@ -59,19 +65,22 @@ export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, o
   const updatePoint = (patch: Partial<NonNullable<Grid['points']>[number]>) => {
     if (selected && selectedPoint) update({ points: selected.points!.map(item => item.id === selectedPoint.id ? { ...item, ...patch } : item) });
   };
+  const rowActions = (grid: G) => <>
+    <button className="icon-button" aria-label={`${grid.visible ? 'Hide' : 'Show'} ${grid.name}`} title={grid.visible ? 'Shown on the table' : 'Hidden'} aria-pressed={grid.visible} disabled={disabled}
+      onClick={() => save({ ...grid, visible: !grid.visible })}>{grid.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+    <button className="icon-button" aria-label={`${grid.snap ? 'Stop snapping to' : 'Snap to'} ${grid.name}`} title={grid.snap ? 'Pieces snap to it' : 'Pieces don’t snap to it'} aria-pressed={grid.snap} disabled={disabled}
+      onClick={() => save({ ...grid, snap: !grid.snap })}><Magnet size={14} /></button>
+  </>;
   return <div className="grid-editor">
-    <div className="inspector-section">
+    {list && <div className="inspector-section">
       <div className="section-title"><h3>Grids</h3><button className="button grid-done" onClick={onDone}><X size={13} /> Done</button></div>
       <p className="help-text grid-intro">{intro ?? <>Pieces snap to the first grid in this list that takes them. With the grid tool on, drag the table to move the selected grid{selected?.shape === 'points' ? ', or click it to add a snap point' : ''}.</>}</p>
       <ol className="grid-list" aria-label="Grid layers">{grids.map((grid, index) => <li key={grid.id} className={grid.id === selected?.id ? 'active' : ''}>
         <button className="grid-row" aria-pressed={grid.id === selected?.id} onClick={() => { onSelect(grid.id); onSelectPoint(undefined); }}>
-          <span className="grid-swatch" style={{ color: opaqueColor(gridColor(grid, index)) }}>{shapeIcon(grid.shape)}</span><span className="grid-name">{grid.name}</span>
+          <span className="grid-swatch" style={{ color: opaqueColor(gridColor(grid, index)) }}>{gridShapeIcon(grid.shape)}</span><span className="grid-name">{grid.name}</span>
         </button>
         <span className="grid-row-actions">
-          <button className="icon-button" aria-label={`${grid.visible ? 'Hide' : 'Show'} ${grid.name}`} title={grid.visible ? 'Shown on the table' : 'Hidden'} aria-pressed={grid.visible} disabled={disabled}
-            onClick={() => save({ ...grid, visible: !grid.visible })}>{grid.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
-          <button className="icon-button" aria-label={`${grid.snap ? 'Stop snapping to' : 'Snap to'} ${grid.name}`} title={grid.snap ? 'Pieces snap to it' : 'Pieces don’t snap to it'} aria-pressed={grid.snap} disabled={disabled}
-            onClick={() => save({ ...grid, snap: !grid.snap })}><Magnet size={14} /></button>
+          {rowActions(grid)}
           <button className="icon-button" aria-label={`Move ${grid.name} up`} disabled={disabled || !index} onClick={() => move(index, -1)}><ArrowUp size={13} /></button>
           <button className="icon-button" aria-label={`Move ${grid.name} down`} disabled={disabled || index === grids.length - 1} onClick={() => move(index, 1)}><ArrowDown size={13} /></button>
           <button className="icon-button danger" aria-label={`Delete ${grid.name}`} disabled={disabled} onClick={() => actions.remove(grid.id)}><Trash2 size={13} /></button>
@@ -80,9 +89,12 @@ export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, o
       {!grids.length && <p className="help-text">No grids: pieces move freely.</p>}
       {!disabled && <div className="grid-add" role="group" aria-label="Add a grid">{SHAPES.map(shape =>
         <button key={shape.value} className="button" onClick={() => void add(shape.value)}><Plus size={12} />{shape.icon}{shape.value === 'square' ? 'Square' : shape.value === 'hex' ? 'Hex' : 'Points'}</button>)}</div>}
-    </div>
+    </div>}
     {selected && <fieldset className="inspector-section grid-settings" disabled={disabled}>
-      <div className="section-title"><h3>{selected.name}</h3>{shapeIcon(selected.shape, 15)}</div>
+      {list ? <div className="section-title"><h3>{selected.name}</h3>{gridShapeIcon(selected.shape, 15)}</div>
+        : <div className="section-title"><h3>{selected.name}</h3><span className="grid-row-actions">{rowActions(selected)}
+          <button className="icon-button danger" aria-label={`Delete ${selected.name}`} title="Delete this grid (Delete)" disabled={disabled} onClick={() => actions.remove(selected.id)}><Trash2 size={13} /></button></span></div>}
+      {!list && intro && <p className="help-text grid-intro">{intro}</p>}
       <Field label="Name"><input key={`name-${selected.id}`} defaultValue={selected.name} maxLength={60}
         onBlur={event => { const name = event.target.value.trim(); if (name && name !== selected.name) update({ name }); else event.target.value = selected.name; }}
         onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></Field>
@@ -111,6 +123,7 @@ export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, o
       {selected.shape === 'points' && <>
         <NumberField deferred label="Snap distance (px)" hint="How close a piece's centre must come to a point to snap to it." value={selected.radius ?? DEFAULT_POINT_RADIUS} min={1} max={2000} onChange={radius => update({ radius })} />
         <p className="help-text">{(selected.points ?? []).length} points. Click {surface} to add one, drag points to move them, and select one to edit it (Delete removes it).</p>
+        {pointsList}
         {selectedPoint && <div className="grid-point-editor" role="group" aria-label="Selected point">
           <div className="section-title"><h3>Point {selectedPoint.label || ''}</h3><button className="icon-button" aria-label="Deselect point" onClick={() => onSelectPoint(undefined)}><X size={13} /></button></div>
           <div className="field-grid">

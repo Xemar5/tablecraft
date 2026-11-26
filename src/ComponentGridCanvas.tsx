@@ -1,6 +1,6 @@
 import { useRef, type PointerEvent } from 'react';
 import { uid } from './domain';
-import type { ComponentGrid, GridBounds } from './grids';
+import { boundsReach, DEFAULT_POINT_RADIUS, type ComponentGrid, type GridBounds } from './grids';
 import { cssPx } from './uiScale';
 
 const BOUNDS_HANDLES = [[-1, -1, 'top-left corner'], [0, -1, 'top edge'], [1, -1, 'top-right corner'], [1, 0, 'right edge'],
@@ -11,11 +11,15 @@ type Gesture = { pointer: number; x: number; y: number; grid: ComponentGrid; kin
 /**
  * Editing a component's grid on the designer canvas, over its layers (in screen pixels, so handles keep their size):
  * drag the canvas to move a square or hex grid's points, drag the handles of the dashed frame to set the grid's bounds,
- * and on a points grid click to add a snap point, drag points to move them and click one to select it. Changes show
- * at once (`onDraft`) and are saved when the drag ends (`onCommit`), so each drag is one undo step.
+ * and on a points grid click to add a snap point (into the selected point group), drag points to move them and click
+ * one to select it. Changes show at once (`onDraft`) and are saved when the drag ends (`onCommit`), so each drag is one
+ * undo step. It also shows how far the grid reaches: a dotted frame half a cell outside a square or hex grid's bounds,
+ * and a dashed circle of the snap distance around each point of a points grid inside its bounds.
  */
-export function ComponentGridCanvas({ grid, zoom, color, point, onSelectPoint, onDraft, onCommit, readOnly }: {
+export function ComponentGridCanvas({ grid, zoom, color, point, group, highlighted, onSelectPoint, onDraft, onCommit, readOnly }: {
   grid: ComponentGrid; zoom: number; color: string; point?: string; onSelectPoint: (id: string | undefined) => void;
+  /** The selected point group: new points go into it, and `highlighted` are the points in it. */
+  group?: string; highlighted?: string[];
   onDraft: (grid: ComponentGrid | undefined) => void; onCommit: (grid: ComponentGrid) => void; readOnly?: boolean;
 }) {
   const layer = useRef<HTMLDivElement>(null);
@@ -43,7 +47,7 @@ export function ComponentGridCanvas({ grid, zoom, color, point, onSelectPoint, o
         // A click where there's no point adds one there.
         const at = local(event);
         id = uid('point');
-        next = { ...grid, points: [...grid.points ?? [], { id, x: round(at.x), y: round(at.y) }] };
+        next = { ...grid, points: [...grid.points ?? [], { id, x: round(at.x), y: round(at.y), ...(group ? { group } : {}) }] };
         changed = true;
         show(next);
       }
@@ -83,16 +87,20 @@ export function ComponentGridCanvas({ grid, zoom, color, point, onSelectPoint, o
     show(undefined);
   };
   const cancel = () => { gesture.current = null; show(undefined); };
-  const { bounds } = grid;
+  const { bounds } = grid, reach = boundsReach(grid), radius = (grid.radius ?? DEFAULT_POINT_RADIUS) * zoom;
+  const inside = (item: { x: number; y: number }) => item.x >= bounds.x && item.x <= bounds.x + bounds.width && item.y >= bounds.y && item.y <= bounds.y + bounds.height;
   return <div ref={layer} className={`grid-edit-layer${grid.shape === 'points' ? ' points' : ''}`} style={{ color }}
     onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={cancel}>
+    {grid.shape !== 'points' && <div className="grid-snap-reach-bounds" aria-hidden="true" style={{ left: (bounds.x - reach.x) * zoom, top: (bounds.y - reach.y) * zoom,
+      width: (bounds.width + 2 * reach.x) * zoom, height: (bounds.height + 2 * reach.y) * zoom }} />}
     <div className="grid-bounds" style={{ left: bounds.x * zoom, top: bounds.y * zoom, width: bounds.width * zoom, height: bounds.height * zoom }}>
       {!readOnly && BOUNDS_HANDLES.map(([hx, hy, label]) => <button key={label} type="button" tabIndex={-1} className={`transform-handle${hx && hy ? ' corner' : ''}`}
         data-bounds-handle={`${hx},${hy}`} aria-label={`Resize grid bounds from ${label}`} title="Drag to set where the grid applies"
         style={{ left: `${(hx + 1) * 50}%`, top: `${(hy + 1) * 50}%`, cursor: hx && hy ? (hx === hy ? 'nwse-resize' : 'nesw-resize') : hx ? 'ew-resize' : 'ns-resize' }} />)}
     </div>
     {grid.shape === 'points' && <svg className="grid-edit-points" aria-hidden="false">
-      {(grid.points ?? []).map(item => <g key={item.id} data-grid-point={item.id} className={`grid-handle${item.id === point ? ' selected' : ''}`}
+      <g aria-hidden="true">{(grid.points ?? []).filter(inside).map(item => <circle key={item.id} className="grid-snap-reach" cx={item.x * zoom} cy={item.y * zoom} r={radius} />)}</g>
+      {(grid.points ?? []).map(item => <g key={item.id} data-grid-point={item.id} className={`grid-handle${item.id === point ? ' selected' : ''}${highlighted?.includes(item.id) ? ' highlighted' : ''}`}
         transform={`translate(${item.x * zoom} ${item.y * zoom})`} role="button" aria-label={`Point ${item.label || item.id}`}>
         <circle className="grid-handle-hit" />
         <circle className="grid-handle-dot" />

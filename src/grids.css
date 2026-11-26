@@ -62,3 +62,16 @@
 .grid-bounds-editor { margin: 2px 0 12px; padding: 10px; border: 1px solid #e1e8d8; border-radius: 8px; background: #f8faf4; }
 .grid-bounds-editor .section-title { margin-bottom: 6px; }
 .grid-bounds-editor .compact-action { min-height: 24px; }
+.grid-bounds-editor .help-text { margin: 8px 0 0; }
+/* How far an edited grid reaches: a points grid's snap distance around each point (dashed circles), and half a cell
+   past a component grid's bounds for square and hex grids (a dotted frame). */
+.grid-snap-reach { fill: currentColor; fill-opacity: .07; stroke: currentColor; stroke-opacity: .55; stroke-width: calc(1px / var(--grid-zoom, var(--table-zoom, 1)));
+  stroke-dasharray: calc(4px / var(--grid-zoom, var(--table-zoom, 1))) calc(3px / var(--grid-zoom, var(--table-zoom, 1))); pointer-events: none; }
+.grid-snap-reach-bounds { position: absolute; box-sizing: border-box; border: 1px dotted currentColor; opacity: .6; pointer-events: none; }
+/* A component's grids in the designer's Layers panel, above its layers (they're drawn over the face). */
+.grid-layer-rows { padding-bottom: 4px; margin-bottom: 4px; border-bottom: 1px solid #e7ede0; }
+.grid-layer-row .layer-row > .grid-swatch { display: inline-flex; flex: 0 0 auto; }
+.grid-settings .section-title .grid-row-actions { flex-shrink: 0; }
+/* The selected points grid's points in the designer's inspector (the Points panel, GridPoints.tsx). */
+.grid-points-list { margin: 0 0 12px; border: 1px solid #e1e8d8; border-radius: 8px; max-height: 300px; overflow: auto; }
+.grid-points-list .panel-heading { position: sticky; top: 0; z-index: 1; background: inherit; }

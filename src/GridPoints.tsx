@@ -18,9 +18,11 @@ export const pointName = (point: GridPoint, index: number) => point.label || `Po
  * Groups are renamed by double-clicking (or F2). Dragging a row onto the middle of a group puts it inside; onto the top
  * or bottom of a row places it above or below that row, in that row's group; onto the empty list, at the top level.
  */
-export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, onChange, readOnly }: {
+export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, onChange, readOnly, surface = 'the table' }: {
   grid: Grid; point?: string; onSelectPoint: (id: string | undefined) => void; group?: string; onSelectGroup: (id: string | undefined) => void;
   onChange: (grid: Grid) => Promise<boolean>; readOnly: boolean;
+  /** Where points are added: the table, or (for a component's grid in the designer) the canvas. */
+  surface?: string;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string>();
@@ -150,7 +152,7 @@ export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, 
           </button>
         </div>;
       })}
-      {!rows.length && <p className="empty-note">No snap points yet. Click the table to add one.</p>}
+      {!rows.length && <p className="empty-note">No snap points yet. Click {surface} to add one.</p>}
     </div>
   </>;
 }

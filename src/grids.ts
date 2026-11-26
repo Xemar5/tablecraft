@@ -167,10 +167,19 @@ export function nearestBoundedPoint(grid: Grid, bounds: GridBounds, x: number, y
   return best;
 }
 
+/**
+ * How far past its bounds a component grid still takes pieces, across (x) and down (y): half a cell for square and hex
+ * grids, nothing for points grids (whose points reach their snap distance instead).
+ */
+export function boundsReach(grid: Pick<Grid, 'shape' | 'size' | 'sizeY'>) {
+  const x = grid.shape === 'points' ? 0 : grid.size / 2;
+  return { x, y: grid.shape === 'square' ? (grid.sizeY ?? grid.size) / 2 : x };
+}
+
 /** Whether (x, y) is close enough to a component grid's bounds to snap: inside them or within half a cell of them. */
 function withinReach(grid: Grid, bounds: GridBounds, x: number, y: number) {
-  const reachX = grid.shape === 'points' ? 0 : grid.size / 2, reachY = grid.shape === 'square' ? (grid.sizeY ?? grid.size) / 2 : reachX;
-  return x >= bounds.x - reachX && x <= bounds.x + bounds.width + reachX && y >= bounds.y - reachY && y <= bounds.y + bounds.height + reachY;
+  const reach = boundsReach(grid);
+  return x >= bounds.x - reach.x && x <= bounds.x + bounds.width + reach.x && y >= bounds.y - reach.y && y <= bounds.y + bounds.height + reach.y;
 }
 
 /** Where a piece puts its component's grids on the table: its centre, rotation (degrees) and scale, and the component's size. */

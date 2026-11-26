@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { hexCorners, type ComponentGrid, type Grid } from './grids';
+import { DEFAULT_POINT_RADIUS, hexCorners, type ComponentGrid, type Grid } from './grids';
 import './grids.css';
 
 export const GRID_COLORS = ['#7d9b60', '#b08c4f', '#5f8fae', '#a2679a', '#c07457'];
@@ -132,13 +132,18 @@ function PointMarker({ x, y, rotation, label }: { x: number; y: number; rotation
   </g>;
 }
 
-/** The edited points grid's points as handles above the pieces, to select and drag them with the grid tool. */
+/**
+ * The edited points grid's points as handles above the pieces, to select and drag them with the grid tool, each in a
+ * dashed circle showing its snap distance (how close a piece's centre must come to snap to it).
+ */
 export function GridPointHandles({ grid, color, selected, highlighted, width, height }: {
   grid: Grid; color: string; selected?: string; width: number; height: number;
   /** Points of the Points panel's selected group. */
   highlighted?: string[];
 }) {
+  const reach = grid.radius ?? DEFAULT_POINT_RADIUS;
   return <svg className="grid-handles" width={width} height={height} style={{ color }}>
+    <g aria-hidden="true">{(grid.points ?? []).map(point => <circle key={point.id} className="grid-snap-reach" cx={point.x} cy={point.y} r={reach} />)}</g>
     {(grid.points ?? []).map(point => <g key={point.id} data-grid-point={point.id} className={`grid-handle${point.id === selected ? ' selected' : ''}${highlighted?.includes(point.id) ? ' highlighted' : ''}`} transform={`translate(${point.x} ${point.y})`}
       role="button" aria-label={`Point ${point.label || point.id}`}>
       <circle className="grid-handle-hit" />

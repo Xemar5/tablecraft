@@ -29,7 +29,7 @@ const guidePages = [
   { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it. The Guide and controls group has its order locked, so it keeps its place in the Pieces panel.' },
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
-  { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer and choose Edit grids to change it.' },
+  { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer: its Stepping stones grid sits above its layers in the Layers panel. Select it to list its stones and see how close a wanderer must come to snap to each.' },
   { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows.\n\nWanderers announce the stone they reach.' },
   { page: '7', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots from Actions → Save/Load, and invite players to play together.' },
 ];
@@ -230,7 +230,7 @@ function wanderersPath(): Component {
     makeNode('text', { name: 'Title', x: 10, y: 18, width: PATH.width - 20, height: 30, text: 'THE WANDERER’S\nPATH', font: 'Lora', fontSize: 11, lineHeight: 1.2, letterSpacing: 1, color: '#d8d6b7', align: 'center' }),
   ];
   // The stones are a points grid the board carries, so they travel with it; it only takes wanderers. The board draws
-  // the stones, so the grid's own markers stay hidden (Edit grids in the designer still shows them).
+  // the stones, so the grid's own markers stay hidden (selecting the grid in the designer's Layers panel still shows them).
   const stones: ComponentGrid = { id: 'wanderers-path', name: 'Stepping stones', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0,
     filter: filterFromTags(['wanderer']), bounds: { x: 0, y: 0, width: PATH.width, height: PATH.height },
     points: STONES.map((stone, index) => ({ id: `stone-${index + 1}`, label: stone.name, x: stone.x, y: stone.y })) };

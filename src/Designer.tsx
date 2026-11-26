@@ -5,9 +5,10 @@ import Papa from 'papaparse';
 import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
 import { componentTags, hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
 import { TagListField } from './TagEditors';
-import { componentGridTags, type ComponentGrid } from './grids';
+import { boundsReach, componentGridTags, DEFAULT_POINT_RADIUS, pointGroupAncestors, type ComponentGrid } from './grids';
 import { ComponentGrids, gridColor, opaqueColor } from './GridLayers';
-import { GridEditor, newGrid, type GridActions } from './GridEditor';
+import { GRID_SHAPES, GridEditor, gridShapeIcon, newGrid, type GridActions } from './GridEditor';
+import { PointsPanel } from './GridPoints';
 import { ComponentGridCanvas } from './ComponentGridCanvas';
 import { normalizeTags } from './tags';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
@@ -224,7 +225,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
   const [face, setFace] = useState<Face>('front');
   const [selected, setSelected] = useState<string[]>([]);
   const [selectedPoint, setSelectedPoint] = useState(-1);
-  const [toolMenu, setToolMenu] = useState<'shape' | null>(null);
+  const [toolMenu, setToolMenu] = useState<'shape' | 'grid' | null>(null);
   // The pen tool draws a new path point by point; everything else uses the selection tool.
   const [tool, setTool] = useState<'select' | 'pen'>('select');
   const [pen, setPen] = useState<PenDraft>();
@@ -243,7 +244,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
     measure();
     return () => { observer.disconnect(); element.removeEventListener('scroll', scroll); };
   }, []);
-  const toggleToolMenu = (menu: 'shape', button: HTMLButtonElement) => {
+  const toggleToolMenu = (menu: 'shape' | 'grid', button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
     setToolMenuPosition({ left: Math.max(8, Math.min(cssPx(rect.left), cssPx(window.innerWidth) - 180)), top: cssPx(rect.bottom) + 4 });
     setToolMenu(toolMenu === menu ? null : menu);
@@ -287,10 +288,13 @@ export function Designer({ component: incoming, components, functions = [], onCh
   const [handlePreview, setHandlePreview] = useState<{ id: string; patch: Partial<DesignNode> }>();
   // Double-clicking an image layer edits where its picture sits inside the layer's frame.
   const [imageEdit, setImageEdit] = useState<string>();
-  // The component's grids being edited (the inspector's grid panel, and bounds and points on the canvas): the edited
-  // grid and snap point, and a grid being dragged on the canvas before it's saved.
-  const [gridEdit, setGridEdit] = useState<{ grid?: string; point?: string }>();
+  // The component's grid selected in the Layers panel (its settings in the inspector, its bounds and points on the
+  // canvas), with its selected snap point and point group; a grid being dragged on the canvas before it's saved; and a
+  // grid row being dragged in the Layers panel to another place in the list.
+  const [gridEdit, setGridEdit] = useState<{ grid: string; point?: string; group?: string }>();
   const [gridDraft, setGridDraft] = useState<ComponentGrid>();
+  const [gridDrag, setGridDrag] = useState<string>();
+  const [gridDrop, setGridDrop] = useState<{ id: string; mode: 'before' | 'after' }>();
   const imageDragging = useRef<ImageDrag>(null);
   const [imagePreview, setImagePreview] = useState<{ id: string; patch: ImagePlacementPatch }>();
   const pointDragging = useRef<PointDrag>(null);
@@ -310,7 +314,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
   const nodes = component[face];
   const componentGrids = component.grids ?? [];
   const shownGrids = gridDraft ? componentGrids.map(grid => grid.id === gridDraft.id ? gridDraft : grid) : componentGrids;
-  const editedGrid = gridEdit ? shownGrids.find(grid => grid.id === gridEdit.grid) ?? shownGrids[0] : undefined;
+  const editedGrid = gridEdit ? shownGrids.find(grid => grid.id === gridEdit.grid) : undefined;
   const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
   const node = selectedNodes[0];
   // Which of X/Y, Width/Height and the margins apply to the selection, per axis (src/layoutRules.ts): a field is
@@ -441,7 +445,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
       void saveGrids([...componentGrids, grid]);
       return true;
     },
-    remove: id => { void saveGrids(componentGrids.filter(item => item.id !== id)); if (gridEdit?.grid === id) setGridEdit({}); },
+    remove: id => { void saveGrids(componentGrids.filter(item => item.id !== id)); if (gridEdit?.grid === id) setGridEdit(undefined); },
     reorder: ids => void saveGrids(ids.map(id => componentGrids.find(item => item.id === id)!)),
     create: (shape, grids) => {
       const grid = newGrid(shape, grids), size = shape === 'hex' ? 60 : 50;
@@ -449,10 +453,25 @@ export function Designer({ component: incoming, components, functions = [], onCh
     },
   };
   const gridTags = useMemo(() => [...new Set(components.flatMap(componentGridTags))].sort((a, b) => a.localeCompare(b)), [components]);
-  /** Opens the grid panel (the first grid selected), leaving the layers and the pen alone. */
-  const editGrids = () => { setSelected([]); setImageEdit(undefined); if (tool === 'pen') finishPen(false); setGridEdit({ grid: componentGrids[0]?.id }); };
-  // Selecting a layer (in the Layers panel) closes the grid panel.
+  /** Selects a grid as a layer: its settings show in the inspector, and its bounds and points are edited on the canvas. */
+  const selectGrid = (id: string) => { setSelected([]); setImageEdit(undefined); if (tool === 'pen') finishPen(false); setGridEdit({ grid: id }); };
+  /** Adds a grid of a shape (from the toolbar) over the whole component, and selects it. */
+  const addGrid = async (shape: ComponentGrid['shape']) => {
+    setToolMenu(null);
+    if (componentGrids.length >= 20) { notify('A component can carry at most 20 grids.', true); return; }
+    const grid = gridActions.create!(shape, componentGrids);
+    if (await saveGrids([...componentGrids, grid])) selectGrid(grid.id);
+  };
+  // Selecting a layer deselects the grid, and so does the grid going away (deleted, or undone).
   useEffect(() => { if (selected.length && gridEdit) { setGridEdit(undefined); setGridDraft(undefined); } }, [selected.length]);
+  useEffect(() => { if (gridEdit && !componentGrids.some(grid => grid.id === gridEdit.grid)) setGridEdit(undefined); }, [componentGrids, gridEdit]);
+  /** Moves a dragged grid row before or after another one; the first grid takes pieces first. */
+  const dropGrid = (target: string, mode: 'before' | 'after') => {
+    if (!gridDrag || gridDrag === target) return;
+    const ids = componentGrids.map(item => item.id).filter(id => id !== gridDrag);
+    ids.splice(ids.indexOf(target) + (mode === 'after' ? 1 : 0), 0, gridDrag);
+    gridActions.reorder(ids);
+  };
   /** Applies a patch worked out for each selected layer; undefined leaves that layer as it is. */
   const updateEach = (patchOf: (item: DesignNode) => Partial<DesignNode> | undefined) =>
     update({ [face]: nodes.map(item => { if (!selected.includes(item.id)) return item; const patch = patchOf(item); return patch ? { ...item, ...patch } : item; }) });
@@ -652,15 +671,16 @@ export function Designer({ component: incoming, components, functions = [], onCh
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       if (key === 'escape' && toolMenu) { event.preventDefault(); setToolMenu(null); return; }
-      // With the grid panel open, Escape deselects the snap point or closes the panel and Delete removes the point.
+      // With a grid selected, Escape deselects its snap point or point group, or else the grid; Delete removes the
+      // selected point, or else the grid (a selected point group stays: ungroup it in the points list).
       if (gridEdit && !command) {
-        if (key === 'escape') { event.preventDefault(); if (gridEdit.point) setGridEdit({ ...gridEdit, point: undefined }); else setGridEdit(undefined); return; }
+        if (key === 'escape') { event.preventDefault(); if (gridEdit.point || gridEdit.group) setGridEdit({ grid: gridEdit.grid }); else setGridEdit(undefined); return; }
         if (key === 'delete' || key === 'backspace') {
           event.preventDefault();
           if (editedGrid?.shape === 'points' && gridEdit.point) {
             gridActions.save({ ...editedGrid, points: (editedGrid.points ?? []).filter(point => point.id !== gridEdit.point) });
             setGridEdit({ ...gridEdit, point: undefined });
-          }
+          } else if (editedGrid && !gridEdit.group) gridActions.remove(editedGrid.id);
           return;
         }
       }
@@ -838,6 +858,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
     return (item.type === 'frame' || item.type === 'compound') && relativeY > .28 && relativeY < .72 ? 'inside' : relativeY < .5 ? 'before' : 'after';
   };
   const layerDragOver = (event: DragEvent<HTMLDivElement>, item: DesignNode) => {
+    if (gridDrag) return;
     event.preventDefault();
     setDropTarget({ id: item.id, mode: dropModeFor(event, item) });
   };
@@ -1057,6 +1078,32 @@ export function Designer({ component: incoming, components, functions = [], onCh
       <HorizontalScroll contentClassName="face-tabs" label="Component faces"><button className={face === 'front' ? 'active' : ''} onClick={() => { setFace('front'); setSelected([]); }}>Front</button>
         <button className={face === 'back' ? 'active' : ''} title={component.flippable ? undefined : 'This component can’t be flipped: its back is only used when printing'} onClick={() => { setFace('back'); setSelected([]); }}>Back</button></HorizontalScroll>
       <div className="layer-list">
+        {/* The component's grids, above its layers as they're drawn over its face, in the order pieces snap to them. */}
+        {!!shownGrids.length && <div className="grid-layer-rows" role="group" aria-label="Grids">{shownGrids.map((grid, index) => {
+          const active = editedGrid?.id === grid.id;
+          return <div className={`layer-tree-item${gridDrop?.id === grid.id ? ` drop-${gridDrop.mode}` : ''}`} key={grid.id}>
+            <div className="layer-tree-row grid-layer-row" style={{ paddingLeft: 8 }}
+              onDragOver={event => {
+                if (!gridDrag) return;
+                event.preventDefault();
+                const box = event.currentTarget.getBoundingClientRect();
+                setGridDrop({ id: grid.id, mode: event.clientY < box.top + box.height / 2 ? 'before' : 'after' });
+              }}
+              onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setGridDrop(undefined); }}
+              onDrop={event => { event.preventDefault(); event.stopPropagation(); if (gridDrop) dropGrid(grid.id, gridDrop.mode); setGridDrag(undefined); setGridDrop(undefined); }}>
+              <button className={`layer-row ${active ? 'active' : ''}`} draggable data-grid-id={grid.id} aria-pressed={active}
+                title={`${grid.name} · ${GRID_SHAPES.find(shape => shape.value === grid.shape)!.label}${grid.snap ? '' : ' · pieces don’t snap to it'}`}
+                onClick={() => selectGrid(grid.id)}
+                onDragStart={event => { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', grid.id); setGridDrag(grid.id); }}
+                onDragEnd={() => { setGridDrag(undefined); setGridDrop(undefined); }}>
+                <span className="grid-swatch" style={{ color: opaqueColor(gridColor(grid, index)) }}>{gridShapeIcon(grid.shape)}</span><span>{grid.name}</span>
+              </button>
+              <button className={`layer-visibility${grid.visible ? '' : ' is-hidden'}`} aria-label={`${grid.visible ? 'Hide' : 'Show'} ${grid.name}`}
+                title={grid.visible ? `Hide ${grid.name} on the table (pieces still snap to it)` : `Show ${grid.name} on the table`}
+                onClick={() => gridActions.save({ ...grid, visible: !grid.visible })}>{grid.visible ? <Eye size={14} /> : <EyeOff size={14} />}</button>
+            </div>
+          </div>;
+        })}</div>}
         {layers(null)}{!nodes.length && <p className="empty-note">A blank canvas.<br />Add your first layer above.</p>}
       </div>
       <div className="layer-footer"><button onClick={() => { setCsv(component.csv); setDataOpen(true); }}><Database size={16} /><span>Data bindings<small>{component.rows.length} rows connected</small></span><ChevronRight size={14} /></button></div>
@@ -1078,8 +1125,14 @@ export function Designer({ component: incoming, components, functions = [], onCh
           <button title="Add image" aria-label="Add image" onClick={() => addNode('image')}><ImagePlus size={19} /></button>
           <button title={selected.length ? 'Group selected layers' : 'Create empty group'} aria-label="Create group" onClick={createGroup}><FolderPlus size={17} /></button>
           <button title="Add linked component: shows another component; choose which in the Design panel" aria-label="Add linked component" onClick={addLinkedComponent}><Link2 size={17} /></button>
+          <div className="designer-tool-menu"><button aria-label="Add grid" title="Add grid: a square, hex or snap-point grid this component carries onto the table" aria-expanded={toolMenu === 'grid'}
+            onClick={event => toggleToolMenu('grid', event.currentTarget)}><Grid2X2 size={17} /><ChevronDown className="tool-indicator" size={9} /></button>
+            {toolMenu === 'grid' && createPortal(<div className="designer-popover designer-toolbar-popover" style={toolMenuPosition} role="menu">{GRID_SHAPES.map(shape =>
+              <button role="menuitem" key={shape.value} onClick={() => void addGrid(shape.value)}>{shape.label}</button>)}</div>, document.body)}</div>
         </div><span className="toolbar-divider" />
-        <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>
+        {editedGrid && !selected.length
+          ? <button title={`Delete ${editedGrid.name} (Delete)`} aria-label="Delete selected grid" onClick={() => gridActions.remove(editedGrid.id)}><Trash2 size={16} /></button>
+          : <button title="Delete selected layers" aria-label="Delete selected layers" disabled={!selected.length} onClick={removeNode}><Trash2 size={16} /></button>}
         <button title="Undo design edit" aria-label="Undo design edit" disabled={!history.length} onClick={undo}><Undo2 size={17} /></button>
         <button title="Redo design edit" aria-label="Redo design edit" disabled={!future.length} onClick={redo}><Redo2 size={17} /></button>
         <div className="toolbar-preview-row">
@@ -1109,7 +1162,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
           event.stopPropagation(); panning.current = null;
         }}
         onPointerCancelCapture={() => { panning.current = null; }}
-        onPointerDown={event => { if (event.button === 0) { setSelected([]); setImageEdit(undefined); } }}>
+        onPointerDown={event => { if (event.button === 0) { setSelected([]); setImageEdit(undefined); setGridEdit(undefined); } }}>
         <div className="designer-stage-content" style={{ transform: `translate(${pan.x}px, ${pan.y}px)` }}>
         <span className="artboard-label">{component.name} / {face} <span>{component.width} x {component.height}</span></span>
         {face === 'back' && !component.flippable && <span className="artboard-note" role="note">This component can’t be flipped, so this back is only used when printing.</span>}
@@ -1178,11 +1231,12 @@ export function Designer({ component: incoming, components, functions = [], onCh
               row={row} back={face === 'back'} selectedNodes={selected} onNode={(id, event) => { if (imageEdit && id !== imageEdit) setImageEdit(undefined); beginCanvasDrag(id, event); }}
               onNodeDoubleClick={startImageEdit} zoom={zoom} />
             {/* The grids this component carries, over its layers (where its pieces show them on the table). */}
-            {(gridEdit ? shownGrids.length > 0 : shownGrids.some(grid => grid.visible)) && <ComponentGrids grids={shownGrids} width={component.width} height={component.height}
-              idPrefix="designer-grid" editing={!!gridEdit} selected={editedGrid?.id} style={{ '--grid-zoom': zoom } as React.CSSProperties} />}
+            {(editedGrid ? shownGrids.length > 0 : shownGrids.some(grid => grid.visible)) && <ComponentGrids grids={shownGrids} width={component.width} height={component.height}
+              idPrefix="designer-grid" editing={!!editedGrid} selected={editedGrid?.id} style={{ '--grid-zoom': zoom } as React.CSSProperties} />}
           </div>
           {gridEdit && editedGrid && <ComponentGridCanvas grid={editedGrid} zoom={zoom} color={opaqueColor(gridColor(editedGrid, shownGrids.indexOf(editedGrid)))}
-            point={gridEdit.point} onSelectPoint={point => setGridEdit({ grid: editedGrid.id, point })} onDraft={setGridDraft}
+            point={gridEdit.point} group={gridEdit.group} onSelectPoint={point => setGridEdit({ grid: editedGrid.id, point, group: gridEdit.group })} onDraft={setGridDraft}
+            highlighted={gridEdit.group ? (editedGrid.points ?? []).filter(point => pointGroupAncestors(editedGrid.pointGroups ?? [], point.group).includes(gridEdit.group!)).map(point => point.id) : undefined}
             onCommit={grid => { gridActions.save(grid); }} />}
           {editedImage && editedBox && editedBase && (() => {
             const placed = imagePlacement(editedImage);
@@ -1296,18 +1350,27 @@ export function Designer({ component: incoming, components, functions = [], onCh
               catch (error) { notify(`Export failed: ${String(error)}`, true); }
             }}><Download size={15} /> Export component</button>
             <button className="button full danger" style={{ marginTop: 10 }} onClick={() => setDeleteOpen(true)}><Trash2 size={14} /> Delete component</button></div>
-        </> : gridEdit ? <GridEditor grids={shownGrids} selected={editedGrid} onSelect={grid => setGridEdit({ grid })} point={gridEdit.point}
+        </> : gridEdit && editedGrid ? <GridEditor grids={shownGrids} selected={editedGrid} list={false} onSelect={grid => setGridEdit({ grid })} point={gridEdit.point}
           onSelectPoint={point => setGridEdit({ ...gridEdit, point })} actions={gridActions} disabled={false} tags={gridTags} onDone={() => setGridEdit(undefined)} surface="the canvas"
-          intro={<>Grids this component carries: each of its pieces takes them along on the table as it moves, turns and scales, and pieces snap to them before the table’s grids (the topmost piece’s first). They apply only inside their bounds. Drag the canvas to move the selected grid{editedGrid?.shape === 'points' ? ', click it to add a snap point' : ''}, and drag the dashed frame’s handles to set its bounds.</>}
-          boundsEditor={grid => <div className="grid-bounds-editor" role="group" aria-label="Grid bounds">
-            <div className="section-title"><h3>Bounds</h3><button type="button" className="button compact-action" title="Make the bounds the whole component"
-              onClick={() => gridActions.save({ ...grid, bounds: { x: 0, y: 0, width: component.width, height: component.height } })}>Fit component</button></div>
-            <div className="field-grid">
-              {(['x', 'y', 'width', 'height'] as const).map(key => <NumberField key={key} deferred label={`Bounds ${key === 'x' || key === 'y' ? key.toUpperCase() : key} (px)`}
-                value={grid.bounds[key]} min={key === 'width' || key === 'height' ? 1 : -100000} max={100000}
-                onChange={value => gridActions.save({ ...grid, bounds: { ...grid.bounds, [key]: value } })} />)}
-            </div>
-          </div>} /> : node ? <>
+          intro={<>This component carries the grid: each of its pieces takes it along on the table as it moves, turns and scales, and pieces snap to it before the table’s grids (the topmost piece’s first, then the first grid in the Layers panel). Drag the canvas to move it{editedGrid.shape === 'points' ? ', click it to add a snap point' : ''}, and drag the dashed frame’s handles to set its bounds.</>}
+          pointsList={<div className="grid-points-list"><PointsPanel grid={editedGrid} point={gridEdit.point} group={gridEdit.group} readOnly={false} surface="the canvas"
+            onSelectPoint={point => setGridEdit(current => current && { ...current, point })} onSelectGroup={group => setGridEdit(current => current && { ...current, group })}
+            onChange={grid => saveGrids(componentGrids.map(item => item.id === grid.id ? { ...item, ...grid } : item))} /></div>}
+          boundsEditor={grid => {
+            const reach = boundsReach(grid);
+            return <div className="grid-bounds-editor" role="group" aria-label="Grid bounds">
+              <div className="section-title"><h3>Bounds</h3><button type="button" className="button compact-action" title="Make the bounds the whole component"
+                onClick={() => gridActions.save({ ...grid, bounds: { x: 0, y: 0, width: component.width, height: component.height } })}>Fit component</button></div>
+              <div className="field-grid">
+                {(['x', 'y', 'width', 'height'] as const).map(key => <NumberField key={key} deferred label={`Bounds ${key === 'x' || key === 'y' ? key.toUpperCase() : key} (px)`}
+                  value={grid.bounds[key]} min={key === 'width' || key === 'height' ? 1 : -100000} max={100000}
+                  onChange={value => gridActions.save({ ...grid, bounds: { ...grid.bounds, [key]: value } })} />)}
+              </div>
+              <p className="help-text grid-reach">{grid.shape === 'points'
+                ? <>Only points inside the bounds take pieces: a piece snaps when its centre comes within the snap distance ({grid.radius ?? DEFAULT_POINT_RADIUS} px, scaled with the piece) of one, shown by the dashed circles.</>
+                : <>Pieces snap inside the bounds and up to half a cell outside them ({reach.x === reach.y ? `${+reach.x.toFixed(1)} px` : `${+reach.x.toFixed(1)} px across, ${+reach.y.toFixed(1)} px down`}), shown by the dotted frame.</>}</p>
+            </div>;
+          }} /> : node ? <>
           <div className="inspector-section design-section selection-section" key={node.id}>
             <div className="selection-header">
               <Field label="Layer name"><input value={selected.length > 1 ? `${selected.length} layers` : node.name} disabled={selected.length > 1} onChange={event => updateNode({ name: event.target.value })} /></Field>
@@ -1550,15 +1613,10 @@ export function Designer({ component: incoming, components, functions = [], onCh
           </div>}
         </> : <>
           <div className="inspector-section design-section">
-            <SectionTitle title="Component" hint="Select one or more layers to move, edit, group or delete them. Add transparent groups and responsive frames with the toolbar." />
+            <SectionTitle title="Component" hint="Select one or more layers to move, edit, group or delete them. Add transparent groups, responsive frames and grids with the toolbar." />
             <Field label="Name"><input value={component.name} onChange={event => { if (event.target.value) update({ name: event.target.value }); }} /></Field>
             <div className="field-grid"><NumberField label="Width" value={component.width} min={20} max={2000} onChange={width => update({ width })} /><NumberField label="Height" value={component.height} min={20} max={2000} onChange={height => update({ height })} /></div>
             <ColorField label="Component background" value={component.color} onChange={color => update({ color })} />
-          </div>
-          <div className="inspector-section design-section">
-            <SectionTitle title="Grids" hint="Square, hex or snap-point grids this component carries: its pieces take them along on the table as they move, turn and scale, and other pieces snap to them inside their bounds." />
-            <p className="help-text">{componentGrids.length ? componentGrids.map(grid => grid.name).join(', ') : 'No grids yet.'}</p>
-            <button className="button full" onClick={editGrids}><Grid2X2 size={14} /> {componentGrids.length ? 'Edit grids' : 'Add a grid'}</button>
           </div>
           <div className="inspector-section design-section">
             <SectionTitle title="Data" hint="Use {{name}} in any text or image layer to connect it to a CSV column. Each row becomes a different instance of this component." />
