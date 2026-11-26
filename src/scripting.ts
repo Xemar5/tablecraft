@@ -638,7 +638,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
           const keep = lua.lua_toboolean(L, -1); lua.lua_pop(L, 1);
           return keep;
         });
-      } else if (type !== lua.LUA_TNIL) throw new ScriptError('game.pieces takes a filter table or function.');
+      } else if (type !== lua.LUA_TNIL && type >= 0) throw new ScriptError('game.pieces takes a filter table or function.');
       pushValue(L, list);
       return 1;
     },
