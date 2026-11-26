@@ -20,5 +20,7 @@ export default defineConfig({
       { name: 'tablecraft.settings.v1', value: JSON.stringify({ name: 'Player 1', color: '#b7cc91', onboarded: true, stackDragTakesTop: false }) },
     ] }] },
   },
-  webServer: { command: 'npm run dev -- --no-open --port 5173 --strictPort', url: 'http://127.0.0.1:5173', reuseExistingServer: true },
+  // Vite runs on the Node that runs the tests (so npm needn't be on the PATH); Playwright starts it for the run and stops
+  // it afterwards, or reuses a dev server already on the port.
+  webServer: { command: `"${process.execPath}" node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5173 --strictPort`, url: 'http://127.0.0.1:5173', reuseExistingServer: true },
 });
