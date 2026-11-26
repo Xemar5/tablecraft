@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { reorder } from './zOrder';
 import { runCommand } from './scripting';
-import { gridPointPosition, gridSchema, projectGrids, snapTarget, validateGrids } from './grids';
+import { componentGridSchema, gridSchema, placedGrids, placedPointPosition, projectGrids, snapTarget, validateGrids } from './grids';
 import { commonTags, describeFilter, filterFromTags, matchesTags, normalizeTags, sameFilter, tagFilterSchema, tagSchema, type TagFilter } from './tags';
 import { withPivot } from './layerGeometry';
 
@@ -103,6 +103,8 @@ export const componentSchema = z.object({
   gridTags: z.array(tagSchema).max(50).optional(),
   /** Whether its pieces snap to grids at all (true when absent). */
   snapToGrid: z.boolean().optional(),
+  /** Grids its pieces carry on the table, in its own coordinates and inside their bounds (see src/grids.ts). */
+  grids: z.array(componentGridSchema).max(20).optional(),
   /** Degrees each Q/E press or rotate button turns its pieces (90 when absent). */
   rotationStep: z.number().int().min(1).max(180).optional(),
   /** The global script function its pieces run: pressing a button piece, or Run on any selected piece. */
@@ -379,7 +381,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('removeGrid'), id }),
   z.object({ type: z.literal('reorderGrids'), ids: z.array(id).max(50) }),
   /** Puts pieces (with their whole stacks) on a grid point, turning them to its rotation if it has one. */
-  z.object({ type: z.literal('snapTo'), ids: z.array(id).min(1), grid: id, point: z.string().min(1).max(100) }),
+  z.object({ type: z.literal('snapTo'), ids: z.array(id).min(1), grid: z.string().min(1).max(201), point: z.string().min(1).max(100) }),
 ]);
 export type Command = z.infer<typeof commandSchema>;
 
@@ -412,6 +414,8 @@ function validateComponents(components: Component[]) {
       assetBytes += bytes;
       if (assetBytes > 20 * 1024 * 1024) throw new Error('Imported assets in one project must total at most 20 MiB.');
     } else if (c.asset) throw new Error('Only texture and font components can own imported assets.');
+    if (c.grids?.length && isAsset(c)) throw new Error('Assets cannot carry grids.');
+    validateGrids(c.grids);
     for (const face of [c.front, c.back]) {
       const nodes = new Map(face.map(n => [n.id, n]));
       if (nodes.size !== face.length) throw new Error('Duplicate layer identifiers.');
@@ -855,11 +859,14 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     return c;
   };
   // Snaps each moved unit (a stack, or a loose piece) to the grids: the stack's bottom piece decides where it snaps.
+  // Units that carry grids snap first, so pieces moved with them land on their grids where they end up; a unit never
+  // snaps to its own grids.
   const snapUnits = (items: Instance[]) => {
     const units = new Map<string, Instance[]>();
     for (const item of items) if (!item.holder) units.set(item.stack ?? item.id, item.stack ? stackMembers(p, item) : [item]);
-    for (const members of units.values()) {
-      const target = snapTarget(p, component(members[0]), members[0].x, members[0].y);
+    const carries = (members: Instance[]) => members.some(member => !!component(member).grids?.length);
+    for (const members of [...units.values()].sort((a, b) => Number(carries(b)) - Number(carries(a)))) {
+      const target = snapTarget(p, component(members[0]), members[0].x, members[0].y, new Set(members.map(member => member.id)));
       if (target) members.forEach(member => Object.assign(member, { x: target.x, y: target.y }, target.rotation === undefined ? {} : { rotation: snapAngle(((target.rotation % 360) + 360) % 360) }));
     }
   };
@@ -1601,13 +1608,15 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       break;
     }
     case 'snapTo': {
-      const grid = projectGrids(p).find(item => item.id === command.grid);
-      if (!grid) throw new Error('Grid no longer exists.');
-      const at = gridPointPosition(grid, command.point);
-      if (!at) throw new Error(`${grid.name} has no point ${command.point}.`);
+      // The grid's key: a table grid's id, or "piece id/grid id" for a grid a piece carries.
+      const placed = placedGrids(p).find(item => item.key === command.grid);
+      if (!placed) throw new Error('Grid no longer exists.');
+      const at = placedPointPosition(placed, command.point);
+      if (!at) throw new Error(`${placed.grid.name} has no point ${command.point}.`);
       const pieces = new Set([...new Set(command.ids)].flatMap(key => stackMembers(p, get(key))));
       for (const item of pieces) {
         editable(item);
+        if (item.id === placed.host) throw new Error('A piece can’t snap to a grid it carries.');
         if (item.holder) throw new Error('Only table pieces can snap to a grid.');
         if (isLocked(item)) throw new Error('Unlock this component first.');
         Object.assign(item, { x: at.x, y: at.y });

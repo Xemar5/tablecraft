@@ -13,7 +13,7 @@ import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
 import { hoverPreviewSize, hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgroundPreview';
 import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids';
-import { gridArea, gridColor, GridLayers, GridPointHandles, opaqueColor } from './GridLayers';
+import { ComponentGrids, gridArea, gridColor, GridLayers, GridPointHandles, opaqueColor } from './GridLayers';
 import { GridEditor } from './GridEditor';
 import { PointsPanel } from './GridPoints';
 import { pointGroupAncestors } from './grids';
@@ -99,6 +99,11 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   const editedGrid = tool === 'grid' ? shownGrids.find(grid => grid.id === gridId) ?? shownGrids[0] : undefined;
   const gridTags = useMemo(() => [...new Set(p.components.flatMap(componentGridTags))].sort((a, b) => a.localeCompare(b)), [p.components]);
   const snappingGrids = grids.filter(grid => grid.snap).length;
+  // The grid tool changes the table's grids through shared, undoable table actions.
+  const tableGridActions = {
+    save: (grid: Grid) => void dispatch({ type: 'grid', grid }), add: (grid: Grid) => dispatch({ type: 'grid', grid }),
+    remove: (id: string) => void dispatch({ type: 'removeGrid', id }), reorder: (ids: string[]) => void dispatch({ type: 'reorderGrids', ids }),
+  };
   const turnPlayer = p.players.length ? p.players[p.settings.turn % p.players.length] : undefined;
   const nextTurnPlayer = p.players.length ? p.players[(p.settings.turn + 1) % p.players.length] : undefined;
   const endTurn = () => { if (onEndTurn) onEndTurn(nextTurnPlayer); else void dispatch({ type: 'endTurn' }); };
@@ -1447,7 +1452,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     {inspectorVisible && <PanelSeparator label="Resize table inspector" controls="playground-inspector-panel" value={panels.sizes.playgroundInspector} {...panels.limits.playgroundInspector} direction={-1} onResize={value => panels.resize('playgroundInspector', value)} />}
     <aside id="playground-inspector-panel" className="inspector playground-inspector" style={{ width: panels.sizes.playgroundInspector, minWidth: 0, flex: `0 0 ${panels.sizes.playgroundInspector}px` }} hidden={!inspectorVisible}>
       {tool === 'grid' ? <div className="inspector-scroll"><GridEditor grids={shownGrids} selected={editedGrid} onSelect={setGridId} point={gridPoint} onSelectPoint={setGridPoint}
-        dispatch={dispatch} disabled={viewer} tags={gridTags} onDone={() => setTool('select')} /></div> : <>
+        actions={tableGridActions} disabled={viewer} tags={gridTags} onDone={() => setTool('select')} /></div> : <>
       <HorizontalScroll contentClassName="inspector-tabs" label="Table inspector tabs"><button className={panel === 'selection' ? 'active' : ''} onClick={() => setPanel('selection')}><MousePointer2 size={14} /> Selection</button><button className={panel === 'table' ? 'active' : ''} onClick={() => setPanel('table')}><Settings2 size={14} /> Table</button><button className={panel === 'players' ? 'active' : ''} onClick={() => setPanel('players')}><Users size={14} /> Players <span>{p.players.length}</span></button></HorizontalScroll>
       <div className="inspector-scroll">{panel === 'players' ? <>
         <div className="inspector-section"><div className="section-title"><h3>Around the table</h3><span className="pill">{online ? viewer ? 'Watching' : 'Live' : 'Hotseat'}</span></div>
@@ -1739,7 +1744,7 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     const from = lastRotation.current;
     lastRotation.current = item.rotation;
     if (!dragging || from === item.rotation || !element.current || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    for (const part of element.current.querySelectorAll(':scope > .piece-face, :scope > .stack-shadow')) {
+    for (const part of element.current.querySelectorAll(':scope > .piece-face, :scope > .stack-shadow, :scope > .component-grids')) {
       part.animate([{ transform: `rotate(${from - item.rotation}deg)` }, { transform: 'rotate(0deg)' }], { duration: 200, easing: 'cubic-bezier(.2, .8, .2, 1)', composite: 'add' });
     }
   }, [item.rotation, dragging]);
@@ -1781,6 +1786,8 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
     <div className="piece-face" style={ring && pieceZoom !== undefined ? { filter: `url(#${ringId})` } : undefined}>
       <ComponentView component={comp} components={components} row={rollingRow ?? item.row} back={visibleBack(item)} />
     </div>
+    {/* The grids the component carries, over its face: they move, turn and scale with the piece. */}
+    {comp.grids?.some(grid => grid.visible) && <ComponentGrids grids={comp.grids} width={comp.width} height={comp.height} idPrefix={`piece-grid-${item.id.replace(/[^\w-]/g, '_')}`} />}
     {!!pinged && <span key={pinged} className="ping-pulse" aria-hidden="true" style={{ '--ping-color': pingColor ?? '#e0a43a' } as React.CSSProperties}><i /><i /></span>}
     {(count > 1 || pages > 0 || persistent || hiddenLabel) && (() => {
       // The labels sit on the piece's edge that faces down on screen, upright for the viewer and a fixed screen size.

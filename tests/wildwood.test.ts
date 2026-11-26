@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, validateProject } from '../src/domain';
-import { gridAccepts } from '../src/grids';
+import { gridAccepts, placedGrids, placedPointPosition } from '../src/grids';
 import { gridColor } from '../src/GridLayers';
 import { templateBundle } from '../src/templates';
 import { wildwoodProject } from '../src/wildwood';
@@ -44,16 +44,28 @@ describe('Wildwood sample', () => {
     expect(after.scriptLog?.at(-1)?.text).toBe('Player 1 gathers amber.');
   });
 
-  it('snaps wanderers (only) onto the path stones and announces where they rest', () => {
+  it('carries the path stones on the path board, snapping wanderers (only) onto them wherever the board goes', () => {
     const project = wildwoodProject();
-    const path = project.grids!.find(grid => grid.id === 'wanderers-path')!, stone = path.points![2];
     const byName = (name: string) => project.components.find(component => component.name === name)!;
-    expect(gridAccepts(path, byName('Wanderer'))).toBe(true);
-    expect(gridAccepts(path, byName('Spirit cards'))).toBe(false);
+    const stones = byName('Wanderer’s path').grids![0], label = stones.points![2].label;
+    expect(project.grids!.map(grid => grid.id)).toEqual(['table-grid']);
+    expect(gridAccepts(stones, byName('Wanderer'))).toBe(true);
+    expect(gridAccepts(stones, byName('Spirit cards'))).toBe(false);
+    const board = project.instances.find(item => item.componentId === byName('Wanderer’s path').id)!;
     const walker = project.instances.find(item => item.componentId === byName('Wanderer').id)!;
-    const moved = applyCommand(project, { type: 'transform', ids: [walker.id], dx: stone.x + 12 - walker.x, dy: stone.y - 9 - walker.y, snap: true }, 'player-1');
-    expect(moved.instances.find(item => item.id === walker.id)).toMatchObject({ x: stone.x, y: stone.y });
-    expect(moved.scriptLog?.at(-1)?.text).toBe(`${walker.row ? 'Ember' : 'Moss'} wanderer reaches the ${stone.label}.`);
+    const dropNear = (state: typeof project) => {
+      const stone = placedPointPosition(placedGrids(state).find(grid => grid.host === board.id)!, 'stone-3')!;
+      const moved = applyCommand(state, { type: 'transform', ids: [walker.id], dx: stone.x + 12 - walker.x, dy: stone.y - 9 - walker.y, snap: true }, 'player-1');
+      expect(moved.instances.find(item => item.id === walker.id)).toMatchObject({ x: stone.x, y: stone.y });
+      expect(moved.scriptLog?.at(-1)?.text).toBe(`${walker.row ? 'Ember' : 'Moss'} wanderer reaches the ${label}.`);
+      return stone;
+    };
+    const before = dropNear(project);
+    // Unlocked and moved, the board takes its stones along.
+    const unlocked = { ...project, groups: project.groups!.map(group => ({ ...group, locked: false })) };
+    const shifted = applyCommand(unlocked, { type: 'transform', ids: [board.id], dx: -300, dy: 80 }, 'player-1');
+    const after = dropNear(shifted);
+    expect(after.x).toBeCloseTo(before.x - 300); expect(after.y).toBeCloseTo(before.y + 80);
   });
 
   it('gives the card template one drawing for every variant, fitted inside its frame without stretching', () => {

@@ -1,5 +1,6 @@
+import type { ReactNode } from 'react';
 import { ArrowDown, ArrowUp, Eye, EyeOff, Grid2X2, Hexagon, LocateFixed, Magnet, Plus, Trash2, X } from 'lucide-react';
-import { uid, type Command } from './domain';
+import { uid } from './domain';
 import { DEFAULT_POINT_RADIUS, type Grid } from './grids';
 import { gridColor, opaqueColor } from './GridLayers';
 import { TagFilterEditor } from './TagEditors';
@@ -22,24 +23,37 @@ export function newGrid(shape: Grid['shape'], grids: Grid[]): Grid {
   return { id: uid('grid'), name, shape, visible: true, snap: true, size: shape === 'hex' ? 100 : 50, offsetX: 0, offsetY: 0, ...(shape === 'points' ? { points: [] } : {}) };
 }
 
+/** How a grid list is changed: the table's grids through shared table actions, a component's through design edits. */
+export type GridActions<G extends Grid> = {
+  save: (grid: G) => void; add: (grid: G) => Promise<boolean> | boolean; remove: (id: string) => void; reorder: (ids: string[]) => void;
+  /** A new grid of a shape for this list (newGrid by default). */
+  create?: (shape: Grid['shape'], grids: G[]) => G;
+};
+
 /**
- * The grid tool's panel: the table's grid layers (the first one wins where several could take a piece) and the
- * selected grid's settings, its snap points included. Every change is a shared, undoable table action.
+ * A grid list and the selected grid's settings, its snap points included: the grid tool's panel for the table's grids
+ * (the first one wins where several could take a piece), and the designer's for a component's grids, which add
+ * `bounds` settings (from `boundsEditor`).
  */
-export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, dispatch, disabled, tags, onDone }: {
-  grids: Grid[]; selected?: Grid; onSelect: (id: string) => void; point?: string; onSelectPoint: (id: string | undefined) => void;
-  dispatch: (command: Command) => Promise<boolean>; disabled: boolean; tags: string[]; onDone: () => void;
+export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, onSelectPoint, actions, disabled, tags, onDone, intro, boundsEditor, surface = 'the table' }: {
+  grids: G[]; selected?: G; onSelect: (id: string) => void; point?: string; onSelectPoint: (id: string | undefined) => void;
+  actions: GridActions<G>; disabled: boolean; tags: string[]; onDone: () => void;
+  /** The panel's explanation under its title (the table grid tool's by default). */
+  intro?: ReactNode;
+  boundsEditor?: (grid: G) => ReactNode;
+  /** Where the grid is dragged and points are added: the table (with the grid tool), or the designer's canvas. */
+  surface?: string;
 }) {
-  const save = (grid: Grid) => void dispatch({ type: 'grid', grid });
+  const save = actions.save;
   const update = (patch: Partial<Grid>) => { if (selected) save({ ...selected, ...patch }); };
   const add = async (shape: Grid['shape']) => {
-    const grid = newGrid(shape, grids);
-    if (await dispatch({ type: 'grid', grid })) { onSelect(grid.id); onSelectPoint(undefined); }
+    const grid = actions.create ? actions.create(shape, grids) : newGrid(shape, grids) as G;
+    if (await actions.add(grid)) { onSelect(grid.id); onSelectPoint(undefined); }
   };
   const move = (index: number, offset: number) => {
     const ids = grids.map(grid => grid.id);
     [ids[index], ids[index + offset]] = [ids[index + offset], ids[index]];
-    void dispatch({ type: 'reorderGrids', ids });
+    actions.reorder(ids);
   };
   const selectedPoint = selected?.points?.find(item => item.id === point);
   const updatePoint = (patch: Partial<NonNullable<Grid['points']>[number]>) => {
@@ -48,7 +62,7 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
   return <div className="grid-editor">
     <div className="inspector-section">
       <div className="section-title"><h3>Grids</h3><button className="button grid-done" onClick={onDone}><X size={13} /> Done</button></div>
-      <p className="help-text grid-intro">Pieces snap to the first grid in this list that takes them. With the grid tool on, drag the table to move the selected grid{selected?.shape === 'points' ? ', or click it to add a snap point' : ''}.</p>
+      <p className="help-text grid-intro">{intro ?? <>Pieces snap to the first grid in this list that takes them. With the grid tool on, drag the table to move the selected grid{selected?.shape === 'points' ? ', or click it to add a snap point' : ''}.</>}</p>
       <ol className="grid-list" aria-label="Grid layers">{grids.map((grid, index) => <li key={grid.id} className={grid.id === selected?.id ? 'active' : ''}>
         <button className="grid-row" aria-pressed={grid.id === selected?.id} onClick={() => { onSelect(grid.id); onSelectPoint(undefined); }}>
           <span className="grid-swatch" style={{ color: opaqueColor(gridColor(grid, index)) }}>{shapeIcon(grid.shape)}</span><span className="grid-name">{grid.name}</span>
@@ -60,7 +74,7 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
             onClick={() => save({ ...grid, snap: !grid.snap })}><Magnet size={14} /></button>
           <button className="icon-button" aria-label={`Move ${grid.name} up`} disabled={disabled || !index} onClick={() => move(index, -1)}><ArrowUp size={13} /></button>
           <button className="icon-button" aria-label={`Move ${grid.name} down`} disabled={disabled || index === grids.length - 1} onClick={() => move(index, 1)}><ArrowDown size={13} /></button>
-          <button className="icon-button danger" aria-label={`Delete ${grid.name}`} disabled={disabled} onClick={() => void dispatch({ type: 'removeGrid', id: grid.id })}><Trash2 size={13} /></button>
+          <button className="icon-button danger" aria-label={`Delete ${grid.name}`} disabled={disabled} onClick={() => actions.remove(grid.id)}><Trash2 size={13} /></button>
         </span>
       </li>)}</ol>
       {!grids.length && <p className="help-text">No grids: pieces move freely.</p>}
@@ -74,6 +88,7 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
         onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }} /></Field>
       <IconChoice label="Shape" value={selected.shape} options={SHAPES} disabled={disabled}
         onChange={shape => update({ shape, ...(shape === 'points' ? { points: selected.points ?? [] } : {}), ...(shape === 'hex' && !selected.orientation ? { orientation: 'pointy' as const } : {}) })} />
+      {boundsEditor?.(selected)}
       {/* Linked square cells have no height of their own (sizeY), so the height follows the width either way it's edited. */}
       {selected.shape === 'square' && <>
         <div className="field-grid">
@@ -82,7 +97,7 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
             onChange={sizeY => update(selected.sizeY === undefined ? { size: sizeY } : { sizeY })} />
         </div>
         <Toggle label="Link width and height" description="Square cells: changing one changes the other" checked={selected.sizeY === undefined} disabled={disabled}
-          onChange={linked => { const { sizeY: _height, ...rest } = selected; save(linked ? rest : { ...rest, sizeY: selected.size }); }} />
+          onChange={linked => { const { sizeY: _height, ...rest } = selected; save((linked ? rest : { ...rest, sizeY: selected.size }) as G); }} />
       </>}
       {selected.shape === 'hex' && <>
         <NumberField deferred label="Cell size (px)" hint="The distance between the centres of neighbouring cells (a cell's width across its flat sides)." value={selected.size} min={5} max={2000} onChange={size => update({ size })} />
@@ -90,12 +105,12 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
           <option value="pointy">Pointy tops (in rows)</option><option value="flat">Flat tops (in columns)</option></select></Field>
       </>}
       {selected.shape !== 'points' && <div className="field-grid">
-        <NumberField deferred label="Offset X (px)" hint="Where the grid's points sit; drag the table with the grid tool to move it." value={selected.offsetX} min={-100000} max={100000} onChange={offsetX => update({ offsetX })} />
+        <NumberField deferred label="Offset X (px)" hint={`Where the grid's points sit; drag ${surface === 'the table' ? 'the table with the grid tool' : surface} to move it.`} value={selected.offsetX} min={-100000} max={100000} onChange={offsetX => update({ offsetX })} />
         <NumberField deferred label="Offset Y (px)" value={selected.offsetY} min={-100000} max={100000} onChange={offsetY => update({ offsetY })} />
       </div>}
       {selected.shape === 'points' && <>
         <NumberField deferred label="Snap distance (px)" hint="How close a piece's centre must come to a point to snap to it." value={selected.radius ?? DEFAULT_POINT_RADIUS} min={1} max={2000} onChange={radius => update({ radius })} />
-        <p className="help-text">{(selected.points ?? []).length} points. Click the table to add one, drag points to move them, and select one to edit it (Delete removes it).</p>
+        <p className="help-text">{(selected.points ?? []).length} points. Click {surface} to add one, drag points to move them, and select one to edit it (Delete removes it).</p>
         {selectedPoint && <div className="grid-point-editor" role="group" aria-label="Selected point">
           <div className="section-title"><h3>Point {selectedPoint.label || ''}</h3><button className="icon-button" aria-label="Deselect point" onClick={() => onSelectPoint(undefined)}><X size={13} /></button></div>
           <div className="field-grid">

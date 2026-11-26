@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { hexCorners, type Grid } from './grids';
+import { hexCorners, type ComponentGrid, type Grid } from './grids';
 import './grids.css';
 
 export const GRID_COLORS = ['#7d9b60', '#b08c4f', '#5f8fae', '#a2679a', '#c07457'];
@@ -80,6 +80,30 @@ export const GridLayers = memo(function GridLayers({ grids, area, zoom, editing,
   </svg>;
 }, (before, after) => before.grids === after.grids && before.area === after.area && before.editing === after.editing && before.selected === after.selected
   && after.grids.every(grid => gridFade(grid, before.zoom) === gridFade(grid, after.zoom)));
+
+/**
+ * A component's grids, over its face in its own coordinates, each only inside its bounds: on its table pieces (which
+ * move, turn and scale them) and in the designer. `idPrefix` keeps the fill patterns of many pieces apart. While its
+ * grids are edited, hidden ones show faintly and the edited one stands out.
+ */
+export const ComponentGrids = memo(function ComponentGrids({ grids, width, height, idPrefix, editing, selected, style }: {
+  grids: ComponentGrid[]; width: number; height: number; idPrefix: string; editing?: boolean; selected?: string; style?: React.CSSProperties;
+}) {
+  return <svg className={`component-grids${editing ? ' editing' : ''}`} width={width} height={height} viewBox={`0 0 ${width} ${height}`} style={style} aria-hidden="true">
+    <defs>{grids.map((grid, index) => grid.shape !== 'points' && <GridPattern key={grid.id} grid={grid} id={`${idPrefix}-${index}`} color={gridColor(grid, index)} />)}</defs>
+    {grids.map((grid, index) => {
+      if (!grid.visible && !editing) return null;
+      const { bounds } = grid, color = gridColor(grid, index);
+      const state = `${grid.visible ? '' : ' hidden-grid'}${editing && grid.id === selected ? ' selected-grid' : ''}`;
+      if (grid.shape === 'points') return <g key={grid.id} className={`grid-points${state}`} style={{ color }}>
+        {(grid.points ?? []).filter(point => point.x >= bounds.x && point.x <= bounds.x + bounds.width && point.y >= bounds.y && point.y <= bounds.y + bounds.height)
+          .map(point => <PointMarker key={point.id} x={point.x} y={point.y} rotation={point.rotation ?? grid.rotation} label={point.label} />)}
+      </g>;
+      return <rect key={grid.id} className={`grid-fill grid-fill-${grid.shape}${state}`} style={{ color }} x={bounds.x} y={bounds.y} width={bounds.width} height={bounds.height}
+        fill={`url(#${idPrefix}-${index})`} />;
+    })}
+  </svg>;
+});
 
 // A pattern's content takes its colour (currentColor) from the pattern, not from the shape it fills.
 function GridPattern({ grid, id, color }: { grid: Grid; id: string; color: string }) {

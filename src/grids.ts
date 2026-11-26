@@ -3,10 +3,14 @@ import type { Component, Instance, Project } from './domain';
 import { matchesTags, normalizeTags, tagFilterSchema } from './tags';
 
 /**
- * Table grids. A project has a list of grid layers; the first grid in the list wins when several could take a piece.
+ * Grids. A project has a list of table grid layers; the first grid in the list wins when several could take a piece.
  * Square and hex grids are endless lattices; a points grid is a set of snap points placed by hand. Each grid's tag
  * filter picks the components (by their grid tags) that snap to it; components without grid tags snap to every grid,
  * and a component's "Can snap to grids" setting turns snapping off for it.
+ *
+ * Components can carry grids too (`Component.grids`, edited in the designer): the same settings in the component's
+ * own coordinates, limited to their `bounds`. Each piece of the component on the table takes them along as it moves,
+ * turns and scales (see placedGrids), and they come before the table's grids, the topmost piece's first.
  *
  * Point ids: square grids use "col,row" (x = offsetX + col × size, y = offsetY + row × cell height), hex grids axial
  * "q,r", points grids their own ids. A piece is snapped to a point when its centre sits exactly on it; that is
@@ -47,7 +51,14 @@ export const gridSchema = z.object({
   color: z.string().max(80).optional(),
 });
 export type Grid = z.infer<typeof gridSchema>;
-export type GridSnap = { grid: string; point: string; x: number; y: number; rotation?: number };
+/** Where a component's grid applies, in the component's own coordinates (from its top-left corner). */
+export const gridBoundsSchema = z.object({ x: coord, y: coord, width: z.number().finite().min(1).max(100000), height: z.number().finite().min(1).max(100000) });
+export type GridBounds = z.infer<typeof gridBoundsSchema>;
+/** A grid a component carries: a grid in the component's coordinates, with points (and snapping) only inside its bounds. */
+export const componentGridSchema = gridSchema.extend({ bounds: gridBoundsSchema });
+export type ComponentGrid = z.infer<typeof componentGridSchema>;
+/** A grid point a piece snaps or is snapped to: its grid's key (see PlacedGrid), point id, table position and rotation. */
+export type GridSnap = { grid: string; point: string; x: number; y: number; rotation?: number; label?: string };
 
 export const DEFAULT_POINT_RADIUS = 50;
 const SQRT3 = Math.sqrt(3);
@@ -84,6 +95,10 @@ export function gridPointPosition(grid: Grid, point: string): { x: number; y: nu
   return { ...at, rotation: grid.rotation };
 }
 
+const EDGE = 1e-6;
+const insideBounds = (bounds: GridBounds, x: number, y: number) =>
+  x >= bounds.x - EDGE && x <= bounds.x + bounds.width + EDGE && y >= bounds.y - EDGE && y <= bounds.y + bounds.height + EDGE;
+
 /** A grid's point nearest to (x, y), with its distance; undefined for a points grid without points. */
 export function nearestGridPoint(grid: Grid, x: number, y: number): (GridSnap & { distance: number }) | undefined {
   let point: string, at: { x: number; y: number; rotation?: number };
@@ -117,29 +132,149 @@ export function nearestGridPoint(grid: Grid, x: number, y: number): (GridSnap & 
 }
 
 /**
- * Where a piece of `component` dropped with its centre at (x, y) snaps: the nearest point of the first grid (in list
- * order) that snaps, takes the component and has a point in range (always, for square and hex grids). Undefined when
- * it stays where it was dropped.
+ * A grid's point nearest to (x, y) among those inside `bounds`, in the grid's own coordinates. Square grids clamp to the
+ * columns and rows inside; hex grids look through the cells around the nearest one. Undefined when no point is inside.
  */
-export function snapTarget(project: Pick<Project, 'grids' | 'settings'>, component: Pick<Component, 'gridTags' | 'snapToGrid'>, x: number, y: number): GridSnap | undefined {
-  for (const grid of projectGrids(project)) {
-    if (!grid.snap || !gridAccepts(grid, component)) continue;
-    const nearest = nearestGridPoint(grid, x, y);
-    if (!nearest || (grid.shape === 'points' && nearest.distance > (grid.radius ?? DEFAULT_POINT_RADIUS))) continue;
+export function nearestBoundedPoint(grid: Grid, bounds: GridBounds, x: number, y: number): (GridSnap & { distance: number }) | undefined {
+  const result = (point: string, at: { x: number; y: number }, rotation = grid.rotation, label?: string) =>
+    ({ grid: grid.id, point, x: at.x, y: at.y, ...(rotation !== undefined ? { rotation } : {}), ...(label ? { label } : {}), distance: Math.hypot(at.x - x, at.y - y) });
+  if (grid.shape === 'points') {
+    let best: GridPoint | undefined, distance = Infinity;
+    for (const item of grid.points ?? []) {
+      if (!insideBounds(bounds, item.x, item.y)) continue;
+      const d = Math.hypot(item.x - x, item.y - y);
+      if (d < distance) { best = item; distance = d; }
+    }
+    return best && result(best.id, best, best.rotation ?? grid.rotation, best.label);
+  }
+  if (grid.shape === 'square') {
+    const height = grid.sizeY ?? grid.size;
+    const range = (offset: number, size: number, from: number, length: number) => [Math.ceil((from - offset) / size - EDGE), Math.floor((from + length - offset) / size + EDGE)];
+    const [col0, col1] = range(grid.offsetX, grid.size, bounds.x, bounds.width), [row0, row1] = range(grid.offsetY, height, bounds.y, bounds.height);
+    if (col0 > col1 || row0 > row1) return undefined;
+    const col = Math.max(col0, Math.min(col1, Math.round((x - grid.offsetX) / grid.size))) || 0;
+    const row = Math.max(row0, Math.min(row1, Math.round((y - grid.offsetY) / height))) || 0;
+    return result(`${col},${row}`, { x: grid.offsetX + col * grid.size, y: grid.offsetY + row * height });
+  }
+  const [q, r] = nearestGridPoint(grid, x, y)!.point.split(',').map(Number);
+  let best: ReturnType<typeof result> | undefined;
+  for (let dq = -3; dq <= 3; dq++) for (let dr = Math.max(-3, -3 - dq); dr <= Math.min(3, 3 - dq); dr++) {
+    const at = hexCenter(grid, q + dq, r + dr);
+    if (!insideBounds(bounds, at.x, at.y)) continue;
+    const candidate = result(`${(q + dq) || 0},${(r + dr) || 0}`, at);
+    if (!best || candidate.distance < best.distance) best = candidate;
+  }
+  return best;
+}
+
+/** Whether (x, y) is close enough to a component grid's bounds to snap: inside them or within half a cell of them. */
+function withinReach(grid: Grid, bounds: GridBounds, x: number, y: number) {
+  const reachX = grid.shape === 'points' ? 0 : grid.size / 2, reachY = grid.shape === 'square' ? (grid.sizeY ?? grid.size) / 2 : reachX;
+  return x >= bounds.x - reachX && x <= bounds.x + bounds.width + reachX && y >= bounds.y - reachY && y <= bounds.y + bounds.height + reachY;
+}
+
+/** Where a piece puts its component's grids on the table: its centre, rotation (degrees) and scale, and the component's size. */
+export type GridFrame = { x: number; y: number; rotation: number; scale: number; width: number; height: number };
+/** A point in a component (from its top-left corner) on the table, for a piece placed by `frame`. */
+export function fromFrame(frame: GridFrame, x: number, y: number) {
+  const angle = frame.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+  const dx = (x - frame.width / 2) * frame.scale, dy = (y - frame.height / 2) * frame.scale;
+  return { x: frame.x + dx * cos - dy * sin, y: frame.y + dx * sin + dy * cos };
+}
+/** A table point in a component's own coordinates, for a piece placed by `frame` (the inverse of fromFrame). */
+export function toFrame(frame: GridFrame, x: number, y: number) {
+  const angle = frame.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+  const dx = x - frame.x, dy = y - frame.y;
+  return { x: frame.width / 2 + (dx * cos + dy * sin) / frame.scale, y: frame.height / 2 + (-dx * sin + dy * cos) / frame.scale };
+}
+
+/**
+ * A grid where it acts: a table grid, or a component's grid carried by a table piece (`host`, placed by `frame`, inside
+ * `bounds`). `key` names it in snaps and commands: the table grid's id, or "piece id/grid id" for a carried grid.
+ */
+export type PlacedGrid = { key: string; grid: Grid; host?: string; hostStack?: string; frame?: GridFrame; bounds?: GridBounds };
+export const pieceGridKey = (piece: string, grid: string) => `${piece}/${grid}`;
+
+/**
+ * The grids pieces snap to, highest priority first: those carried by pieces on the table (the topmost piece first, as
+ * the table draws them: boards under everything else, later pieces over earlier ones; each component's grids in its
+ * list order), then the table's own grids. Only a stack's top piece carries grids, and held pieces carry none.
+ * `exclude` leaves out the grids carried by these pieces (pieces never snap to their own grids).
+ */
+export function placedGrids(project: Pick<Project, 'grids' | 'settings' | 'instances' | 'components'>, exclude?: ReadonlySet<string>): PlacedGrid[] {
+  const components = new Map(project.components.map(component => [component.id, component]));
+  const stacks = new Map<string, Instance[]>();
+  for (const item of project.instances) if (item.stack && !item.holder) stacks.set(item.stack, [...stacks.get(item.stack) ?? [], item]);
+  const isTop = (item: Instance) => {
+    const members = item.stack ? stacks.get(item.stack)?.sort((a, b) => a.order - b.order) : undefined;
+    return !members || (item.stackReversed ? members[0] : members.at(-1))?.id === item.id;
+  };
+  const hosts = project.instances.map((item, index) => ({ item, index, component: components.get(item.componentId) }))
+    .filter(({ item, component }) => !item.holder && component?.grids?.length && !exclude?.has(item.id) && isTop(item))
+    .sort((a, b) => (b.component!.kind === 'board' ? 0 : b.index + 2) - (a.component!.kind === 'board' ? 0 : a.index + 2) || b.index - a.index);
+  const carried = hosts.flatMap(({ item, component }) => component!.grids!.map(grid => ({
+    key: pieceGridKey(item.id, grid.id), grid, host: item.id, hostStack: item.stack ?? undefined, bounds: grid.bounds,
+    frame: { x: item.x, y: item.y, rotation: item.rotation, scale: item.scale, width: component!.width, height: component!.height },
+  })));
+  return [...carried, ...projectGrids(project).map(grid => ({ key: grid.id, grid }))];
+}
+
+/** A placed grid's point nearest to (x, y) on the table (a carried grid's only inside its bounds, and only when (x, y) is near them). */
+export function nearestPlacedPoint(placed: PlacedGrid, x: number, y: number): (GridSnap & { distance: number }) | undefined {
+  if (!placed.frame || !placed.bounds) {
+    const nearest = nearestGridPoint(placed.grid, x, y);
+    const label = placed.grid.shape === 'points' ? placed.grid.points?.find(point => point.id === nearest?.point)?.label : undefined;
+    return nearest && { ...nearest, grid: placed.key, ...(label ? { label } : {}) };
+  }
+  const local = toFrame(placed.frame, x, y);
+  if (!withinReach(placed.grid, placed.bounds, local.x, local.y)) return undefined;
+  const near = nearestBoundedPoint(placed.grid, placed.bounds, local.x, local.y);
+  if (!near) return undefined;
+  const at = fromFrame(placed.frame, near.x, near.y);
+  return { grid: placed.key, point: near.point, x: at.x, y: at.y, ...(near.rotation !== undefined ? { rotation: near.rotation + placed.frame.rotation } : {}),
+    ...(near.label ? { label: near.label } : {}), distance: Math.hypot(at.x - x, at.y - y) };
+}
+
+/** Where a placed grid's point is on the table; undefined when it has no such point (or it lies outside its bounds). */
+export function placedPointPosition(placed: PlacedGrid, point: string): { x: number; y: number; rotation?: number } | undefined {
+  const at = gridPointPosition(placed.grid, point);
+  if (!at || !placed.frame || !placed.bounds) return at;
+  if (!insideBounds(placed.bounds, at.x, at.y)) return undefined;
+  return { ...fromFrame(placed.frame, at.x, at.y), ...(at.rotation !== undefined ? { rotation: at.rotation + placed.frame.rotation } : {}) };
+}
+
+/** How far a placed points grid reaches on the table: its snap distance, scaled with the piece that carries it. */
+const pointReach = (placed: PlacedGrid) => (placed.grid.radius ?? DEFAULT_POINT_RADIUS) * (placed.frame?.scale ?? 1);
+
+/**
+ * Where a piece of `component` dropped with its centre at (x, y) snaps: the nearest point of the first grid (see
+ * placedGrids) that snaps, takes the component and has a point in range (always, for square and hex grids, though a
+ * carried grid only near its bounds). Undefined when it stays where it was dropped. `exclude` are the pieces being
+ * moved, whose own grids don't count.
+ */
+export function snapTarget(project: Pick<Project, 'grids' | 'settings' | 'instances' | 'components'>, component: Pick<Component, 'gridTags' | 'snapToGrid'>, x: number, y: number,
+  exclude?: ReadonlySet<string>): GridSnap | undefined {
+  for (const placed of placedGrids(project, exclude)) {
+    if (!placed.grid.snap || !gridAccepts(placed.grid, component)) continue;
+    const nearest = nearestPlacedPoint(placed, x, y);
+    if (!nearest || (placed.grid.shape === 'points' && nearest.distance > pointReach(placed))) continue;
     const { distance: _, ...target } = nearest;
     return target;
   }
   return undefined;
 }
 
-/** The grid point a table piece is snapped to: the first grid it snaps to that has a point exactly at its centre. */
-export function snapOf(project: Pick<Project, 'grids' | 'settings' | 'components'>, item: Instance, grids = projectGrids(project)): GridSnap | undefined {
+/**
+ * The grid point a table piece is snapped to: the first grid it snaps to (see placedGrids, never one it carries itself)
+ * that has a point exactly at its centre. Pass `placed` when checking many pieces of one project.
+ */
+export function snapOf(project: Pick<Project, 'grids' | 'settings' | 'components' | 'instances'>, item: Instance, placed = placedGrids(project)): GridSnap | undefined {
   if (item.holder) return undefined;
   const component = project.components.find(c => c.id === item.componentId);
   if (!component) return undefined;
-  for (const grid of grids) {
-    if (!grid.snap || !gridAccepts(grid, component)) continue;
-    const nearest = nearestGridPoint(grid, item.x, item.y);
+  for (const entry of placed) {
+    if (entry.host === item.id || (entry.hostStack && entry.hostStack === item.stack) || !entry.grid.snap || !gridAccepts(entry.grid, component)) continue;
+    const nearest = nearestPlacedPoint(entry, item.x, item.y);
     if (nearest && nearest.distance <= ON_POINT) { const { distance: _, ...snap } = nearest; return snap; }
   }
   return undefined;

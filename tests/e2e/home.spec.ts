@@ -59,10 +59,14 @@ test('the Wildwood sample shows its showcase: shared art, a scripted button with
   await expect(page.getByText('Player 1 gathers amber.')).toBeVisible();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   await expect(page.locator('[data-testid="table-piece"][aria-label="Amber token, stack of 7"]')).toBeVisible();
-  // A wanderer dropped near a stone of the path snaps onto it and the script announces it.
+  // A wanderer dropped near a stone of the path snaps onto it and the script announces it. The stones are a grid the
+  // path board carries, so they sit where the board is.
   const project = async () => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0]);
-  const { grids } = await project();
-  const stone = grids.find((grid: { id: string }) => grid.id === 'wanderers-path').points[0];
+  const { components, instances } = await project();
+  const pathComponent = components.find((item: { name: string }) => item.name === 'Wanderer’s path');
+  const board = instances.find((item: { componentId: string }) => item.componentId === pathComponent.id);
+  const first = pathComponent.grids[0].points[0];
+  const stone = { x: board.x - pathComponent.width / 2 + first.x, y: board.y - pathComponent.height / 2 + first.y, label: first.label };
   const walker = page.locator('[data-testid="table-piece"][aria-label^="Wanderer"]:not([aria-label^="Wanderer’s"])').first();
   const box = (await walker.boundingBox())!;
   const zoom = await walker.evaluate(el => new DOMMatrix(getComputedStyle(el.closest('.table-world')!).transform).a);

@@ -1,22 +1,24 @@
-/* Table grids (GridLayers.tsx) and the grid tool's panel (GridEditor.tsx). Sizes divide by --table-zoom to stay
-   the same on screen at any zoom. */
+/* Table grids (GridLayers.tsx) and the grid tool's panel (GridEditor.tsx). Sizes divide by the zoom they're drawn at
+   (--grid-zoom, or the table's --table-zoom) to stay the same on screen at any zoom. */
 .grid-layers, .grid-handles { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
 .grid-layers { z-index: 0; }
+/* A component's grids over its face: on a table piece they're drawn at the table zoom times the piece's scale. */
+.component-grids { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; --grid-zoom: calc(var(--table-zoom, 1) * var(--piece-scale, 1)); }
 /* A square or hex grid shows at its colour's own alpha (10% by default). */
 .grid-fill.hidden-grid, .grid-points.hidden-grid { opacity: .25; }
-.grid-dot { r: calc(1.6px / var(--table-zoom, 1)); fill: currentColor; }
-.grid-hex { fill: none; stroke: currentColor; stroke-width: calc(1px / var(--table-zoom, 1)); }
+.grid-dot { r: calc(1.6px / var(--grid-zoom, var(--table-zoom, 1))); fill: currentColor; }
+.grid-hex { fill: none; stroke: currentColor; stroke-width: calc(1px / var(--grid-zoom, var(--table-zoom, 1))); }
 .grid-points { opacity: .8; }
 .grid-points.selected-grid { opacity: 1; }
-.grid-point-ring { r: calc(6px / var(--table-zoom, 1)); fill: none; stroke: currentColor; stroke-width: calc(1.5px / var(--table-zoom, 1)); }
-.grid-point-tick { x: calc(-1px / var(--table-zoom, 1)); y: calc(-15px / var(--table-zoom, 1)); width: calc(2px / var(--table-zoom, 1)); height: calc(15px / var(--table-zoom, 1)); fill: currentColor; }
-.grid-point-label { font: 600 calc(11px / var(--table-zoom, 1)) 'DM Sans', sans-serif; fill: currentColor; transform: translate(calc(9px / var(--table-zoom, 1)), calc(-8px / var(--table-zoom, 1))); }
+.grid-point-ring { r: calc(6px / var(--grid-zoom, var(--table-zoom, 1))); fill: none; stroke: currentColor; stroke-width: calc(1.5px / var(--grid-zoom, var(--table-zoom, 1))); }
+.grid-point-tick { x: calc(-1px / var(--grid-zoom, var(--table-zoom, 1))); y: calc(-15px / var(--grid-zoom, var(--table-zoom, 1))); width: calc(2px / var(--grid-zoom, var(--table-zoom, 1))); height: calc(15px / var(--grid-zoom, var(--table-zoom, 1))); fill: currentColor; }
+.grid-point-label { font: 600 calc(11px / var(--grid-zoom, var(--table-zoom, 1))) 'DM Sans', sans-serif; fill: currentColor; transform: translate(calc(9px / var(--grid-zoom, var(--table-zoom, 1))), calc(-8px / var(--grid-zoom, var(--table-zoom, 1)))); }
 /* The edited points grid's handles sit above the pieces. */
 .grid-handles { z-index: 100000; }
 .grid-handle { pointer-events: all; cursor: grab; }
-.grid-handle-hit { r: calc(12px / var(--table-zoom, 1)); fill: transparent; }
-.grid-handle-dot { r: calc(6px / var(--table-zoom, 1)); fill: #fff; stroke: currentColor; stroke-width: calc(2px / var(--table-zoom, 1)); }
-.grid-handle.selected .grid-handle-dot { fill: currentColor; stroke: #fff; r: calc(7px / var(--table-zoom, 1)); }
+.grid-handle-hit { r: calc(12px / var(--grid-zoom, var(--table-zoom, 1))); fill: transparent; }
+.grid-handle-dot { r: calc(6px / var(--grid-zoom, var(--table-zoom, 1))); fill: #fff; stroke: currentColor; stroke-width: calc(2px / var(--grid-zoom, var(--table-zoom, 1))); }
+.grid-handle.selected .grid-handle-dot { fill: currentColor; stroke: #fff; r: calc(7px / var(--grid-zoom, var(--table-zoom, 1))); }
 .table-viewport.grid-mode { cursor: crosshair; }
 .table-viewport.grid-mode .table-piece { pointer-events: none; }
 
@@ -51,3 +53,12 @@
 .points-panel-grid { margin: 0; padding: 6px 14px 2px; font-size: 10px; color: #9ca990; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .points-tree .point-row-detail { margin-left: auto; padding-left: 6px; font-size: 10px; color: #9ca990; white-space: nowrap; }
 .points-tree .in-selected-group:not(.active) .layer-row { background: #f1f6ea; }
+/* Editing a component's grid in the designer (ComponentGridCanvas.tsx): over the layers, in screen pixels. */
+.grid-edit-layer { position: absolute; inset: 0; z-index: 6; cursor: move; --grid-zoom: 1; touch-action: none; }
+.grid-edit-layer.points { cursor: crosshair; }
+.grid-bounds { position: absolute; box-sizing: border-box; border: 1.5px dashed currentColor; pointer-events: none; }
+.grid-bounds .transform-handle { border-color: currentColor; }
+.grid-edit-points { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; }
+.grid-bounds-editor { margin: 2px 0 12px; padding: 10px; border: 1px solid #e1e8d8; border-radius: 8px; background: #f8faf4; }
+.grid-bounds-editor .section-title { margin-bottom: 6px; }
+.grid-bounds-editor .compact-action { min-height: 24px; }
