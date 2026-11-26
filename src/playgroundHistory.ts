@@ -55,7 +55,8 @@ export function applyPlaygroundCommand(
     return { project: next, history: { entries: [], notice: 'Undo history cleared because a seat was added.' } };
   }
   if (command.type === 'removePlayer') return { project: next, history: { entries: [], notice: 'Undo history cleared because a seat was removed.' } };
-  if (command.type === 'rename' || command.type === 'reorderComponent' || command.type === 'handSettings' || command.type === 'reorderPlayers' || command.type === 'ping') return { project: next, history };
+  // Popups open and close outside undo, like pings (entries don't record them, so undo leaves them as they are).
+  if (['rename', 'reorderComponent', 'handSettings', 'reorderPlayers', 'ping', 'openPopup', 'closePopup'].includes(command.type)) return { project: next, history };
   // A script may keep some changes out of undo: undo then goes back to its base rather than to the table before.
   const base = undoBaseOf(next) ?? project;
   if ((base !== project || scriptCommands.has(command.type)) && sameTable(base, next)) return { project: next, history };

@@ -422,7 +422,8 @@ describe('game projects', () => {
 
   it('gives every component with a transparent background a back design, so no printed back comes out blank', () => {
     const backless: string[] = [];
-    for (const { id } of GAME_PROJECTS) for (const component of build(id).components.filter(hasOpenFace)) {
+    // Popups show on screen and are never printed.
+    for (const { id } of GAME_PROJECTS) for (const component of build(id).components.filter(item => hasOpenFace(item) && item.kind !== 'popup')) {
       // Every variant shows something on its back.
       const rows = component.rows.length ? component.rows : [{}];
       const shown = rows.every(row => component.back.some(node => !node.visibilityField || (row as Record<string, string>)[node.visibilityField] === node.visibilityValue));

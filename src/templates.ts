@@ -34,6 +34,16 @@ export function template(kind: TemplateKind): Component {
     // Pressing a button on the table calls the script function chosen as its action.
     Object.assign(base, { name: 'Button', width: 170, height: 56, color: '#365d46', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
     base.front = [makeNode('text', { name: 'Label', x: 0, y: 0, width: 170, height: 56, text: 'Press me', color: '#eef6e2', fontSize: 18, font: 'DM Sans', fontWeight: 600, align: 'center' })];
+  } else if (kind === 'popup') {
+    // Scripts show it on players' screens with game.popup; data = { title = ..., text = ... } fills its fields.
+    const rows = [{ title: 'A message', text: 'Scripts show this popup on players’ screens with game.popup, and fill its fields with data.' }];
+    Object.assign(base, { name: 'Popup', width: 360, height: 190, color: 'transparent', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false,
+      rows, csv: 'title,text\n' + rows.map(row => [row.title, `"${row.text}"`].join(',')).join('\n'), popup: { blur: true, draggable: true } });
+    base.front = [
+      makeNode('shape', { name: 'Card', x: 0, y: 0, width: 360, height: 190, fill: '#fbf8ef', stroke: '#d8d0b4', strokeWidth: 1, radius: 14 }),
+      makeNode('text', { name: 'Title', x: 28, y: 26, width: 304, height: 34, text: '{{title}}', fontSize: 22, font: 'Lora', color: '#24413a', align: 'start' }),
+      makeNode('text', { name: 'Text', x: 28, y: 72, width: 304, height: 92, text: '{{text}}', fontSize: 14, color: '#4e5b4f', align: 'start' }),
+    ];
   } else if (kind === 'book') {
     Object.assign(base, { name: 'Field guide', width: 300, height: 400, color: '#f3eedf', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
     base.rows = bookRows;

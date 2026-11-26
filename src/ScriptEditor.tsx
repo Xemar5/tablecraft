@@ -273,6 +273,7 @@ export function ScriptEditor({ project, canEdit, canRun, dispatch, notify, focus
               {line.level === 'error' ? <TriangleAlert size={12} /> : line.level === 'announce' ? <Megaphone size={12} /> : <span className="console-dot" />}
               {playerName(line.player) && <span className="console-player">{playerName(line.player)}</span>}
               {linked ? <button className="console-text text-button" title={`Go to ${place![1]} line ${place![2]}`} onClick={() => goTo(place![1], Number(place![2]))}>{line.text}</button> : <span className="console-text">{line.text}</span>}
+              {line.to && <span className="console-to" title="Only these seats saw it">to {line.to.map(seat => playerName(seat) ?? 'a removed seat').join(', ') || 'no one'}</span>}
               {line.count && <span className="console-count">×{line.count}</span>}
             </div>;
           })}

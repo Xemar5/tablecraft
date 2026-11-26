@@ -4,6 +4,7 @@ import { runCommand } from './scripting';
 import { componentGridSchema, gridSchema, placedGrids, placedPointPosition, projectGrids, snapTarget, validateGrids } from './grids';
 import { commonTags, describeFilter, filterFromTags, matchesTags, normalizeTags, sameFilter, tagFilterSchema, tagSchema, type TagFilter } from './tags';
 import { withPivot } from './layerGeometry';
+import { closePopups, POPUP_LIMIT, popupSchema, popupSettings, popupSettingsSchema, type Popup } from './popups';
 
 const id = z.string().min(1).max(100);
 const num = z.number().finite();
@@ -86,7 +87,7 @@ const nodeFields = z.object({
 export const nodeSchema = nodeFields.transform(node => withPivot(node));
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
-  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'book', 'artwork', 'texture', 'font', 'button']),
+  id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'book', 'artwork', 'texture', 'font', 'button', 'popup']),
   width: num.min(20).max(2000), height: num.min(20).max(2000), color,
   front: z.array(nodeSchema).max(300), back: z.array(nodeSchema).max(300),
   csv: z.string().max(1_000_000),
@@ -107,13 +108,20 @@ export const componentSchema = z.object({
   grids: z.array(componentGridSchema).max(20).optional(),
   /** Degrees each Q/E press or rotate button turns its pieces (90 when absent). */
   rotationStep: z.number().int().min(1).max(180).optional(),
-  /** The global script function its pieces run: pressing a button piece, or Run on any selected piece. */
+  /**
+   * The global script function its pieces run: pressing a button piece, or Run on any selected piece. A popup runs it
+   * when a player clicks one of its layers, with (popup, layer name, player).
+   */
   action: z.string().max(100).optional(),
+  /** A popup's placement and behaviour on screen (see src/popups.ts); defaults where absent. */
+  popup: popupSettingsSchema.optional(),
   source: z.object({ projectId: id, componentId: id, projectName: z.string().min(1).max(100) }).optional(),
   asset: assetSchema.optional(),
 });
 export type Component = z.infer<typeof componentSchema>;
 export const isAsset = (component: Pick<Component, 'kind'>) => component.kind === 'texture' || component.kind === 'font';
+/** Whether its pieces can be on the table: not textures and fonts (used through layers) or popups (shown by scripts). */
+export const isPlaceable = (component: Pick<Component, 'kind'>) => !isAsset(component) && component.kind !== 'popup';
 /** Dice faces and book pages are rows of one piece, not separately spawnable variants. */
 export const hasPages = (component: Pick<Component, 'kind'>) => component.kind === 'dice' || component.kind === 'book';
 export const assetUrl = (component: Component) => component.asset ? `data:${component.asset.mime};base64,${component.asset.data}` : undefined;
@@ -196,6 +204,8 @@ export const instanceSchema = z.object({
   /** Counts pings, so every player sees the piece pulse; `pingedBy` is the seat that pinged it last. */
   pings: z.number().int().min(0).optional(),
   pingedBy: id.optional(),
+  /** The seats the last ping was for (everyone when absent). */
+  pingedFor: z.array(id).max(100).optional(),
   /** Seats this table piece is hidden from (visual privacy only, like hidden hands). Stacks share it. */
   hiddenFrom: z.array(id).max(100).optional(),
   /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
@@ -251,6 +261,8 @@ export const scriptLogEntrySchema = z.object({
   seq: z.number().int().min(0), level: z.enum(['info', 'error', 'announce']), text: z.string().max(4000),
   /** The seat whose action ran the script. */
   player: id.optional(),
+  /** The seats an announcement is for (everyone when absent); the console still lists it for all. */
+  to: z.array(id).max(100).optional(),
   /** How many times in a row the same line was logged. */
   count: z.number().int().min(2).optional(),
 });
@@ -272,6 +284,8 @@ export const projectSchema = z.object({
   /** JSON values shared by scripts and players (absent when empty). */
   memory: memorySchema.optional(),
   scriptLog: z.array(scriptLogEntrySchema).max(SCRIPT_LOG_LIMIT).optional(),
+  /** Popups open on players' screens, oldest first (absent when none; see src/popups.ts). */
+  popups: z.array(popupSchema).max(POPUP_LIMIT).optional(),
   settings: z.object({
     grid: z.boolean(), snap: z.boolean(), gridSize: num.min(5).max(200),
     /** Where the grid's points sit: snap points are offset + n × gridSize on each axis (0 when absent). */
@@ -378,12 +392,21 @@ export const commandSchema = z.discriminatedUnion('type', [
   /** Sets values in memory (or removes them, without a value). An empty path replaces all of memory. */
   z.object({ type: z.literal('memory'), changes: z.array(z.object({ path: memoryPathSchema, value: memoryValueSchema.optional() })).min(1).max(1000) }),
   /** Calls a global script function: a button press (with its piece), Run on a piece, or the script editor's Run. */
-  z.object({ type: z.literal('call'), name: scriptName, piece: id.optional(), args: z.array(memoryValueSchema).max(20).default([]), seed: z.number().int() }),
+  /** Runs a script function with (piece or popup, player, ...args): `piece` for a piece's action, `popup` for a click on a popup. */
+  z.object({ type: z.literal('call'), name: scriptName, piece: id.optional(), popup: id.optional(), args: z.array(memoryValueSchema).max(20).default([]), seed: z.number().int() }),
   /** Runs the scripts' update(dt). Live rooms get these from the server's timer, offline tables from the app's. */
   z.object({ type: z.literal('tick'), dt: num.min(0).max(3600), seed: z.number().int() }),
   z.object({ type: z.literal('clearScriptLog') }),
   /** Highlights pieces for every player (not an undo step). */
-  z.object({ type: z.literal('ping'), ids: z.array(id).min(1).max(1000) }),
+  /** Pulses pieces for every player, or for `players` only. */
+  z.object({ type: z.literal('ping'), ids: z.array(id).min(1).max(1000), players: z.array(id).max(100).optional() }),
+  /** Shows a popup component on screen, to everyone or the seats in `popup.to` (scripts' game.popup). */
+  z.object({ type: z.literal('openPopup'), popup: popupSchema }),
+  /**
+   * Closes popups: for `players`, or for the acting seat (for everyone when the popup's `dismiss` is 'all'), or with
+   * neither (a script) for everyone. Popups already gone are skipped.
+   */
+  z.object({ type: z.literal('closePopup'), ids: z.array(id).min(1).max(POPUP_LIMIT), players: z.array(id).max(100).optional() }),
   /** Hides table pieces (with their whole stacks) from these seats; an empty list shows them to everyone. */
   z.object({ type: z.literal('hideFrom'), ids: z.array(id).min(1).max(10000), players: z.array(id).max(100) }),
   /** Adds a grid layer, or replaces the one with its id in place. */
@@ -502,10 +525,14 @@ export function validateProject(project: Project): Project {
   const playerIds = new Set(project.players.map(p => p.id));
   if (componentIds.size !== project.components.length || playerIds.size !== project.players.length ||
     new Set(project.instances.map(i => i.id)).size !== project.instances.length) throw new Error('Duplicate identifiers in project.');
+  const popups = project.popups ?? [];
+  if (new Set(popups.map(popup => popup.id)).size !== popups.length) throw new Error('Duplicate popup identifiers.');
+  if (popups.some(popup => componentIds.get(popup.componentId)?.kind !== 'popup')) throw new Error('An open popup shows a component that is not a popup.');
   if (!trusted) validateComponents(project.components);
   for (const i of project.instances) {
     if (!componentIds.has(i.componentId) || (i.holder && !playerIds.has(i.holder))) throw new Error('Broken component or player reference.');
     if (isAsset(componentIds.get(i.componentId)!)) throw new Error('Textures and fonts cannot be placed on the playground.');
+    if (componentIds.get(i.componentId)!.kind === 'popup') throw new Error('Popups are shown on screen by scripts (game.popup), not placed on the table.');
     if (i.stack && i.holder) throw new Error('A held component cannot belong to a stack.');
   }
   const groups = new Map<string, Instance[]>();
@@ -598,7 +625,7 @@ export function appendScriptLog(log: ScriptLogEntry[] | undefined, entries: Omit
   let seq = next.at(-1)?.seq ?? 0;
   for (const entry of entries) {
     const last = next.at(-1), text = entry.text.slice(0, 4000);
-    if (last && last.text === text && last.level === entry.level && last.player === entry.player) next[next.length - 1] = { ...last, seq: ++seq, count: (last.count ?? 1) + 1 };
+    if (last && last.text === text && last.level === entry.level && last.player === entry.player && JSON.stringify(last.to) === JSON.stringify(entry.to)) next[next.length - 1] = { ...last, seq: ++seq, count: (last.count ?? 1) + 1 };
     else next.push({ ...entry, text, seq: ++seq });
   }
   return next.slice(-SCRIPT_LOG_LIMIT);
@@ -1614,8 +1641,27 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
         const item = get(key);
         item.pings = (item.pings ?? 0) + 1;
         if (actor) item.pingedBy = actor; else delete item.pingedBy;
+        if (command.players) item.pingedFor = command.players; else delete item.pingedFor;
       }
       break;
+    case 'openPopup': {
+      const shown = p.components.find(c => c.id === command.popup.componentId);
+      if (!shown || shown.kind !== 'popup') throw new Error('Only popup components can be shown as popups.');
+      if (command.popup.to?.some(seat => !p.players.some(player => player.id === seat))) throw new Error('That seat no longer exists.');
+      if (command.popup.row >= Math.max(1, shown.rows.length)) throw new Error(`“${shown.name}” has no data row ${command.popup.row + 1}.`);
+      if (p.popups?.some(popup => popup.id === command.popup.id)) throw new Error('That popup is already open.');
+      const { closed: _closed, ...popup } = command.popup;
+      // The oldest popups make room for new ones.
+      p.popups = [...p.popups ?? [], { ...popup, ...actor && !popup.player ? { player: actor } : {} }].slice(-POPUP_LIMIT);
+      break;
+    }
+    case 'closePopup': {
+      const seats = command.players ?? (actor ? [actor] : undefined);
+      const shared = (popup: Popup) => !command.players && popupSettings(p.components.find(c => c.id === popup.componentId) ?? {}, popup).dismiss === 'all';
+      const open = closePopups(p.popups ?? [], new Set(command.ids), seats, p.players.map(player => player.id), shared);
+      p.popups = open.length ? open : undefined;
+      break;
+    }
     case 'hideFrom': {
       if (command.players.some(player => !p.players.some(seat => seat.id === player))) throw new Error('That seat no longer exists.');
       const items = new Set(command.ids.map(get).flatMap(item => {
@@ -1689,7 +1735,23 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
   // Commands that change table order or grouping keep each group's pieces together (see gatherGroups), so raising a
   // grouped piece raises its whole group and the Pieces panel always lists pieces in table order.
   if (['front', 'zOrder', 'arrangePieces', 'createGroup', 'moveToGroup', 'ungroup', 'duplicate', 'paste', 'spawn'].includes(command.type)) p.instances = gatherGroups(p);
+  if (p.popups && ['component', 'removeComponent', 'removePlayer'].includes(command.type)) keepOpenPopups(p);
   return validateProject(p);
+}
+
+/**
+ * Drops popups whose component is gone or no longer a popup, and seats that left from who they're for (a popup for
+ * no remaining seat closes).
+ */
+function keepOpenPopups(p: Project) {
+  const seats = new Set(p.players.map(player => player.id));
+  const open = (p.popups ?? []).flatMap(popup => {
+    if (p.components.find(c => c.id === popup.componentId)?.kind !== 'popup') return [];
+    const to = popup.to?.filter(seat => seats.has(seat)), closed = popup.closed?.filter(seat => seats.has(seat));
+    if (to && !to.length) return [];
+    return [{ ...popup, ...to ? { to } : {}, ...closed ? { closed } : {} }];
+  });
+  p.popups = open.length ? open : undefined;
 }
 
 /** The checks a `component` command makes on the edited design itself, before it touches table state. */

@@ -20,6 +20,7 @@ import {
 } from './domain';
 import { nearestPlacedPoint, placedGrids, placedPointPosition, snapOf, type PlacedGrid } from './grids';
 import { filterTags } from './tags';
+import { popupSettingsSchema, type Popup } from './popups';
 
 type Apply = (project: Project, command: Command, actor?: string) => Project;
 type LogLine = Omit<ScriptLogEntry, 'seq'>;
@@ -92,13 +93,16 @@ export const SCRIPT_API = [
   { name: 'game.play', args: '(pieces, x, y)', doc: 'Puts held pieces on the table at x, y.' },
   { name: 'game.spawn', args: '(component, options?)', doc: 'Adds a piece and returns its id. options: { x, y, row, rotation, scale, faceUp, locked, count } (count returns a list of ids).' },
   { name: 'game.delete', args: '(pieces)', doc: 'Removes pieces.' },
-  { name: 'game.ping', args: '(pieces)', doc: 'Highlights pieces for every player, like pressing P (not an undo step).' },
+  { name: 'game.ping', args: '(pieces, players?)', doc: 'Highlights pieces for every player (or only these seats), like pressing P (not an undo step).' },
   { name: 'game.hideFrom', args: '(pieces, players)', doc: 'Hides table pieces (with their stacks) from these seats; an empty list {} shows them to everyone. piece.hiddenFrom lists the seat ids.' },
   { name: 'game.toFront', args: '(pieces)', doc: 'Raises pieces above the others.' },
   { name: 'game.toBack', args: '(pieces)', doc: 'Lowers pieces below the others (boards stay underneath).' },
   { name: 'game.endTurn', args: '()', doc: 'Passes the turn to the next seat.' },
   { name: 'game.setTurn', args: '(player)', doc: 'Gives the turn to a seat.' },
-  { name: 'game.announce', args: '(text)', doc: 'Shows a message to everyone at the table.' },
+  { name: 'game.announce', args: '(text, players?)', doc: 'Shows a message to everyone at the table, or only to these seats (a seat or a list of seats; an empty list reaches no one). The console lists it either way.' },
+  { name: 'game.popup', args: '(popup, options?)', doc: 'Shows a popup component on screen and returns its id. options: { players, row, data = { field = "value" }, layout ("layout" or "fixed"), anchor ("center", "top", "top-left", ...), margin, fit ("none", "shrink" or "fill"), x, y, scale, blur, draggable, closable, dismiss ("each" or "all"), duration, closeOnAction }; settings left out come from the popup’s Behavior tab. players limits it to these seats; data fills its {{fields}}. Clicking one of its layers runs its script action with (popup, player, layer name).' },
+  { name: 'game.closePopup', args: '(popup?, players?)', doc: 'Closes a popup (by id, or every open popup of a popup component), or all popups when nil: for everyone, or only for these seats.' },
+  { name: 'game.popups', args: '()', doc: 'The open popups: { id, component, row, data, players (nil: everyone), closedBy, player (who opened it) }.' },
   { name: 'game.log', args: '(...)', doc: 'Writes to the script console, like print.' },
   { name: 'game.random', args: '(m?, n?)', doc: 'A random number, like math.random. Both draw from the action’s seed, so every device agrees.' },
   { name: 'game.beginNoUndo', args: '()', doc: 'Changes until game.endNoUndo() stay when players undo this action. Every begin needs its end before the function returns.' },
@@ -153,7 +157,7 @@ type Event = { handler: HandlerName; args: unknown[] };
 export function runCommand(source: Project, command: Command, actor: string | undefined, apply: Apply): Project {
   switch (command.type) {
     case 'call':
-      return run(source, source, actor, apply, command.seed, { kind: 'call', name: command.name, piece: command.piece, args: command.args });
+      return run(source, source, actor, apply, command.seed, { kind: 'call', name: command.name, piece: command.piece, popup: command.popup, args: command.args });
     case 'tick':
       if (!scriptsMention(source.scripts, 'update')) return source;
       return run(source, source, undefined, apply, command.seed, { kind: 'hooks', events: [{ handler: 'update', args: [command.dt] }], keep: true });
@@ -258,7 +262,7 @@ function detectEvents(before: Project, after: Project, command: Command, actor?:
 }
 
 type Request =
-  | { kind: 'call'; name: string; piece?: string; args: MemoryValue[] }
+  | { kind: 'call'; name: string; piece?: string; popup?: string; args: MemoryValue[] }
   /** Calls handlers that exist, in order. `keep` keeps every change out of undo (updates, loading). */
   | { kind: 'hooks'; events: Event[]; keep?: boolean };
 
@@ -289,7 +293,9 @@ function run(live: Project, base: Project, actor: string | undefined, apply: App
       if (!pushGlobal(L, request.name)) throw new ScriptError(`There is no function called ${request.name}.`);
       const piece = request.piece ? state.live.instances.find(item => item.id === request.piece) : undefined;
       if (request.piece && !piece) throw new ScriptError('That piece is no longer on the table.');
-      pushValue(L, piece && pieceInfo(state.live, piece));
+      const popup = request.popup ? state.live.popups?.find(item => item.id === request.popup) : undefined;
+      if (request.popup && !popup) throw new ScriptError('That popup is no longer open.');
+      pushValue(L, popup ? popupInfo(state.live, popup) : piece && pieceInfo(state.live, piece));
       pushValue(L, actor ? playerInfo(state.live, actor) : undefined);
       request.args.forEach(arg => pushValue(L, arg));
       protectedCall(L, 2 + request.args.length);
@@ -476,6 +482,13 @@ function gridInfo({ key, grid, host, bounds }: PlacedGrid): PieceInfo {
     orientation: shape === 'hex' ? orientation ?? 'pointy' : undefined, rotation, radius: shape === 'points' ? radius ?? 50 : undefined, tags: filterTags(grid.filter),
     ...(host && bounds ? { piece: host, bounds: { ...bounds } } : {}) };
 }
+/** An open popup as scripts see it. */
+function popupInfo(project: Project, popup: Popup): PieceInfo {
+  return {
+    id: popup.id, component: project.components.find(c => c.id === popup.componentId)?.name, row: popup.row + 1, data: { ...popup.data ?? {} },
+    players: popup.to && [...popup.to], closedBy: [...popup.closed ?? []], player: popup.player,
+  };
+}
 function playerInfo(project: Project, id: string): PieceInfo | undefined {
   const index = project.players.findIndex(player => player.id === id);
   if (index < 0) return undefined;
@@ -536,7 +549,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     }
   };
 
-  const say = (level: LogLine['level'], text: string) => lines.push({ level, text, ...(actor ? { player: actor } : {}) });
+  const say = (level: LogLine['level'], text: string, to?: string[]) => lines.push({ level, text, ...(actor ? { player: actor } : {}), ...(to ? { to } : {}) });
   const act = (command: Command, as?: string) => {
     state.live = apply(state.live, command, as);
     state.changed = true;
@@ -584,6 +597,8 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     if (!found) throw new ScriptError(`There is no seat ${typeof value === 'object' ? text(value, name) : String(value)}.`);
     return found;
   };
+  /** Seats from a seat or a list of them (ids, names, seat numbers or player tables); undefined (everyone) when absent. */
+  const seats = (value: MemoryValue | undefined, name = 'players') => value === undefined ? undefined : [...new Set(asList(value).map(entry => player(entry, name).id))];
   const component = (value: MemoryValue | undefined) => {
     const key = text(value, 'component');
     const found = state.live.components.find(c => c.id === key) ?? state.live.components.find(c => c.name === key);
@@ -850,7 +865,11 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       byHolder(pieces(arg(L, 1, 'pieces')), (ids, holder) => act({ type: 'delete', ids }, holder));
       return 0;
     },
-    ping: L => { const items = pieces(arg(L, 1, 'pieces')); if (items.length) act({ type: 'ping', ids: items.map(i => i.id) }, actor); return 0; },
+    ping: L => {
+      const items = pieces(arg(L, 1, 'pieces')), to = seats(arg(L, 2, 'players'));
+      if (items.length && to?.length !== 0) act({ type: 'ping', ids: items.map(i => i.id), ...to ? { players: to } : {} }, actor);
+      return 0;
+    },
     hideFrom: L => {
       const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder), list = arg(L, 2, 'players') ?? [];
       const seats = asList(list).map(value => player(value).id);
@@ -865,7 +884,43 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       act({ type: 'settings', patch: { turn: state.live.players.indexOf(seat) } });
       return 0;
     },
-    announce: L => { say('announce', String(arg(L, 1, 'text') ?? '')); state.changed = true; return 0; },
+    announce: L => { say('announce', String(arg(L, 1, 'text') ?? ''), seats(arg(L, 2, 'players'))); state.changed = true; return 0; },
+    popup: L => {
+      const comp = component(arg(L, 1, 'popup'));
+      if (comp.kind !== 'popup') throw new ScriptError(`${comp.name} is not a popup component (its type is ${comp.kind}).`);
+      const options = (arg(L, 2, 'options') ?? {}) as Record<string, MemoryValue>;
+      if (typeof options !== 'object' || Array.isArray(options)) throw new ScriptError('game.popup options should be a table.');
+      const to = seats(options.players);
+      // An empty list of players shows it to no one.
+      if (to && !to.length) { pushValue(L, undefined); return 1; }
+      const row = number(options.row, 'row', 1) - 1;
+      if (!Number.isInteger(row) || row < 0 || row >= Math.max(1, comp.rows.length)) throw new ScriptError(`${comp.name} has no data row ${row + 1}.`);
+      const fields = options.data ?? {};
+      if (typeof fields !== 'object' || Array.isArray(fields)) throw new ScriptError('game.popup data should be a table of field values.');
+      const data = Object.fromEntries(Object.entries(fields).map(([key, value]) => [key, typeof value === 'object' ? JSON.stringify(value) : String(value)]));
+      const picked = Object.fromEntries(Object.keys(popupSettingsSchema.shape).filter(key => options[key] !== undefined).map(key => [key, options[key]]));
+      const parsed = popupSettingsSchema.safeParse(picked);
+      if (!parsed.success) throw new ScriptError(`game.popup ${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`);
+      let id = newId('popup');
+      while (state.live.popups?.some(popup => popup.id === id)) id = newId('popup');
+      act({ type: 'openPopup', popup: { id, componentId: comp.id, row, ...Object.keys(data).length ? { data } : {}, ...to ? { to } : {},
+        ...Object.keys(parsed.data).length ? { settings: parsed.data } : {}, ...actor ? { player: actor } : {} } });
+      pushValue(L, id);
+      return 1;
+    },
+    closePopup: L => {
+      const target = arg(L, 1, 'popup'), to = seats(arg(L, 2, 'players')), open = state.live.popups ?? [];
+      // A popup's id, or a popup component (by id or name) for all of its open popups.
+      const ids = target === undefined ? open.map(popup => popup.id) : [...new Set(asList(target).flatMap(entry => {
+        const key = text(entry, 'popup');
+        if (open.some(popup => popup.id === key)) return [key];
+        const comp = state.live.components.find(c => c.id === key) ?? state.live.components.find(c => c.name === key);
+        return comp ? open.filter(popup => popup.componentId === comp.id).map(popup => popup.id) : [];
+      }))];
+      if (ids.length && to?.length !== 0) act({ type: 'closePopup', ids, ...to ? { players: to } : {} });
+      return 0;
+    },
+    popups: L => { pushValue(L, (state.live.popups ?? []).map(popup => popupInfo(state.live, popup))); return 1; },
     log: L => { say('info', joinArguments(L)); return 0; },
     random: L => pushRandom(L, random),
     beginNoUndo: L => {

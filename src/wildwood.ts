@@ -30,7 +30,7 @@ const guidePages = [
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
   { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer: its Stepping stones grid sits above its layers in the Layers panel. Select it to list its stones and see how close a wanderer must come to snap to each.' },
-  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows.\n\nWanderers announce the stone they reach.' },
+  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows. Every fifth amber, the Amber milestone popup shows on the gatherer’s screen only (game.popup with players), filled in with data; its buttons run a script action.\n\nWanderers announce the stone they reach.' },
   { page: '7', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots from Actions → Save/Load, and invite players to play together.' },
 ];
 
@@ -50,8 +50,9 @@ const WANDERERS = [
 export const WILDWOOD_SCRIPT = String.raw`-- Wildwood's table script: a small taste of scripting. Change it and press Save to try it out.
 --
 -- Gather amber (the button) draws an amber token from the amber supply into the hand of whoever pressed it (or the
--- current player) and counts it in memory.gathered, which the Amber tally card shows. A wanderer that comes to rest on
--- a stone of the Wanderer's path announces where it is.
+-- current player) and counts it in memory.gathered, which the Amber tally card shows. Every fifth amber, the Amber
+-- milestone popup shows on the gatherer's screen alone. A wanderer that comes to rest on a stone of the Wanderer's path
+-- announces where it is.
 
 local SUPPLY = "amber-supply"
 
@@ -69,6 +70,20 @@ function gatherAmber(button, player)
   game.draw(SUPPLY, seat, 1, true)
   memory.gathered = (memory.gathered or 0) + 1
   game.announce(seat.name .. " gathers amber.")
+  if memory.gathered % 5 == 0 then
+    -- A popup only the gatherer sees (players), its {{name}} and {{count}} fields filled in by data.
+    game.popup("Amber milestone", { players = seat, data = { name = seat.name, count = memory.gathered } })
+  end
+end
+
+-- The Amber milestone popup's script action: clicking one of its layers runs it with that layer's name.
+function amberMilestone(popup, player, layer)
+  if layer == "Share" then
+    game.announce(player.name .. " has gathered " .. popup.data.count .. " amber!")
+  end
+  if layer == "Share" or layer == "Keep gathering" then
+    game.closePopup(popup.id, player)
+  end
 end
 
 function onSnap(pieces, player)
@@ -265,6 +280,29 @@ function gatherButton(): Component {
   });
 }
 
+/**
+ * A popup (never on the table): game.popup shows it to the gatherer every fifth amber, filling in {{name}} and
+ * {{count}}. It blurs the table behind it and can be dragged; its buttons run the amberMilestone script action.
+ */
+function amberMilestone(artId: string): Component {
+  const button = (name: string, x: number, filled: boolean) => [
+    makeNode('shape', { name, x, y: 122, width: 128, height: 34, fill: filled ? '#365d46' : '#fbf8ef', stroke: '#365d46', strokeWidth: filled ? 0 : 1.5, radius: 8 }),
+    makeNode('text', { name, x, y: 122, width: 128, height: 34, text: name, color: filled ? '#eef6e2' : '#365d46', fontSize: 13, font: 'DM Sans', fontWeight: 600, align: 'center', verticalAlign: 'center' }),
+  ];
+  return component('Amber milestone', 'popup', 320, 176, {
+    action: 'amberMilestone', rows: [{ name: 'A wanderer', count: '5' }],
+    popup: { anchor: 'center', blur: true, draggable: true },
+    front: [
+      makeNode('shape', { name: 'Card', x: 0, y: 0, width: 320, height: 176, fill: '#f3eedf', stroke: '#c9bf9f', strokeWidth: 1, radius: 14 }),
+      makeNode('shape', { name: 'Sun disc', shapeKind: 'ellipse', x: 22, y: 24, width: 56, height: 56, fill: '#d39b3a' }),
+      ...artLayer(artId, { x: 27, y: 29, width: 46, height: 46 }, 'sun'),
+      makeNode('text', { name: 'Label', x: 94, y: 26, width: 204, height: 14, text: 'AMBER MILESTONE', fontSize: 8, letterSpacing: 1.4, color: '#7d806c', align: 'start' }),
+      makeNode('text', { name: 'Message', x: 94, y: 42, width: 204, height: 60, text: '{{name}} has gathered {{count}} amber.', fontSize: 18, font: 'Lora', color: '#24413a', align: 'start', autoFontSize: true, minFontSize: 11 }),
+      ...button('Keep gathering', 22, false), ...button('Share', 170, true),
+    ],
+  });
+}
+
 function amberTally(artId: string): Component {
   return component('Amber tally', 'card', 150, 92, {
     color: '#f3eedf', previewWhenLocked: true,
@@ -288,7 +326,7 @@ export const WILDWOOD = { name: 'Wildwood', description: 'A little magic. A lot 
 export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.description, profile = { name: 'Player 1', color: '#b7cc91' }): Project {
   const art = botanicalArt();
   const card = spiritCards(art.id), token = amberToken(art.id), board = forestClearing(art.id), die = spiritDie();
-  const walker = wanderer(), path = wanderersPath(), guide = wanderersGuide(), button = gatherButton(), tally = amberTally(art.id);
+  const walker = wanderer(), path = wanderersPath(), guide = wanderersGuide(), button = gatherButton(), tally = amberTally(art.id), milestone = amberMilestone(art.id);
   const deck = Array.from({ length: 12 }, (_, n) => ({
     ...makeInstance(card.id, n % 6, 600, 400), stack: 'starter-deck', order: n, flipped: true, scale: 0.72,
   }));
@@ -324,10 +362,10 @@ export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.des
     // The table grid keeps the default colour: faint, at 10% alpha.
     { id: 'table-grid', name: 'Table grid', shape: 'square', visible: true, snap: false, size: 25, offsetX: 0, offsetY: 0 },
   ];
-  const tableTag = (item: Component) => item.kind === 'artwork' || item.gridTags ? item : { ...item, gridTags: ['table'] };
+  const tableTag = (item: Component) => item.kind === 'artwork' || item.kind === 'popup' || item.gridTags ? item : { ...item, gridTags: ['table'] };
   return {
     id: uid('project'), name, description,
-    components: [card, token, board, die, art, walker, path, guide, button, tally].map(tableTag),
+    components: [card, token, board, die, art, walker, path, guide, button, tally, milestone].map(tableTag),
     instances,
     players: [
       { id: 'player-1', owner: 'local', name: profile.name, color: profile.color, x: 980, y: 1000, rotation: 0 },

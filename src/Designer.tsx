@@ -9,6 +9,7 @@ import { boundsReach, componentGridTags, DEFAULT_POINT_RADIUS, type ComponentGri
 import { ComponentGrids, gridColor, opaqueColor } from './GridLayers';
 import { GRID_SHAPES, GridEditor, gridShapeIcon, newGrid, type GridActions } from './GridEditor';
 import { PointsPanel } from './GridPoints';
+import { PopupSettingsEditor } from './PopupSettingsEditor';
 import { ComponentGridCanvas } from './ComponentGridCanvas';
 import { normalizeTags } from './tags';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
@@ -1298,9 +1299,11 @@ export function Designer({ component: incoming, components, functions = [], onCh
         {tab === 'behavior' ? <>
           <div className="inspector-section"><h3>Component behavior</h3>
             <Field label="Component type"><select value={component.kind} onChange={event => update({ kind: event.target.value as Component['kind'] })}>
-              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="book">Book</option><option value="artwork">Artwork</option><option value="button">Button</option>
+              <option value="card">Card</option><option value="token">Token</option><option value="board">Board</option><option value="dice">Dice</option><option value="book">Book</option><option value="artwork">Artwork</option><option value="button">Button</option><option value="popup">Popup</option>
             </select></Field>
             <p className="help-text">Changing type preserves artwork, dimensions, data and behavior settings.</p>
+            {/* Popups never go on the table, so the table-piece settings don't apply to them. */}
+            {component.kind !== 'popup' && <>
             <Toggle label="Flippable" description="Pieces can be turned over on the table (the back is printed either way)" checked={component.flippable} onChange={flippable => update({ flippable })} />
             <Toggle label="Can be put in hand" checked={component.hand} onChange={hand => update({ hand })} />
             <Toggle label="Hide front in hand" description="Only the holder sees the front" checked={component.hideInHand} onChange={hideInHand => update({ hideInHand })} disabled={!component.hand} />
@@ -1313,17 +1316,21 @@ export function Designer({ component: incoming, components, functions = [], onCh
             <Toggle label="Preview when locked" description="Show the hover preview even while a piece is locked" checked={!!component.previewWhenLocked} onChange={previewWhenLocked => update({ previewWhenLocked })} />
             <NumberField deferred label="Rotation step (°)" hint="How far Q/E and the rotate buttons turn its pieces, for example 90, 60, 45, 30 or 15 degrees." value={component.rotationStep ?? 90} min={1} max={180}
               onChange={rotationStep => update({ rotationStep })} />
-            <SearchSelect label={component.kind === 'button' ? 'When pressed, run' : 'Script action'} value={component.action ?? ''} placeholder="No function"
+            </>}
+            <SearchSelect label={component.kind === 'button' ? 'When pressed, run' : component.kind === 'popup' ? 'When a layer is clicked, run' : 'Script action'} value={component.action ?? ''} placeholder="No function"
               options={[{ value: '', label: 'No function' }, ...[...new Set([...functions, ...component.action ? [component.action] : []])].map(name => ({ value: name, label: name, detail: functions.includes(name) ? undefined : 'not in the scripts' }))]}
               onChange={action => update({ action: action || undefined })}
-              hint={<InfoTip text={component.kind === 'button' ? 'Pressing its pieces on the table calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'
+              hint={<InfoTip text={component.kind === 'popup' ? 'Clicking one of its layers calls this function of the project’s scripts with (popup, player, layer name, layer path), for everyone. Write functions in the Scripts window.' : component.kind === 'button' ? 'Pressing its pieces on the table calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'
                 : 'Selected pieces get a Run button that calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'} />} />
+            {component.kind !== 'popup' && <>
             <Toggle label="Can snap to grids" description="Its pieces snap to the table's grids when dropped" checked={component.snapToGrid !== false} onChange={snapToGrid => update({ snapToGrid: snapToGrid ? undefined : false })} />
             {component.snapToGrid !== false && <TagListField label="Grid tags" tags={componentGridTags(component)}
               suggestions={normalizeTags(components.flatMap(componentGridTags)).sort((a, b) => a.localeCompare(b))}
               hint="Each grid's filter decides by these tags whether its pieces snap to it (edit grids with the Grids tool on the table). Without grid tags, its pieces snap to every grid."
               onChange={gridTags => update({ gridTags: gridTags.length ? gridTags : undefined })} />}
+            </>}
           </div>
+          {component.kind === 'popup' && <PopupSettingsEditor component={component} onChange={popup => update({ popup })} />}
           {hasPages(component) && <div className="inspector-section"><h3>{component.kind === 'book' ? 'Book pages' : 'Dice variants'}</h3>
             <p className="help-text">{component.kind === 'book'
               ? <>Each CSV row is one page, in order. On the table, Shift+Q and Shift+E turn the pages; pages can't be taken out of the book. Edit fields here, or use Data bindings to add columns.</>

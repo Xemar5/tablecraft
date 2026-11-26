@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, ArrowRight, EyeOff, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
-import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import { Armchair, MessageSquare, ArrowRight, EyeOff, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, isPlaceable, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
+import type { LocalPopup } from './PopupLayer';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
 import { blankProject, starterProject, templateBundle, type TemplateKind } from './templates';
 import { gameProject, type GameProjectId } from './gameProjects';
@@ -42,7 +43,8 @@ type LibraryView = 'large' | 'small' | 'list';
 const LIBRARY_VIEW_KEY = 'tablecraft.libraryView';
 const kindIcon = (kind: Component['kind'], size: number) => kind === 'card' ? <Layers size={size} /> : kind === 'token' ? <Circle size={size} /> : kind === 'artwork' ? <Palette size={size} />
   : kind === 'book' ? <BookOpen size={size} /> : kind === 'texture' ? <ImageIcon size={size} /> : kind === 'font' ? <Type size={size} />
-  : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : kind === 'button' ? <MousePointerClick size={size} /> : <Square size={size} />;
+  : kind === 'board' ? <LayoutGrid size={size} /> : kind === 'dice' ? <Dices size={size} /> : kind === 'button' ? <MousePointerClick size={size} />
+  : kind === 'popup' ? <MessageSquare size={size} /> : <Square size={size} />;
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 type Boot = {
   archive: Archive; error: string | null; draftNotice?: string; draftStored: boolean;
@@ -133,8 +135,8 @@ const contextLabel = (open: OpenProject, history: History | undefined) => {
   return session ? `Session · ${session.name}` : history?.status === 'finished' ? 'Draft snapshot' : 'Draft';
 };
 
-// Dice faces and book pages are rows of one piece, not separately spawnable variants.
-const hasVariants = (component: Component) => !hasPages(component) && component.rows.length > 1;
+// Dice faces and book pages are rows of one piece, not separately spawnable variants; a popup's rows are data for game.popup.
+const hasVariants = (component: Component) => !hasPages(component) && component.kind !== 'popup' && component.rows.length > 1;
 
 export default function App() {
   const [initial] = useState(boot);
@@ -205,6 +207,8 @@ export default function App() {
       element.removeEventListener('scroll', measure);
     };
   }, []);
+  // A popup component previewed over the table on this screen only (clicking it in the library while playing).
+  const [popupPreview, setPopupPreview] = useState<LocalPopup>();
   const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link' | 'seat' | 'print'>();
   // The script editor and memory windows float over the workspace and stay open while you play.
   const [scriptWindow, setScriptWindow] = useState(false);
@@ -458,10 +462,11 @@ export default function App() {
     const fresh = log.filter(line => line.seq > seen.seq);
     // Errors from your own actions (or, offline, the first of a repeating update error); announcements for everyone.
     const error = fresh.filter(line => line.level === 'error' && (line.player ? line.player === actor : !session && !line.count)).at(-1);
-    const announcement = fresh.filter(line => line.level === 'announce').at(-1);
+    // An announcement for some seats only shows to them.
+    const announcement = fresh.filter(line => line.level === 'announce' && (!line.to || (!!actor && !viewer && line.to.includes(actor)))).at(-1);
     if (error) notify(`Script error: ${error.text}`, true);
     else if (announcement) notify(announcement.text);
-  }, [project.scriptLog, project.id, actor, session, notify]);
+  }, [project.scriptLog, project.id, actor, session, viewer, notify]);
   const hasUpdate = useMemo(() => scriptsMention(project.scripts, 'update'), [project.scripts]);
   const updateInterval = project.settings.updateInterval ?? 1;
   const sendRef = useRef(send);
@@ -1002,9 +1007,11 @@ export default function App() {
           className={`library-item ${selectedComponent?.id === comp.id ? 'active' : ''}${libraryDrag === comp.id ? ' library-dragging' : ''}${libraryDrop?.id === comp.id ? ` library-drop-${libraryDrop.position}` : ''}${openVariants.includes(comp.id) ? ' library-item-open' : ''}`}
           {...reorderTarget(comp.id, false, (id, position) => dispatch({ type: 'reorderComponent', id, targetId: comp.id, position }))}>
           <div className="library-preview-wrap">
-          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'designer' || !isAsset(comp)}
+          <button className={`library-preview library-preview-${comp.kind}`} draggable={mode === 'designer' || isPlaceable(comp)}
             onDragStart={e => startLibraryDrag(e.dataTransfer, project.id, comp.id, hasVariants(comp) ? comp.rows.map((_, i) => i) : [0], hasVariants(comp))}
-            onClick={() => mode === 'designer' || isAsset(comp) ? edit(comp.id) : spawn(comp)} aria-label={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`} title={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : `Spawn ${comp.name}`}>
+            onClick={() => mode === 'designer' || isAsset(comp) ? edit(comp.id) : comp.kind === 'popup' ? setPopupPreview({ id: `preview-${comp.id}`, componentId: comp.id, row: 0, local: true }) : spawn(comp)}
+            aria-label={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : comp.kind === 'popup' ? `Preview ${comp.name}` : `Spawn ${comp.name}`}
+            title={mode === 'designer' || isAsset(comp) ? `Design ${comp.name}` : comp.kind === 'popup' ? `Preview ${comp.name} on your screen (scripts show it with game.popup)` : `Spawn ${comp.name}`}>
             <div className="preview-texture" />
             {libraryView === 'large' && hasVariants(comp) && <><div className="preview-ghost ghost-left"><ComponentThumbnail component={comp} components={project.components} row={1} width={66} /></div>{comp.rows.length > 2 && <div className="preview-ghost ghost-right"><ComponentThumbnail component={comp} components={project.components} row={2} width={66} /></div>}</>}
             <div className="preview-main">{libraryView === 'large'
@@ -1013,8 +1020,9 @@ export default function App() {
               : <ComponentThumbnail component={comp} components={project.components} {...(comp.width >= comp.height ? { width: libraryView === 'small' ? 40 : 30 } : { height: libraryView === 'small' ? 34 : 28 })} />}</div>
             <span className="preview-kind">{kindIcon(comp.kind, 10)}{comp.kind}</span>
             {hasVariants(comp) && <span className="preview-variants" aria-label={`${comp.rows.length} variants`}><Layers size={10} />{comp.rows.length}</span>}
-            {mode === 'playground' && !isAsset(comp) && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
-            {mode === 'playground' && !isAsset(comp) && <span className="preview-add"><Plus size={17} /></span>}
+            {mode === 'playground' && isPlaceable(comp) && <span className="preview-hint" aria-hidden="true"><Move size={10} /> {hasVariants(comp) ? 'Drag all onto table' : 'Drag onto table'}</span>}
+            {mode === 'playground' && isPlaceable(comp) && <span className="preview-add"><Plus size={17} /></span>}
+            {mode === 'playground' && comp.kind === 'popup' && <span className="preview-hint" aria-hidden="true"><Eye size={10} /> Click to preview</span>}
           </button>
           {mode === 'playground' && hasVariants(comp) && libraryView !== 'small' && <button className="preview-add preview-spawn-all" aria-label={`Spawn all ${comp.name} variants`}
             title={`Spawn all ${comp.rows.length} variants${comp.stackable ? ' as a stack' : ''}`} onClick={() => spawn(comp, comp.rows.map((_, i) => i), undefined, true)}><CopyPlus size={15} /></button>}
@@ -1060,7 +1068,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} onEndTurn={endTurn} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} showHidden={showHidden} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} onEndTurn={endTurn} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} showHidden={showHidden} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} popupPreview={popupPreview} onClosePopupPreview={() => setPopupPreview(undefined)} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components} notify={notify}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :
@@ -1134,7 +1142,7 @@ export default function App() {
         ['card', 'Cards', 'Characters, spells, a little intrigue.'], ['token', 'Tokens', 'Small pieces. Big possibilities.'],
         ['board', 'Boards', 'Build a world to play in.'], ['dice', 'Dice', 'Leave a little to chance.'],
         ['book', 'Books', 'Rules, journals and lore. Turn pages with Shift+Q/E.'], ['artwork', 'Artwork', 'Reusable vector art for nested components.'],
-        ['button', 'Buttons', 'Press to run a script for everyone at the table.'],
+        ['button', 'Buttons', 'Press to run a script for everyone at the table.'], ['popup', 'Popups', 'Messages and choices scripts show on players’ screens.'],
       ] as const).map(([kind, title, description]) => <button key={kind} className={`template-card template-${kind}`} onClick={() => addTemplate(kind)}><div className="template-art">{kindIcon(kind, 48)}</div><strong>{title}<ArrowRight size={15} /></strong><small>{description}</small></button>)}
         <button className="template-card template-texture" onClick={() => textureInput.current?.click()}><div className="template-art"><ImageIcon size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Textures<ArrowRight size={15} /></strong><small>Import PNG, JPEG, WebP or GIF images. Embedded in your ZIP save.</small></button>
         <button className="template-card template-font" onClick={() => fontInput.current?.click()}><div className="template-art"><Type size={48} /><Upload size={18} className="template-import-badge" /></div><strong>Fonts<ArrowRight size={15} /></strong><small>Import TTF, OTF, WOFF or WOFF2 fonts. Embedded in your ZIP save.</small></button>

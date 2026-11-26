@@ -16,6 +16,7 @@ import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids'
 import { ComponentGrids, gridArea, gridColor, GridLayers, GridPointHandles, opaqueColor } from './GridLayers';
 import { GridEditor } from './GridEditor';
 import { PointsPanel } from './GridPoints';
+import { PopupLayer, type LocalPopup } from './PopupLayer';
 import { pointGroupAncestors } from './grids';
 import { cssPx } from './uiScale';
 import { scriptsMention } from './scripting';
@@ -46,6 +47,8 @@ type Props = {
   stackDragTakesTop?: boolean;
   /** Show pieces hidden from your seat (faded and labelled), and label every hidden piece. */
   showHidden?: boolean;
+  /** A popup component previewed on this screen only (from the library), and closing it. */
+  popupPreview?: LocalPopup; onClosePopupPreview?: () => void;
   /** A transient table message (such as why undo history was cleared), shown as a dismissible toast. */
   notice?: string; onDismissNotice?: () => void;
 };
@@ -61,7 +64,7 @@ const noticeTitle = (message: string) => message.startsWith(CLEARED) ? 'Undo his
 const noticeDetail = (message: string) => message.startsWith(CLEARED) ? message.charAt(CLEARED.length).toUpperCase() + message.slice(CLEARED.length + 1) : message;
 const SEAT_COMMANDS = new Set<Command['type']>(['player', 'removePlayer', 'reorderPlayers', 'handSettings']);
 
-export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, onEndTurn, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, showHidden = false, notice, onDismissNotice }: Props) {
+export function Playground({ project: source, actor, owner, host = false, viewer = false, onWatch, onNewSeat, selected, setSelected, inspectorVisible, layersVisible = true, defaultSeat, handVisible, onShowInspector, dispatch: dispatchCommand, onSpawn, onEdit, onSwitch, onEndTurn, notify, panel, setPanel, panels, libraryVisible, stackDragTakesTop = true, showHidden = false, notice, onDismissNotice, popupPreview, onClosePopupPreview }: Props) {
   // Play works from the project with group locks applied, so pieces in a locked group behave as locked everywhere;
   // a piece's own lock (the Lock button and L) still toggles its own flag.
   // Pieces hidden from your seat are left out of the table (visual privacy only), unless Visibility shows them.
@@ -165,7 +168,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     for (const item of p.instances) {
       const pings = item.pings ?? 0, previous = seen.get(item.id);
       seen.set(item.id, pings);
-      if (!first && previous !== undefined && pings > previous) fresh.set(item.pingedBy ?? '', [...fresh.get(item.pingedBy ?? '') ?? [], item.id]);
+      // A ping for some seats only shows to them.
+      const forYou = !item.pingedFor || (!viewer && item.pingedFor.includes(actor));
+      if (!first && previous !== undefined && pings > previous && forYou) fresh.set(item.pingedBy ?? '', [...fresh.get(item.pingedBy ?? '') ?? [], item.id]);
     }
     if (!fresh.size) return;
     const added = [...fresh].map(([by, ids]) => {
@@ -1293,7 +1298,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               zIndex={comp.kind === 'board' ? 0 : table.order.get(item.id)! + 2} selected={isSelected} dragging={!!preview[item.id]} miniDropSource={!!preview[item.id] && !!handTarget}
               dropTarget={dropHint?.id === item.id && !altDown} rollingRow={rolling[item.id]} shuffling={!!item.stack && shuffling.has(item.stack)} hovered={isHovered}
               persistent={!!item.stack && persistentIds.has(item.stack)} pressed={pressed === item.id}
-              pingColor={item.pingedBy ? p.players.find(player => player.id === item.pingedBy)?.color : undefined}
+              pingColor={item.pingedBy ? p.players.find(player => player.id === item.pingedBy)?.color : undefined} pingHidden={!!item.pingedFor && (viewer || !item.pingedFor.includes(actor))}
               hiddenLabel={showHidden && item.hiddenFrom?.length ? hiddenText(item.hiddenFrom) : undefined} hiddenFromYou={!!actor && !!item.hiddenFrom?.includes(actor)}
               {...(count > 1 || comp.kind === 'book' || isSelected || (!!item.stack && persistentIds.has(item.stack)) || (showHidden && item.hiddenFrom?.length) ? { labelAngle: item.rotation + camera, compactLabel: Math.min(comp.width, comp.height) * zoom * item.scale < 56 } : {})} pieceZoom={isSelected || isHovered || dropHint?.id === item.id ? zoom * item.scale : undefined}
               badgeIndex={badge} badgeTotal={plan?.units.length ?? 0} badgeError={plan?.error} events={pieceEvents} />;
@@ -1317,6 +1322,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
             <StackSlotIcon blocked /><span><strong>Pieces can't be stacked</strong><small>{plan.error}</small></span>
           </div>}
         </div>}
+        {/* Popups scripts show (game.popup) sit over the table, which is their game area. */}
+        <PopupLayer project={p} actor={actor} viewer={viewer} dispatch={dispatch} local={popupPreview} onCloseLocal={onClosePopupPreview} />
         {p.settings.turns && turnPlayer && <div className="turn-pill" role="status" aria-label="Turn" onPointerDown={e => e.stopPropagation()}>
           <span className="turn-pill-avatar" style={{ background: turnPlayer.color }}>{turnPlayer.name.slice(0, 1).toUpperCase()}</span>
           <span className="turn-pill-name"><span className="turn-pill-label"><strong>{turnPlayer.name}</strong>'s turn</span>{turnPlayer.id === actor && <YouTag />}</span>
@@ -1733,6 +1740,8 @@ type TablePieceProps = {
   selected: boolean; hovered: boolean; dragging: boolean; miniDropSource: boolean; dropTarget: boolean; rollingRow?: number; shuffling?: boolean; pressed?: boolean;
   /** The colour of the seat that pinged the piece last (it pulses when pinged). */
   pingColor?: string;
+  /** The latest ping was for other seats: it doesn't pulse here. */
+  pingHidden?: boolean;
   /** Who the piece is hidden from, when hidden pieces are shown; `hiddenFromYou` fades it. */
   hiddenLabel?: string; hiddenFromYou?: boolean;
   /** In a persistent stack, which keeps its label (with a pin) even with one piece. */
@@ -1747,7 +1756,7 @@ type TablePieceProps = {
   compactLabel?: boolean;
   badgeIndex: number; badgeTotal: number; badgeError?: string; events: React.RefObject<PieceEvents>;
 };
-const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, persistent, pressed, pingColor, hiddenLabel, hiddenFromYou, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
+const TablePiece = memo(function TablePiece({ item, component: comp, components, x, y, zIndex, count, selected, hovered, dragging, miniDropSource, dropTarget, rollingRow, shuffling, persistent, pressed, pingColor, pingHidden, hiddenLabel, hiddenFromYou, pieceZoom, labelAngle, compactLabel, badgeIndex, badgeTotal, badgeError, events }: TablePieceProps) {
   const slot = badgeIndex >= 0 ? stackSlot(badgeIndex, badgeTotal) : undefined;
   // A book is one piece whose pages are its rows; it looks like a stack but nothing can be taken from it.
   const pages = comp.kind === 'book' ? Math.max(1, comp.rows.length) : 0;
@@ -1785,7 +1794,7 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
   const [pinged, setPinged] = useState(0);
   useEffect(() => {
     const count = item.pings ?? 0;
-    if (count > pings.current) setPinged(n => n + 1);
+    if (count > pings.current && !pingHidden) setPinged(n => n + 1);
     pings.current = count;
   }, [item.pings]);
   useEffect(() => {
