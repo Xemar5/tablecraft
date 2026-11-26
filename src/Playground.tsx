@@ -306,6 +306,22 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     /** A button piece being pressed: releasing without moving calls its script function. */
     press?: string }>(null);
   const [pressed, setPressed] = useState<string>();
+  // A piece deleted while it's held (dragged on the table, out of a hand or a table hand) ends that drag, whoever deleted
+  // it. Otherwise undoing the delete would bring it back still under the pointer, to be dropped wherever it's let go,
+  // instead of where it was last placed.
+  useEffect(() => {
+    const gone = (id: string) => !p.instances.some(item => item.id === id);
+    const g = gesture.current;
+    if (g && [...Object.keys(g.positions), ...g.extract ? [g.extract] : [], ...g.press ? [g.press] : []].some(gone)) {
+      gesture.current = null; setPreview({}); setDropHint(undefined); setPressed(undefined);
+    }
+    if (handGesture.current && gone(handGesture.current.id)) {
+      handGesture.current = null; setHandDrag(undefined); setInsertion(undefined); setDropHint(undefined); setHandDrop(undefined);
+    }
+    if (tableHandGesture.current && gone(tableHandGesture.current.id)) {
+      tableHandGesture.current = null; setHandDrag(undefined); setDropHint(undefined); setHandDrop(undefined);
+    }
+  }, [p.instances]);
   const piece = p.instances.find(i => i.id === selected.at(-1));
   const c = p.components.find(c => c.id === piece?.componentId);
   const currentPlayer = p.players.find(player => player.id === actor);
