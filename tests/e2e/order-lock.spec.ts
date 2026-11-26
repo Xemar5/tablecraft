@@ -41,6 +41,7 @@ test('order locks keep pieces and groups in their places in the hierarchy, separ
   await page.keyboard.press('g');
   const groupRow = panel.getByRole('button', { name: /^Group .*, 2 pieces/ });
   await expect(groupRow).toHaveCount(1);
+  await groupRow.hover();
   await panel.getByRole('button', { name: /^Lock order of group / }).click();
   await expect(groupRow).toHaveAttribute('aria-label', /, order locked$/);
   await expect.poll(async () => (await saved(page)).groups[0]).toMatchObject({ orderLocked: true });

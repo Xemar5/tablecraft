@@ -21,6 +21,17 @@ test('a group locks separately from its pieces, and selecting locked pieces neve
   const ids = (await saved(page)).instances.filter((i: { group?: string }) => i.group).map((i: { id: string }) => i.id) as string[];
   expect(ids).toHaveLength(2);
 
+  // The group's locks show only on hover or focus, and take no room while hidden.
+  await page.mouse.move(5, 5);
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  const locks = panel.locator('.piece-group .group-lock');
+  await expect(locks).toHaveCount(2);
+  for (const lock of await locks.all()) await expect(lock).toBeHidden();
+  const name = panel.locator('.piece-group .layer-row'), wide = (await name.boundingBox())!.width;
+  await groupRow.hover();
+  for (const lock of await locks.all()) await expect(lock).toBeVisible();
+  expect(wide - (await name.boundingBox())!.width).toBeGreaterThanOrEqual(48);
+
   await panel.getByRole('button', { name: /^Lock group / }).click();
   await expect(groupRow).toHaveAttribute('aria-label', /, locked$/);
   await expect.poll(async () => (await saved(page)).groups[0].locked).toBe(true);
