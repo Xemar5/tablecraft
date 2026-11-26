@@ -67,12 +67,16 @@ test('a pivot is placed by X/Y, the layer grows and turns around it, and it move
 test('auto font size shrinks text to fit its box, and a box that hugs its text is grayed out', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
-  await page.getByRole('button', { name: 'Card name', exact: true }).click();
+  await page.getByRole('button', { name: 'Type', exact: true }).click();
   await page.getByLabel('Text / binding').fill('A wandering spirit of the trees');
-  const fitted = page.locator('.artboard .fit-text');
-  await expect(fitted).toHaveCount(0);
+  await field(page, 'Font size').fill('20');
+  await field(page, 'Font size').blur();
+  let fitted = page.locator('.artboard .fit-text');
+  // The card's name and rules already fit their boxes.
+  await expect(fitted).toHaveCount(2);
   await page.getByRole('checkbox', { name: /^Auto font size/ }).check();
-  await expect(fitted).toHaveCount(1);
+  await expect(fitted).toHaveCount(3);
+  fitted = page.locator('.artboard .design-node[style*="box-shadow"] .fit-text');
   const max = Number(await field(page, 'Max font size').inputValue()), min = Number(await field(page, 'Min font size').inputValue());
   const size = async () => parseFloat(await fitted.evaluate(element => (element as HTMLElement).style.fontSize));
   await expect.poll(size).toBeLessThan(max);
@@ -97,5 +101,6 @@ test('auto font size shrinks text to fit its box, and a box that hugs its text i
   // Turned off, the text is its font size again.
   await page.getByRole('checkbox', { name: /^Auto font size/ }).uncheck();
   await expect(fitted).toHaveCount(0);
+  await expect(page.locator('.artboard .fit-text')).toHaveCount(2);
   await expect(field(page, 'Font size')).toHaveValue(String(max));
 });

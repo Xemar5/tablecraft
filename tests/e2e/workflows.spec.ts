@@ -479,7 +479,7 @@ test('dragging layers and pieces uses actual coordinates and respects grid snapp
   await page.mouse.move(box.x + box.width / 2 + 29, box.y + box.height / 2 + 14.5, { steps: 8 });
   await page.mouse.up();
   let state = await workspace(page);
-  expect(state.projects[0].components[0].front.find(n => n.name === 'Card name')).toMatchObject({ x: 38, y: 203 });
+  expect(state.projects[0].components[0].front.find(n => n.name === 'Card name')).toMatchObject({ x: 38, y: 201 });
   await page.getByRole('button', { name: 'Playground', exact: true }).click();
   await page.getByRole('button', { name: 'Table', exact: true }).click();
   // Turn the table's grid's snapping on and make its cells 50px with the grid tool.

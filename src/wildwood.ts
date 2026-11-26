@@ -19,7 +19,7 @@ const cardRows = [
   { id: 'fern', name: 'Forest guardian', type: 'WOODLAND SPIRIT', cost: '3', power: '4', description: 'When played, draw a card.\nThe forest remembers its own.', art: 'fern' },
   { id: 'moon', name: 'Moonlit passage', type: 'ANCIENT MAGIC', cost: '2', power: '2', description: 'Move a spirit to any clearing.\nFollow the light between the trees.', art: 'moon' },
   { id: 'sun', name: 'Golden harvest', type: 'SEASONAL RITUAL', cost: '1', power: '3', description: 'Gain two amber tokens.\nA little sunlight goes a long way.', art: 'sun' },
-  { id: 'oak', name: 'The elder oak', type: 'WOODLAND SPIRIT', cost: '5', power: '7', description: 'Protect all adjacent spirits.\nDeep roots. Quiet strength.', art: 'fern' },
+  { id: 'oak', name: 'The elder oak of the deep wood', type: 'WOODLAND SPIRIT', cost: '5', power: '10', description: 'Protect all adjacent spirits.\nDeep roots. Quiet strength.', art: 'fern' },
   { id: 'seed', name: 'A new beginning', type: 'SEASONAL RITUAL', cost: '1', power: '1', description: 'Return a spirit to your hand.\nEvery story starts with a seed.', art: 'sun' },
   { id: 'night', name: 'Night wanderer', type: 'WOODLAND SPIRIT', cost: '4', power: '5', description: 'Look at the top three cards.\nNot all who wander are lost.', art: 'moon' },
 ];
@@ -28,9 +28,10 @@ const guidePages = [
   { page: '1', title: 'Welcome to Wildwood', text: 'A small sample of what Tablecraft can do. Every piece here is an ordinary component: click a name in the library to open it in the designer.\n\nTurn pages with Shift+Q and Shift+E.' },
   { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it.' },
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
-  { page: '4', title: 'Grids', text: 'The table has a faint square grid. The stepping stones of the Wanderer’s path are a points grid that only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nTurn on the Grids tool (under the select and pan tools) to edit both.' },
-  { page: '5', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows.\n\nWanderers announce the stone they reach.' },
-  { page: '6', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots from Actions → Save/Load, and invite players to play together.' },
+  { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
+  { page: '5', title: 'Grids', text: 'The table has a faint square grid. The stepping stones of the Wanderer’s path are a points grid that only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nTurn on the Grids tool (under the select and pan tools) to edit both.' },
+  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows.\n\nWanderers announce the stone they reach.' },
+  { page: '7', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots from Actions → Save/Load, and invite players to play together.' },
 ];
 
 /** Path stones of the Wanderer's path board, from the start (bottom) to the heart of the wood (top), in board pixels. */
@@ -167,10 +168,10 @@ export function spiritCards(artId?: string): Component {
       ...artLayer(artId, { x: 22, y: 22, width: 176, height: 152 }),
       makeNode('shape', { name: 'Cost badge', x: 24, y: 24, width: 30, height: 30, fill: '#e9dcb6', radius: 30 }),
       makeNode('text', { name: 'Cost', x: 24, y: 26, width: 30, height: 26, text: '{{cost}}', fontSize: 17, align: 'center' }),
-      makeNode('text', { name: 'Card name', x: 18, y: 193, width: 186, height: 27, text: '{{name}}', fontSize: 20, font: 'Lora' }),
+      makeNode('text', { name: 'Card name', x: 18, y: 191, width: 186, height: 31, text: '{{name}}', fontSize: 20, font: 'Lora', autoFontSize: true, minFontSize: 11 }),
       makeNode('text', { name: 'Type', x: 18, y: 224, width: 184, height: 18, text: '{{type}}', fontSize: 8, color: '#7d806c' }),
-      makeNode('text', { name: 'Rules text', x: 18, y: 247, width: 164, height: 44, text: '{{description}}', fontSize: 10, color: '#666e60' }),
-      makeNode('text', { name: 'Power', x: 183, y: 268, width: 23, height: 26, text: '{{power}}', fontSize: 21, font: 'Lora', align: 'center' }),
+      makeNode('text', { name: 'Rules text', x: 18, y: 247, width: 164, height: 44, text: '{{description}}', fontSize: 10, color: '#666e60', autoFontSize: true, minFontSize: 7 }),
+      makeNode('text', { name: 'Power', x: 206, y: 294, width: 23, height: 26, pivotX: 1, pivotY: 1, widthMode: 'hug', heightMode: 'hug', text: '{{power}}', fontSize: 21, font: 'Lora', align: 'end' }),
     ],
     back: [
       makeNode('shape', { name: 'Back field', x: 0, y: 0, width: 220, height: 308, fill: FOREST, radius: 12 }),
@@ -236,7 +237,8 @@ function wanderersPath(): Component {
 
 /**
  * A page is a vertical stack: the chapter line and the title hug their text (a title can take one line or two), the
- * body fills the rest, and all three span the page's width.
+ * body fills the rest and shrinks its font to fit it, and all three span the page's width. The page number hugs its
+ * digits around a bottom-middle pivot, so it stays centred.
  */
 function wanderersGuide(): Component {
   const page = makeNode('frame', { name: 'Page', x: 22, y: 22, width: 196, height: 256, fill: 'transparent', layout: 'column', gap: 8, padding: 0, align: 'start' });
@@ -248,8 +250,8 @@ function wanderersGuide(): Component {
       page,
       stacked('Chapter', { text: 'THE WANDERER’S GUIDE', fontSize: 8, letterSpacing: 1.5, color: '#9a9172' }),
       stacked('Title', { text: '{{title}}', fontSize: 18, lineHeight: 1.15, font: 'Lora', color: '#24413a', marginBottom: 4 }),
-      stacked('Body', { text: '{{text}}', heightMode: 'fill', fontSize: 10, lineHeight: 1.45, color: '#4e5b4f', align: 'start' }),
-      makeNode('text', { name: 'Page number', x: 90, y: 284, width: 60, height: 18, text: '{{page}}', fontSize: 9, color: '#9a9172', align: 'center' }),
+      stacked('Body', { text: '{{text}}', heightMode: 'fill', fontSize: 10, minFontSize: 7, autoFontSize: true, lineHeight: 1.45, color: '#4e5b4f', align: 'start' }),
+      makeNode('text', { name: 'Page number', x: 120, y: 302, width: 60, height: 18, pivotX: .5, pivotY: 1, widthMode: 'hug', heightMode: 'hug', text: '{{page}}', fontSize: 9, color: '#9a9172', align: 'center' }),
     ],
   });
 }

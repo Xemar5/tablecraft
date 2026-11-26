@@ -3,7 +3,8 @@ import { expect, test } from '@playwright/test';
 test('X/Y, sizes and margins enable by sizing and parent layout, like auto layout in design tools', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
-  await page.getByRole('button', { name: 'Card name', exact: true }).click();
+  // A plain text layer (the card name shrinks its font to fit, so it can't hug).
+  await page.getByRole('button', { name: 'Type', exact: true }).click();
   const field = (name: string) => page.getByRole('spinbutton', { name, exact: true });
   const sizing = (axis: 'Width' | 'Height', name: string) => page.getByRole('radiogroup', { name: `${axis} sizing`, exact: true }).getByRole('radio', { name, exact: true });
   const [x, y, width, height] = ['X', 'Y', 'Width', 'Height'].map(field);

@@ -44,7 +44,7 @@ test('variant selection, ranges, and drag spawn an atomic set without reordering
   await expect(card.getByRole('button', { name: 'Hide Spirit cards variants (6)', exact: true })).toHaveAttribute('aria-expanded', 'true');
   const variants = card.getByRole('group', { name: 'Spirit cards variants' }).getByRole('button');
   await expect(card.locator('.library-item-name small')).toHaveText(/^\d+ × \d+ px$/);
-  await expect(variants.first().locator('span')).toHaveText(/^1\. \S/);
+  await expect(variants.first().locator(':scope > span')).toHaveText(/^1\. \S/);
   const rowBounds = (await variants.first().boundingBox())!;
   const thumbBounds = (await variants.first().locator('.component-thumbnail').boundingBox())!;
   expect(thumbBounds.x - rowBounds.x).toBeLessThan(8);

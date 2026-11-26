@@ -20,6 +20,20 @@ describe('Wildwood sample', () => {
     expect(gridColor(project.grids![table], table)).toMatch(/^#[0-9a-f]{6}1a$/i);
   });
 
+  it('shows auto font size and pivots: fitted names, rules and pages, and numbers that grow around their pivots', () => {
+    const project = validateProject(wildwoodProject());
+    const layer = (component: string, name: string) => project.components.find(item => item.name === component)!.front.find(node => node.name === name)!;
+    for (const [component, name] of [['Spirit cards', 'Card name'], ['Spirit cards', 'Rules text'], ['Wanderer’s guide', 'Body']]) {
+      expect(layer(component, name)).toMatchObject({ autoFontSize: true });
+    }
+    // One card's name is too long for its box at full size, and one power has two digits.
+    const cards = project.components.find(item => item.name === 'Spirit cards')!;
+    expect(cards.rows.some(row => row.name.length > 25)).toBe(true);
+    expect(cards.rows.some(row => row.power.length > 1)).toBe(true);
+    expect(layer('Spirit cards', 'Power')).toMatchObject({ pivotX: 1, pivotY: 1, widthMode: 'hug', heightMode: 'hug' });
+    expect(layer('Wanderer’s guide', 'Page number')).toMatchObject({ pivotX: .5, pivotY: 1, widthMode: 'hug' });
+  });
+
   it('gathers amber from the persistent supply into the presser’s hand and counts it in memory', () => {
     const before = wildwoodProject();
     const supply = () => before.instances.filter(item => item.stack === 'amber-supply');
