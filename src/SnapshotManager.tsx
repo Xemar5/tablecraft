@@ -56,16 +56,15 @@ function SnapshotRow({ snapshot, history, open, session, latest, onLoad, onRenam
 
 /**
  * A project's draft snapshots and sessions: its status (draft or finished, with its base), renaming, deleting and
- * loading them, and (for the loaded project) saving a new snapshot to the drafts or the session being played.
+ * loading them, and starting a new game. Saving a snapshot is SaveDialog's.
  */
-export function HistoryManager({ project, history, open, readOnly, onSave, onLoad, onContinue, onStartGame, onRename, onDeleteSnapshot, onDeleteSession, onStatus, onExport }: {
+export function HistoryManager({ project: _project, history, open, readOnly, onLoad, onContinue, onStartGame, onRename, onDeleteSnapshot, onDeleteSession, onStatus, onExport }: {
   project: Project; history: History; open?: OpenProject; readOnly?: string;
-  onSave?: (name: string) => void; onLoad: (snapshotId: string) => void; onContinue: (sessionId: string) => void; onStartGame: (name: string) => void;
+  onLoad: (snapshotId: string) => void; onContinue: (sessionId: string) => void; onStartGame: (name: string) => void;
   onRename: (id: string, name: string) => void; onDeleteSnapshot: (id: string) => void; onDeleteSession: (id: string) => void;
   onStatus: (status: History['status'], baseId?: string) => void; onExport: () => void;
 }) {
   const session = open?.session ? history.sessions.find(item => item.id === open.session) : undefined;
-  const [name, setName] = useState(() => snapshotName(project));
   const [expanded, setExpanded] = useState<string[]>(() => session ? [session.id] : []);
   const base = baseSnapshot(history);
   const finished = history.status === 'finished';
@@ -82,11 +81,6 @@ export function HistoryManager({ project, history, open, readOnly, onSave, onLoa
         ? <>New games start from the base <strong>{base?.name}</strong>. Loading the project asks whether to start a new game or continue a session.</>
         : <>Each new draft snapshot is the latest version, and loading the project loads it. Mark the project finished to play sessions from a base snapshot.</>}</p>
     </div>
-    {onSave && <form className="history-save" onSubmit={event => { event.preventDefault(); onSave(name); setName(snapshotName(project)); }}>
-      <Field label="Snapshot name"><input value={name} maxLength={100} onChange={event => setName(event.target.value)} /></Field>
-      <button className="button primary" type="submit"><Save size={15} /> Save snapshot</button>
-    </form>}
-    {onSave && <p className="help-text history-save-target">{session ? <>Saves to the session <strong>{session.name}</strong>.</> : 'Saves a draft snapshot, the latest version of the project.'}</p>}
     <section className="history-section" aria-label="Draft snapshots">
       <h3><HistoryIcon size={15} /> Draft snapshots <span className="history-count">{history.snapshots.length}</span></h3>
       {!drafts.length && <p className="help-text">No draft snapshots yet.</p>}
@@ -153,6 +147,24 @@ export function GameChooser({ project, history, onStart, onContinue, onClose }: 
         })}</ul>
       </section>
     </div>
+  </Modal>;
+}
+
+/** Saves a snapshot of the loaded project: to its drafts, or to the session being played. */
+export function SaveDialog({ project, history, open, onSave, onClose }: {
+  project: Project; history: History; open?: OpenProject; onSave: (name: string) => void; onClose: () => void;
+}) {
+  const session = open?.session ? history.sessions.find(item => item.id === open.session) : undefined;
+  const [name, setName] = useState(() => snapshotName(project));
+  return <Modal title="Save" subtitle="A snapshot keeps the whole playground: designs, table, hands, seats, scripts and memory." onClose={onClose}>
+    <form className="unsaved-dialog" onSubmit={event => { event.preventDefault(); onSave(name); }}>
+      <Field label="Snapshot name"><input autoFocus value={name} maxLength={100} onChange={event => setName(event.target.value)} /></Field>
+      <p className="help-text history-save-target">{session ? <>Saves to the session <strong>{session.name}</strong>.</> : 'Saves a draft snapshot, the latest version of the project. Load lists the snapshots.'}</p>
+      <div className="modal-actions">
+        <button type="button" className="button" onClick={onClose}>Cancel</button>
+        <button type="submit" className="button primary"><Save size={15} /> Save snapshot</button>
+      </div>
+    </form>
   </Modal>;
 }
 

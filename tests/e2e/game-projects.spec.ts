@@ -37,7 +37,7 @@ test('New project can start from a ready-to-play game, which fills in its name a
   await page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ }).first().click();
   await page.keyboard.press('Delete');
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Chess pieces/ })).toHaveCount(31);
-  await chooseHeader(page, 'Save/Load');
+  await chooseHeader(page, 'Load');
   const saved = page.locator('.history-snapshot').filter({ hasText: 'Friday chess - initial state' });
   await expect(saved).toContainText('33 pieces');
   // Loading it puts the table back in place, after asking about the capture that wasn't saved.

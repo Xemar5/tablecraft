@@ -1,21 +1,35 @@
 import { expect, type Page } from '@playwright/test';
 
-/** Header menu items and the menu they're in. */
-const MENU: Record<string, 'Actions' | 'Visibility' | 'Scripting'> = {
-  Undo: 'Actions', Redo: 'Actions', 'Save/Load': 'Actions', 'Print to PDF': 'Actions', 'Close project': 'Actions',
+/** The submenu of the header's Actions menu each panel and scripting item is in (other items are in the menu itself). */
+const SUBMENU: Record<string, 'Visibility' | 'Scripting'> = {
   'Component library': 'Visibility', 'Pieces panel': 'Visibility', 'Layers panel': 'Visibility', 'Hand panel': 'Visibility',
   'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', 'Hidden pieces': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
 };
 
-export const headerMenu = (page: Page, item: string) => page.getByRole('button', { name: MENU[item], exact: true });
+/** The header's menu button (every item is in its Actions menu, some in a submenu). */
+export const headerMenu = (page: Page, _item?: string) => page.getByRole('button', { name: 'Actions', exact: true });
 export const headerItem = (page: Page, item: string) => page.getByRole('menuitemcheckbox', { name: item, exact: true });
 
-async function withMenu<T>(page: Page, item: string, act: () => Promise<T>) {
-  const trigger = headerMenu(page, item);
+/** Opens the Actions menu, and the submenu the item is in. */
+export async function openHeaderMenu(page: Page, item: string) {
+  const trigger = headerMenu(page);
   if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
-  const result = await act();
-  await headerItem(page, item).press('Escape');
+  const submenu = SUBMENU[item];
+  if (submenu) await page.getByRole('menuitem', { name: submenu, exact: true }).click();
+}
+
+/** Closes the menu with Escape (a submenu first), as a keyboard user would. */
+export async function closeHeaderMenu(page: Page) {
+  const trigger = headerMenu(page);
+  for (let n = 0; n < 3 && await trigger.getAttribute('aria-expanded') === 'true'; n++) await page.keyboard.press('Escape');
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+}
+
+async function withMenu<T>(page: Page, item: string, act: () => Promise<T>) {
+  await openHeaderMenu(page, item);
+  const result = await act();
+  await headerItem(page, item).focus();
+  await closeHeaderMenu(page);
   return result;
 }
 
@@ -24,19 +38,18 @@ export const toggleHeader = (page: Page, item: string) => withMenu(page, item, (
 
 /** Opens the item's header menu and chooses an action item (which closes the menu). */
 export async function chooseHeader(page: Page, item: string) {
-  await headerMenu(page, item).click();
+  await openHeaderMenu(page, item);
   await page.getByRole('menuitem', { name: item, exact: true }).click();
 }
 
 /** Checks whether a header action (such as Undo) can be chosen now, opening and closing its menu. */
 export async function expectHeaderEnabled(page: Page, item: string, enabled: boolean) {
-  const trigger = headerMenu(page, item);
-  if (await trigger.getAttribute('aria-expanded') !== 'true') await trigger.click();
+  await openHeaderMenu(page, item);
   const entry = page.getByRole('menuitem', { name: item, exact: true });
   if (enabled) await expect(entry).not.toHaveAttribute('aria-disabled', 'true');
   else await expect(entry).toHaveAttribute('aria-disabled', 'true');
-  await entry.press('Escape');
-  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await entry.focus();
+  await closeHeaderMenu(page);
 }
 
 /** Checks whether a header menu item is on, opening and closing its menu. */

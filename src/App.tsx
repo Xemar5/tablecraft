@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, MessageSquare, ArrowRight, EyeOff, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { Armchair, FolderOpen, MessageSquare, ArrowRight, EyeOff, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, isPlaceable, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import type { LocalPopup } from './PopupLayer';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
@@ -9,7 +9,7 @@ import { download, loadWorkspace, remapComponentBundle, saveWorkspace } from './
 import { addSnapshot, assignLegacySnapshots, baseSnapshot, deleteSession, deleteSnapshot, DRAFT_LIMIT, emptyHistory, findSession, findSnapshot, hasUnsavedChanges, LEGACY_SNAPSHOTS_KEY, latestSnapshot,
   loadHistories, loadOpenProject, makeSnapshot, readHistory, remapHistory, removeHistory, renameItem, restingSnapshot, restoreSnapshot, saveHistory, saveOpenProject, selectHistory, setStatus, startSession,
   type History, type OpenProject, type Snapshot } from './projectHistory';
-import { ExportDialog, GameChooser, HistoryManager, UnsavedDialog } from './SnapshotManager';
+import { ExportDialog, GameChooser, HistoryManager, UnsavedDialog, SaveDialog } from './SnapshotManager';
 import { addDraftEdit, clearDesignDraft, loadDesignDraft, recoverDesignDraft, saveDesignDraft, withDraft, type DesignDraft } from './designDraft';
 import { createPortableZip, downloadZip, projectZip, readPortableZip } from './portable';
 import { FONT_ACCEPT, importAsset, TEXTURE_ACCEPT } from './assets';
@@ -209,7 +209,7 @@ export default function App() {
   }, []);
   // A popup component previewed over the table on this screen only (clicking it in the library while playing).
   const [popupPreview, setPopupPreview] = useState<LocalPopup>();
-  const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'link' | 'seat' | 'print'>();
+  const [modal, setModal] = useState<'templates' | 'settings' | 'session' | 'help' | 'save' | 'load' | 'link' | 'seat' | 'print'>();
   // The script editor and memory windows float over the workspace and stay open while you play.
   const [scriptWindow, setScriptWindow] = useState(false);
   const [memoryWindow, setMemoryWindow] = useState(false);
@@ -834,7 +834,7 @@ export default function App() {
     if (!current) return;
     leaveProject(`close ${head?.name ?? 'it'}`, () => { unloadProject(); setHome(true); setModal(undefined); notify(`Closed ${head?.name ?? 'the project'}.`); });
   };
-  /** Props shared by the snapshot manager on Home and in Save/Load. */
+  /** Props shared by the snapshot manager on Home and in the Load dialog. */
   const historyProps = (id: string) => ({
     history: histories[id] ?? emptyHistory(), open: open?.projectId === id ? open : undefined,
     onLoad: (snapshotId: string) => loadSnapshot(id, snapshotId), onContinue: (sessionId: string) => continueSession(id, sessionId),
@@ -932,26 +932,30 @@ export default function App() {
       {!home && <>
       <div className="project-heading compact-project"><h1>{project.name}</h1>{open && <span className="history-badge loaded project-context" title="Saving a snapshot adds it here">{contextLabel(open, histories[open.projectId])}</span>}</div>
 
-      <div className="header-actions"><HeaderMenu label="Actions" title="Undo, redo, save and print" icon={<Menu size={17} />} items={[
+      {/* One menu: saving, loading and printing first, then undo, then the panels and scripting windows as submenus. */}
+      <div className="header-actions"><HeaderMenu label="Actions" title="Save, load, print, undo, panels and scripting" icon={<Menu size={17} />} items={[
+        { label: 'Save', icon: <Save size={16} />, onToggle: () => setModal('save'), hint: 'Save a snapshot of this table' },
+        { label: 'Load', icon: <FolderOpen size={16} />, onToggle: () => setModal('load'), hint: 'Load a snapshot or session, mark the project finished, or export it' },
+        { label: 'Print to PDF', icon: <Printer size={16} />, onToggle: () => setModal('print'), hint: 'Print every piece, or save them as a PDF', divider: true },
         ...mode === 'playground' ? [
           { label: 'Undo', icon: <Undo2 size={16} />, onToggle: undo, shortcut: 'Ctrl Z', disabled: !undoCount || !!modal || !!curtain || viewer,
             hint: undoNotice || `Undo the latest playground action for everyone · ${undoCount} available` },
           { label: 'Redo', icon: <Redo2 size={16} />, onToggle: redo, shortcut: 'Ctrl Y', disabled: !redoCount || !!modal || !!curtain || viewer, divider: true,
             hint: `Redo the latest undone action for everyone · ${redoCount} available` },
         ] : [],
-        { label: 'Save/Load', icon: <Save size={16} />, onToggle: () => setModal('save'), hint: 'Save a snapshot of this table, or load one' },
-        { label: 'Print to PDF', icon: <Printer size={16} />, onToggle: () => setModal('print'), hint: 'Print every piece, or save them as a PDF', divider: true },
+        { label: 'Visibility', icon: <Eye size={16} />, hint: 'Show or hide panels', items: [
+          { label: 'Component library', icon: <LibraryBig size={16} />, checked: libraryVisible, onToggle: () => setLibraryVisible(!libraryVisible) },
+          { label: mode === 'playground' ? 'Pieces panel' : 'Layers panel', icon: <PanelLeft size={16} />, checked: layersVisible, onToggle: () => setLayersVisible(!layersVisible) },
+          ...mode === 'playground' ? [{ label: 'Hand panel', icon: <PanelBottom size={16} />, checked: handVisible, onToggle: () => setHandVisible(!handVisible) },
+            { label: 'Table inspector', icon: <PanelRight size={16} />, checked: inspectorVisible, onToggle: () => setInspectorVisible(!inspectorVisible) },
+            { label: 'Hidden pieces', icon: <EyeOff size={16} />, checked: showHidden, onToggle: () => setShowHidden(!showHidden), hint: 'Show pieces hidden from your seat, and label every hidden piece' }]
+            : [{ label: 'Designer inspector', icon: <PanelRight size={16} />, checked: designerInspectorVisible, onToggle: () => setDesignerInspectorVisible(!designerInspectorVisible) }],
+        ] },
+        { label: 'Scripting', icon: <FileCode2 size={16} />, hint: 'Scripts and memory', divider: true, items: [
+          { label: 'Scripts', icon: <FileCode2 size={16} />, checked: scriptWindow, onToggle: () => setScriptWindow(!scriptWindow), hint: 'Lua that buttons and events run for everyone' },
+          { label: 'Memory', icon: <Database size={16} />, checked: memoryWindow, onToggle: () => setMemoryWindow(!memoryWindow), hint: 'Values shared by scripts and players' },
+        ] },
         { label: 'Close project', icon: <FolderX size={16} />, onToggle: closeProject, hint: 'Close it and go Home (asks to save unsaved changes first)' },
-      ]} /><HeaderMenu label="Visibility" title="Show or hide panels" icon={<Eye size={17} />} items={[
-        { label: 'Component library', icon: <LibraryBig size={16} />, checked: libraryVisible, onToggle: () => setLibraryVisible(!libraryVisible) },
-        { label: mode === 'playground' ? 'Pieces panel' : 'Layers panel', icon: <PanelLeft size={16} />, checked: layersVisible, onToggle: () => setLayersVisible(!layersVisible) },
-        ...mode === 'playground' ? [{ label: 'Hand panel', icon: <PanelBottom size={16} />, checked: handVisible, onToggle: () => setHandVisible(!handVisible) },
-          { label: 'Table inspector', icon: <PanelRight size={16} />, checked: inspectorVisible, onToggle: () => setInspectorVisible(!inspectorVisible) },
-          { label: 'Hidden pieces', icon: <EyeOff size={16} />, checked: showHidden, onToggle: () => setShowHidden(!showHidden), hint: 'Show pieces hidden from your seat, and label every hidden piece' }]
-          : [{ label: 'Designer inspector', icon: <PanelRight size={16} />, checked: designerInspectorVisible, onToggle: () => setDesignerInspectorVisible(!designerInspectorVisible) }],
-      ]} /><HeaderMenu label="Scripting" title="Scripts and memory" icon={<FileCode2 size={17} />} items={[
-        { label: 'Scripts', icon: <FileCode2 size={16} />, checked: scriptWindow, onToggle: () => setScriptWindow(!scriptWindow), hint: 'Lua that buttons and events run for everyone' },
-        { label: 'Memory', icon: <Database size={16} />, checked: memoryWindow, onToggle: () => setMemoryWindow(!memoryWindow), hint: 'Values shared by scripts and players' },
       ]} /><button className="button primary compact-invite" onClick={() => setModal('session')}><Users size={15} />{session ? session.code : 'Invite players'}</button><button className="help-button icon-button" title="How to use Tablecraft" aria-label="Help" onClick={() => setModal('help')}><HelpCircle size={19} /></button><span className="header-separator" /><button className="connection-badge" onClick={() => setModal('session')}><span className={`live-dot ${session ? '' : 'offline'}`} />{session ? viewer ? 'Live · watching' : 'Live session' : 'Local workspace'}</button>      {settingsButton}</div>
       </>}
             {home && <div className="header-actions">{settingsButton}</div>}
@@ -1216,8 +1220,10 @@ export default function App() {
       </>}</div>
     </Modal>}
     {modal === 'print' && <PrintDialog project={project} onClose={() => setModal(undefined)} />}
-    {modal === 'save' && open && <Modal title="Save & load" subtitle="Snapshots keep the whole playground: designs, table, hands, seats, scripts and memory." wide onClose={() => setModal(undefined)}>
-      <HistoryManager project={project} {...historyProps(open.projectId)} onSave={saveSnapshot} readOnly={session ? 'Leave the live table to load snapshots.' : undefined} />
+    {modal === 'save' && open && <SaveDialog project={project} history={histories[open.projectId] ?? emptyHistory()} open={open} onClose={() => setModal(undefined)}
+      onSave={name => { if (saveSnapshot(name)) setModal(undefined); }} />}
+    {modal === 'load' && open && <Modal title="Load" subtitle="Snapshots keep the whole playground: designs, table, hands, seats, scripts and memory." wide onClose={() => setModal(undefined)}>
+      <HistoryManager project={project} {...historyProps(open.projectId)} readOnly={session ? 'Leave the live table to load snapshots.' : undefined} />
     </Modal>}
     {historyFor && (() => {
       const item = archive.projects.find(p => p.id === historyFor);

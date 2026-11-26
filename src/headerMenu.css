@@ -19,3 +19,11 @@
 .header-menu-list [role^="menuitem"].disabled:hover { background: transparent; }
 .header-menu-check kbd { font: 10px/1 'DM Sans', sans-serif; color: #8a9a7c; background: #f1f4ec; border-radius: 4px; padding: 3px 5px; }
 .header-menu-divider { margin: 4px 6px; border: 0; border-top: 1px solid var(--line); }
+/* A submenu (an item with `items`) opens beside its item: to the right, or to the left when there's no room. */
+.header-submenu { position: relative; }
+.header-menu .header-submenu > .header-menu-list.header-submenu-list { top: -6px; left: 100%; right: auto; margin-left: 4px; }
+.header-menu .header-submenu > .header-menu-list.header-submenu-list.opens-left { left: auto; right: 100%; margin: 0 4px 0 0; }
+/* The pointer crosses the gap to the submenu without leaving its item. */
+.header-submenu > .header-submenu-list::before { content: ''; position: absolute; top: 0; bottom: 0; left: -6px; width: 6px; }
+.header-submenu > .header-submenu-list.opens-left::before { left: auto; right: -6px; }
+.header-menu-list [role="menuitem"][aria-expanded="true"] { background: #f1f5ea; }

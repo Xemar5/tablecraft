@@ -1,13 +1,12 @@
 import { expect, test } from '@playwright/test';
-import { headerItem } from './headerMenus';
+import { headerItem, openHeaderMenu } from './headerMenus';
 
 test('opening and closing panels keeps the table centred on every frame', async ({ page }) => {
   await page.goto('/');
   await expect(page.locator('.table-viewport [aria-label="Forest clearing"]')).toBeVisible();
   for (const toggle of ['Component library', 'Component library', 'Table inspector', 'Table inspector']) {
     // The item is clicked in the open Visibility menu, which doesn't move anything by itself.
-    const menu = page.getByRole('button', { name: 'Visibility', exact: true });
-    if (await menu.getAttribute('aria-expanded') !== 'true') await menu.click();
+    if (!await headerItem(page, toggle).isVisible()) await openHeaderMenu(page, toggle);
     // Record, on every frame, how far the board's centre is from the view's centre.
     await page.evaluate(() => {
       const w = window as unknown as { offsets: number[]; sampling: boolean };

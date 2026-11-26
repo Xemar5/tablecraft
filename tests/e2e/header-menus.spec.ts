@@ -1,10 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { chooseHeader, expectHeaderChecked, expectHeaderEnabled, headerItem, toggleHeader } from './headerMenus';
 
-test('the header groups panel and scripting toggles into Visibility and Scripting menus', async ({ page }) => {
+test('the header has one menu, with the panel and scripting toggles in its Visibility and Scripting submenus', async ({ page }) => {
   await page.goto('/');
-  const visibility = page.getByRole('button', { name: 'Visibility', exact: true });
-  await visibility.click();
+  // Only the Actions menu is left in the header.
+  await expect(page.locator('.header-menu')).toHaveCount(1);
+  const actions = page.getByRole('button', { name: 'Actions', exact: true });
+  await actions.click();
+  const visibility = page.getByRole('menuitem', { name: 'Visibility', exact: true });
+  await visibility.hover();
+  await expect(visibility).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('menu', { name: 'Visibility' }).getByRole('menuitemcheckbox')).toHaveText(['Component library', 'Pieces panel', 'Hand panel', 'Table inspector', 'Hidden pieces']);
   // Items toggle without closing the menu; a click elsewhere closes it.
   await headerItem(page, 'Hand panel').click();
@@ -12,21 +17,28 @@ test('the header groups panel and scripting toggles into Visibility and Scriptin
   await expect(page.locator('.hand-tray')).toHaveCount(0);
   await headerItem(page, 'Hand panel').click();
   await page.locator('.table-viewport').click({ position: { x: 20, y: 20 } });
-  await expect(visibility).toHaveAttribute('aria-expanded', 'false');
+  await expect(actions).toHaveAttribute('aria-expanded', 'false');
 
-  // Keyboard: arrows open and move through the menu, Space toggles, Escape closes and returns focus.
-  const scripting = page.getByRole('button', { name: 'Scripting', exact: true });
-  await scripting.focus();
-  await page.keyboard.press('ArrowDown');
+  // Keyboard: arrows open and move through the menu, the right arrow opens a submenu, Space toggles, the left arrow
+  // and Escape go back out a level, and Escape closes the menu and returns focus.
+  await actions.focus();
+  await page.keyboard.press('ArrowUp');
+  await expect(page.getByRole('menuitem', { name: 'Close project', exact: true })).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  const scripting = page.getByRole('menuitem', { name: 'Scripting', exact: true });
+  await expect(scripting).toBeFocused();
+  await page.keyboard.press('ArrowRight');
   await expect(headerItem(page, 'Scripts')).toBeFocused();
   await page.keyboard.press('ArrowDown');
   await expect(headerItem(page, 'Memory')).toBeFocused();
   await page.keyboard.press('Space');
   await expect(page.getByRole('region', { name: 'Memory', exact: true })).toBeVisible();
-  await page.keyboard.press('Escape');
-  await expect(scripting).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('ArrowLeft');
   await expect(scripting).toBeFocused();
-  await expect(scripting).toHaveClass(/has-active/);
+  await expect(scripting).toHaveAttribute('aria-expanded', 'false');
+  await page.keyboard.press('Escape');
+  await expect(actions).toHaveAttribute('aria-expanded', 'false');
+  await expect(actions).toBeFocused();
 });
 
 test('the designer inspector can be hidden from the Visibility menu, separately from the table inspector', async ({ page }) => {
@@ -51,10 +63,10 @@ test('the designer inspector can be hidden from the Visibility menu, separately 
   await expect(inspector).toBeVisible();
 });
 
-test('the Actions menu undoes and redoes table actions, also with Ctrl+Z and Ctrl+Y, and saves and prints', async ({ page }) => {
+test('the Actions menu saves, loads and prints first, then undoes and redoes table actions, also with Ctrl+Z and Ctrl+Y', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Actions', exact: true }).click();
-  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['UndoCtrl Z', 'RedoCtrl Y', 'Save/Load', 'Print to PDF', 'Close project']);
+  await expect(page.getByRole('menu', { name: 'Actions' }).getByRole('menuitem')).toHaveText(['Save', 'Load', 'Print to PDF', 'UndoCtrl Z', 'RedoCtrl Y', 'Visibility', 'Scripting', 'Close project']);
   await page.keyboard.press('Escape');
   await expectHeaderEnabled(page, 'Undo', false);
   await expectHeaderEnabled(page, 'Redo', false);
@@ -80,4 +92,13 @@ test('the Actions menu undoes and redoes table actions, also with Ctrl+Z and Ctr
   await expectHeaderEnabled(page, 'Redo', false);
   await chooseHeader(page, 'Print to PDF');
   await expect(page.getByRole('dialog', { name: 'Print to PDF' })).toBeVisible();
+  await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  // Save and Load are dialogs of their own: Save names a snapshot, and Load lists it.
+  await chooseHeader(page, 'Save');
+  const save = page.getByRole('dialog', { name: 'Save' });
+  await save.getByLabel('Snapshot name').fill('Locked token');
+  await save.getByRole('button', { name: 'Save snapshot', exact: true }).click();
+  await expect(save).toHaveCount(0);
+  await chooseHeader(page, 'Load');
+  await expect(page.getByRole('dialog', { name: 'Load' }).getByRole('region', { name: 'Draft snapshots' })).toContainText('Locked token');
 });

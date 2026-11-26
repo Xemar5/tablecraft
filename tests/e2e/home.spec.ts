@@ -156,9 +156,10 @@ test('a finished project starts new games from its base and saves to its session
   await page.goto('/');
   await page.getByRole('button', { name: 'Load project Wildwood', exact: true }).click();
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
-  await chooseHeader(page, 'Save/Load');
+  await chooseHeader(page, 'Save');
   await page.getByLabel('Snapshot name').fill('Version two');
   await page.getByRole('button', { name: 'Save snapshot', exact: true }).click();
+  await chooseHeader(page, 'Load');
   await page.getByRole('group', { name: 'Project status' }).getByRole('button', { name: 'Finished' }).click();
   await expect(page.getByRole('region', { name: 'Draft snapshots' }).locator('.history-snapshot').first()).toContainText('Base');
   await page.getByRole('button', { name: 'Close dialog', exact: true }).click();
@@ -173,10 +174,11 @@ test('a finished project starts new games from its base and saves to its session
   const tokens = page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true });
   const count = await tokens.count();
   await page.getByRole('button', { name: 'Spawn Amber token', exact: true }).click();
-  await chooseHeader(page, 'Save/Load');
+  await chooseHeader(page, 'Save');
   await expect(page.getByText('Saves to the session Friday.')).toBeVisible();
   await page.getByLabel('Snapshot name').fill('Turn one');
   await page.getByRole('button', { name: 'Save snapshot', exact: true }).click();
+  await chooseHeader(page, 'Load');
   const sessions = page.getByRole('region', { name: 'Sessions' });
   await expect(sessions).toContainText('2 snapshots');
   await expect(sessions).toContainText('Turn one');

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { expectHeaderChecked, headerItem, toggleHeader } from './headerMenus';
+import { expectHeaderChecked, headerItem, toggleHeader, openHeaderMenu, closeHeaderMenu } from './headerMenus';
 
 test('dragging a filtered library item preserves hidden components and their relative order', async ({ page }) => {
   await page.goto('/');
@@ -78,9 +78,10 @@ test('pieces and layers panels toggle in both modes with their own icon, separat
   for (const [mode, id, label, heading] of [['Playground', '#playground-pieces-panel', 'Pieces panel', 'Pieces'], ['Component designer', '#designer-layers-panel', 'Layers panel', 'Layers']] as const) {
     await page.getByRole('button', { name: mode, exact: true }).click();
     // The panels have their own icons in the Visibility menu.
-    await page.getByRole('button', { name: 'Visibility', exact: true }).click();
+    await openHeaderMenu(page, label);
     expect(await headerItem(page, 'Component library').locator('svg').first().getAttribute('class')).not.toEqual(await headerItem(page, label).locator('svg').first().getAttribute('class'));
-    await page.keyboard.press('Escape');
+    await headerItem(page, label).focus();
+    await closeHeaderMenu(page);
     await expect(page.locator(id).locator('.panel-heading')).toContainText(heading);
     const panel = page.locator(id);
     await expect(panel).toBeVisible();

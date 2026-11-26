@@ -352,9 +352,10 @@ test('named saves restore hands and seats; ZIP exports can be imported', async (
   await page.goto('/');
   await page.locator('.table-piece').filter({ has: page.locator('.stack-count') }).dblclick();
   await expect(page.locator('.hand-card')).toHaveCount(1);
-  await chooseHeader(page, 'Save/Load');
+  await chooseHeader(page, 'Save');
   await page.getByLabel('Snapshot name').fill('Evening playtest');
   await page.getByRole('button', { name: 'Save snapshot', exact: true }).click();
+  await chooseHeader(page, 'Load');
   const drafts = page.getByRole('region', { name: 'Draft snapshots' });
   await expect(drafts).toContainText('Evening playtest');
   await page.getByRole('button', { name: 'Export…', exact: true }).click();
@@ -369,11 +370,11 @@ test('named saves restore hands and seats; ZIP exports can be imported', async (
   await page.reload();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   // Loading a snapshot puts the table back in place: first as it was when the project was loaded, then as saved.
-  await chooseHeader(page, 'Save/Load');
+  await chooseHeader(page, 'Load');
   await page.getByRole('button', { name: 'Load snapshot Wildwood - initial state', exact: true }).click();
   await expect(page.locator('.hand-card')).toHaveCount(0);
   await expect(page.locator('.project-heading h1')).toHaveText('Wildwood');
-  await chooseHeader(page, 'Save/Load');
+  await chooseHeader(page, 'Load');
   await page.getByRole('button', { name: 'Load snapshot Evening playtest', exact: true }).click();
   await expect(page.locator('.hand-card')).toHaveCount(1);
   const data = await workspace(page);
@@ -442,13 +443,12 @@ test('two real SpaceTimeDB clients share pieces, live designs, hands and returni
   await expect(b.locator('.hand-card')).toHaveCount(1);
   await expect(b.locator('.seat-marker')).toHaveCount(3);
   await expect(b.locator('.hand-tray')).toHaveAttribute('aria-label', "Bob's hand tray");
-  await chooseHeader(a, 'Save/Load');
+  await chooseHeader(a, 'Save');
   await a.getByLabel('Snapshot name').fill('Multiplayer restore');
   await a.getByRole('button', { name: 'Save snapshot', exact: true }).click();
-  await a.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await a.locator('.connection-badge').click();
   await a.getByRole('button', { name: 'Leave session & keep local copy' }).click();
-  await chooseHeader(a, 'Save/Load');
+  await chooseHeader(a, 'Load');
   await a.getByRole('button', { name: 'Load', exact: true }).click();
   await expect(a.locator('.project-heading h1')).toHaveText('Multiplayer restore');
   await a.getByRole('button', { name: 'Invite players', exact: false }).click();
