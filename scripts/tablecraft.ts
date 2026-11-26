@@ -138,7 +138,8 @@ async function main(args: string[]) {
     const schemas = { project: projectSchema, archive: archiveSchema, component: componentSchema, command: commandSchema };
     const what = option(o, 'what') as keyof typeof schemas;
     if (!(what in schemas)) throw new Error('Unknown schema.');
-    result = z.toJSONSchema(schemas[what]);
+    // What a file may contain (as parsed): fields with defaults are optional, and layers' pivot upgrade isn't part of it.
+    result = z.toJSONSchema(schemas[what], { io: 'input' });
   } else if (cmd === 'new') {
     allowed(o, ['out', 'template', 'name', 'force']);
     const kind = option(o, 'template', 'blank');

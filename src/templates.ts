@@ -120,9 +120,9 @@ export function upgradeLegacyArtwork(components: Component[]): Component[] {
       const artwork = botanicalComponent(variants.find(value => ['fern', 'moon', 'sun'].includes(value))!, expression, component.rows, createId);
       dependencies.push(artwork);
       const frame = makeNode('frame', { id: createId('layer'), name: `${node.name} artwork`.slice(0, 100), x: node.x, y: node.y, width: node.width, height: node.height,
-        parent: node.parent, rotation: node.rotation, opacity: node.opacity, fill: 'transparent', layout: 'absolute',
+        parent: node.parent, rotation: node.rotation, pivotX: node.pivotX, pivotY: node.pivotY, opacity: node.opacity, fill: 'transparent', layout: 'absolute',
         widthMode: node.widthMode, heightMode: node.heightMode, padding: 0, text: 'tablecraft:legacy-artwork-upgraded' });
-      const original = { ...node, parent: frame.id, x: 0, y: 0, rotation: 0, opacity: 1, widthMode: 'fixed' as const, heightMode: 'fixed' as const };
+      const original = { ...node, parent: frame.id, x: 0, y: 0, rotation: 0, pivotX: 0, pivotY: 0, opacity: 1, widthMode: 'fixed' as const, heightMode: 'fixed' as const };
       const linked = makeNode('component', { id: createId('layer'), name: artwork.name, parent: frame.id, x: 0, y: 0, width: node.width, height: node.height,
         componentId: artwork.id, fill: 'transparent', dataSource: 'inherit' });
       return [frame, original, linked];

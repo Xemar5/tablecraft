@@ -19,6 +19,7 @@ test('continuous inspector edits create one undo entry when the edit finishes', 
   const alpha = page.getByLabel('Text color alpha', { exact: true });
   const alphaOutput = page.locator('.color-field').filter({ has: alpha }).locator('output');
   await expect(alphaOutput).toHaveText('100%');
+  await alpha.scrollIntoViewIfNeeded();
   const box = (await alpha.boundingBox())!;
   await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -30,6 +31,7 @@ test('continuous inspector edits create one undo entry when the edit finishes', 
 
   const x = page.getByLabel('X', { exact: true });
   const originalX = await x.inputValue();
+  await x.scrollIntoViewIfNeeded();
   const xBox = (await x.boundingBox())!;
   await page.mouse.move(xBox.x + xBox.width / 2, xBox.y + xBox.height / 2);
   await page.mouse.down();

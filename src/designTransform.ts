@@ -1,4 +1,5 @@
 import type { DesignNode } from './domain';
+import { reboxed } from './layerGeometry';
 
 const STEPS = [1, .5, .25, .1, .05, .02, .01];
 /**
@@ -22,13 +23,10 @@ export function resizeNode(start: DesignNode, hx: number, hy: number, dx: number
     if (width / start.width > height / start.height) height = clamp(width * start.height / start.width);
     else width = clamp(height * start.width / start.height);
   }
-  // Keep the opposite edge or corner fixed while the layer rotates about its centre.
-  const shiftX = hx * (width - start.width) / 2, shiftY = hy * (height - start.height) / 2;
-  const rotation = start.rotation * Math.PI / 180;
-  const centerX = start.x + start.width / 2 + shiftX * Math.cos(rotation) - shiftY * Math.sin(rotation);
-  const centerY = start.y + start.height / 2 + shiftX * Math.sin(rotation) + shiftY * Math.cos(rotation);
+  // Keep the opposite edge or corner fixed: dragging a left or top handle moves the box's corner by the size change.
+  const at = reboxed(start, (1 - hx) / 2 * (start.width - width), (1 - hy) / 2 * (start.height - height), width, height);
   const round = (value: number) => Math.round(value * 100) / 100;
-  const patch: Partial<DesignNode> = { x: round(centerX - width / 2), y: round(centerY - height / 2), width, height };
+  const patch: Partial<DesignNode> = { x: round(at.x), y: round(at.y), width, height };
   if (start.type === 'shape' && start.shapeKind === 'path') {
     const sx = width / start.width, sy = height / start.height;
     patch.points = start.points.map(point => ({ x: round(point.x * sx), y: round(point.y * sy),

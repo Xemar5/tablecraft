@@ -54,13 +54,20 @@ describe('designer subtree operations', () => {
     }
   });
 
-  it('rotates children about their centers when ungrouping a rotated frame', () => {
+  it('rotates children about their pivots when ungrouping a rotated frame', () => {
+    // Made turned without pivots, both turn about their centres, so their X/Y are their centres.
     const frame = makeNode('frame', { x: 10, y: 20, width: 200, height: 200, rotation: 90, fill: 'transparent' });
     const child = makeNode('shape', { parent: frame.id, x: 20, y: 30, width: 40, height: 20, rotation: 15 });
     const result = ungroupLayers([frame, child], [frame.id]);
-    expect(result.nodes[0]).toMatchObject({ parent: null, rotation: 105 });
-    expect(result.nodes[0].x).toBeCloseTo(150);
-    expect(result.nodes[0].y).toBeCloseTo(50);
+    expect(result.nodes[0]).toMatchObject({ parent: null, rotation: 105, pivotX: .5, pivotY: .5 });
+    expect(result.nodes[0].x).toBeCloseTo(170);
+    expect(result.nodes[0].y).toBeCloseTo(60);
+    // A frame turning about its top-left corner takes a top-left-pivoted child with it.
+    const corner = makeNode('frame', { x: 100, y: 100, width: 200, height: 200, rotation: 90, pivotX: 0, pivotY: 0, fill: 'transparent' });
+    const inside = makeNode('shape', { parent: corner.id, x: 20, y: 30, width: 40, height: 20 });
+    const out = ungroupLayers([corner, inside], [corner.id]).nodes[0];
+    expect(out).toMatchObject({ rotation: 90, pivotX: 0, pivotY: 0 });
+    expect(out.x).toBeCloseTo(70); expect(out.y).toBeCloseTo(120);
   });
 
   it('rejects unsafe flow and sibling reorder cases and ungroups overflowing children in place', () => {

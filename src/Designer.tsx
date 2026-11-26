@@ -21,6 +21,7 @@ import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { ZoomPresets } from './ZoomPresets';
 import { cssPx, uiScale } from './uiScale';
 import { canHug, ignoredBecause, layerAxisRules, sizingOf, type Axis } from './layoutRules';
+import { fromParent, PIVOT_PRESETS, pivotOf, repivoted, toParent } from './layerGeometry';
 
 type Face = 'front' | 'back';
 type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude';
@@ -39,7 +40,7 @@ function BooleanIcon({ operation }: { operation: BooleanOperation }) {
 }
 type DragPosition = { x: number; y: number };
 type LayerDrag = { ids: string[]; pointer: number; clientX: number; clientY: number; positions: Record<string, DragPosition>; angles: Record<string, number> };
-type HandleDrag = { id: string; kind: 'resize' | 'rotate'; hx: number; hy: number; pointer: number; clientX: number; clientY: number;
+type HandleDrag = { id: string; kind: 'resize' | 'rotate' | 'pivot'; hx: number; hy: number; pointer: number; clientX: number; clientY: number;
   start: DesignNode; angle: number; centerX: number; centerY: number; pointerAngle: number };
 const RESIZE_HANDLES = [[-1, -1, 'top-left corner'], [0, -1, 'top edge'], [1, -1, 'top-right corner'], [1, 0, 'right edge'],
   [1, 1, 'bottom-right corner'], [0, 1, 'bottom edge'], [-1, 1, 'bottom-left corner'], [-1, 0, 'left edge']] as const;
@@ -142,22 +143,21 @@ function descendantsOf(nodes: DesignNode[], ids: string[]) {
   return descendants;
 }
 
-function worldPosition(node: DesignNode, nodes: DesignNode[]): DragPosition | undefined {
+/** A point in a layer's box (or on the face, for no parent) on the face; undefined under a stack, which places layers itself. */
+function facePoint(point: DragPosition, parentId: string | null, nodes: DesignNode[]): DragPosition | undefined {
   const byId = new Map(nodes.map(item => [item.id, item]));
-  let point = { x: node.x, y: node.y };
-  let parent = node.parent ? byId.get(node.parent) : undefined;
+  let parent = parentId ? byId.get(parentId) : undefined;
   while (parent) {
     if (parent.layout !== 'absolute') return undefined;
-    const radians = parent.rotation * Math.PI / 180;
-    const cos = Math.cos(radians), sin = Math.sin(radians);
-    const cx = parent.width / 2, cy = parent.height / 2;
-    point = {
-      x: parent.x + cx + (point.x - cx) * cos - (point.y - cy) * sin,
-      y: parent.y + cy + (point.x - cx) * sin + (point.y - cy) * cos,
-    };
+    point = toParent(parent, point.x, point.y);
     parent = parent.parent ? byId.get(parent.parent) : undefined;
   }
   return point;
+}
+
+/** Where a layer's X/Y point (its pivot) is on the face. */
+function worldPosition(node: DesignNode, nodes: DesignNode[]): DragPosition | undefined {
+  return facePoint({ x: node.x, y: node.y }, node.parent, nodes);
 }
 
 function localPositionWithin(point: DragPosition, parentId: string | null, nodes: DesignNode[]): DragPosition | undefined {
@@ -171,13 +171,7 @@ function localPositionWithin(point: DragPosition, parentId: string | null, nodes
     parent = parent.parent ? byId.get(parent.parent) : undefined;
   }
   let local = point;
-  for (const ancestor of chain) {
-    const radians = -ancestor.rotation * Math.PI / 180;
-    const cos = Math.cos(radians), sin = Math.sin(radians);
-    const cx = ancestor.width / 2, cy = ancestor.height / 2;
-    const x = local.x - ancestor.x - cx, y = local.y - ancestor.y - cy;
-    local = { x: cx + x * cos - y * sin, y: cy + x * sin + y * cos };
-  }
+  for (const ancestor of chain) local = fromParent(ancestor, local.x, local.y);
   return local;
 }
 
@@ -199,7 +193,7 @@ function transformBox(node: DesignNode, nodes: DesignNode[]) {
   for (let current: DesignNode | undefined = node; current; current = current.parent ? byId.get(current.parent) : undefined) {
     if (current.visible === false) return undefined;
   }
-  const center = worldPosition({ ...node, x: node.x + node.width / 2, y: node.y + node.height / 2 }, nodes);
+  const center = facePoint(toParent(node, node.width / 2, node.height / 2), node.parent, nodes);
   return center && { ...center, angle: nodeAngle(node, nodes) + node.rotation * Math.PI / 180 };
 }
 
@@ -323,12 +317,26 @@ export function Designer({ component: incoming, components, functions = [], onCh
     if (!node || rules?.size || measured?.id !== node.id) return axis === 'x' ? node?.width ?? 0 : node?.height ?? 0;
     return axis === 'x' ? measured.width : measured.height;
   };
+  /** A layer's shown size in design pixels: its Width/Height, or what Hug and Fill lay it out at. */
+  const shownSizeOf = (item: DesignNode) => {
+    const element = artboard.current?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(item.id)}"]`);
+    const measure = (axis: Axis, stored: number, laidOut: number | undefined) => sizingOf(item, axis) === 'fixed' || !laidOut ? stored : Math.round(laidOut * 100) / 100;
+    return { width: measure('x', item.width, element?.offsetWidth), height: measure('y', item.height, element?.offsetHeight) };
+  };
   const setSizing = (axis: Axis, mode: DesignNode['widthMode']) => {
     const size = mode === 'fixed' && measured?.id === node?.id && !(axis === 'x' ? xRules[0]?.size : yRules[0]?.size)
       ? { [axis === 'x' ? 'width' : 'height']: Math.max(1, axis === 'x' ? measured!.width : measured!.height) } : {};
     updateNode({ [axis === 'x' ? 'widthMode' : 'heightMode']: mode, ...size });
   };
   const hugAllowed = selectedNodes.some(canHug);
+  /** Moves the selected layers' pivots (an axis left undefined keeps its own), keeping each layer where it is. */
+  const setPivot = (pivotX?: number, pivotY?: number) => updateEach(item => {
+    const current = pivotOf(item), size = shownSizeOf(item);
+    return repivoted(item, pivotX ?? current.x, pivotY ?? current.y, size.width, size.height,
+      { x: layerAxisRules(item, nodes, 'x').position, y: layerAxisRules(item, nodes, 'y').position });
+  });
+  const pivot = node && pivotOf(node);
+  const pivotMixed = !!pivot && selectedNodes.some(item => pivotOf(item).x !== pivot.x || pivotOf(item).y !== pivot.y);
   useEffect(() => {
     if (pointSelectionNode.current !== node?.id) { pointSelectionNode.current = node?.id; setSelectedPoint(-1); return; }
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
@@ -396,6 +404,9 @@ export function Designer({ component: incoming, components, functions = [], onCh
       }) });
     } catch (error) { notify(error instanceof Error ? error.message : 'Unable to edit path.', true); return Promise.resolve(false); }
   };
+  /** Applies a patch worked out for each selected layer; undefined leaves that layer as it is. */
+  const updateEach = (patchOf: (item: DesignNode) => Partial<DesignNode> | undefined) =>
+    update({ [face]: nodes.map(item => { if (!selected.includes(item.id)) return item; const patch = patchOf(item); return patch ? { ...item, ...patch } : item; }) });
   const toggleLayerVisibility = (item: DesignNode) => {
     void update({ [face]: nodes.map(candidate => candidate.id === item.id ? { ...candidate, visible: item.visible === false } : candidate) });
   };
@@ -843,10 +854,13 @@ export function Designer({ component: incoming, components, functions = [], onCh
   const box = transformTarget && transformBox(transformTarget, shownNodes);
   const beginHandle = (event: PointerEvent<HTMLButtonElement>, kind: HandleDrag['kind'], hx = 0, hy = 0) => {
     const start = nodes.find(item => item.id === selected[0]);
-    const frame = event.currentTarget.parentElement?.getBoundingClientRect();
+    const box = event.currentTarget.parentElement, frame = box?.getBoundingClientRect();
     if (event.button !== 0 || spacePressed.current || !start || !frame) return;
     event.preventDefault(); event.stopPropagation();
-    const centerX = frame.left + frame.width / 2, centerY = frame.top + frame.height / 2;
+    // A layer turns about its pivot, so rotating follows the pointer's angle around the pivot marker.
+    const pivotMark = kind === 'rotate' ? box?.querySelector('.transform-pivot')?.getBoundingClientRect() : undefined;
+    const centerX = pivotMark ? pivotMark.left + pivotMark.width / 2 : frame.left + frame.width / 2;
+    const centerY = pivotMark ? pivotMark.top + pivotMark.height / 2 : frame.top + frame.height / 2;
     handleDragging.current = { id: start.id, kind, hx, hy, pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY, start,
       angle: nodeAngle(start, nodes), centerX, centerY, pointerAngle: Math.atan2(event.clientY - centerY, event.clientX - centerX) };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -857,8 +871,22 @@ export function Designer({ component: incoming, components, functions = [], onCh
     event.stopPropagation();
     const patch = drag.kind === 'rotate'
       ? { rotation: rotateNode(drag.start, Math.atan2(event.clientY - drag.centerY, event.clientX - drag.centerX) - drag.pointerAngle, event.shiftKey) }
+      : drag.kind === 'pivot' ? pivotAtPointer(drag, event.clientX, event.clientY)
       : resizeNode(drag.start, drag.hx, drag.hy, cssPx(event.clientX - drag.clientX) / zoom, cssPx(event.clientY - drag.clientY) / zoom, drag.angle, event.shiftKey, precision);
     setHandlePreview({ id: drag.id, patch });
+  };
+  /**
+   * The pivot under the pointer while dragging the pivot marker (the drag's centre is the layer's centre on screen). It
+   * snaps to the corners, edge middles and centre within 8 screen pixels, and the layer stays where it is.
+   */
+  const pivotAtPointer = (drag: HandleDrag, clientX: number, clientY: number) => {
+    const turn = drag.angle + drag.start.rotation * Math.PI / 180, cos = Math.cos(turn), sin = Math.sin(turn);
+    const dx = cssPx(clientX - drag.centerX) / zoom, dy = cssPx(clientY - drag.centerY) / zoom;
+    const along = (offset: number, size: number) => {
+      const stop = [0, .5, 1].find(fraction => Math.abs(size / 2 + offset - fraction * size) <= 8 / zoom);
+      return stop ?? Math.round(Math.max(0, Math.min(1, (size / 2 + offset) / size)) * 100) / 100;
+    };
+    return repivoted(drag.start, along(dx * cos + dy * sin, drag.start.width), along(-dx * sin + dy * cos, drag.start.height));
   };
   const endHandle = (event: PointerEvent<HTMLButtonElement>) => {
     const drag = handleDragging.current;
@@ -1119,6 +1147,11 @@ export function Designer({ component: incoming, components, functions = [], onCh
           {box && transformTarget && !editedImage && <div className="transform-box" style={{ left: box.x * zoom, top: box.y * zoom,
             width: transformTarget.width * zoom, height: transformTarget.height * zoom, transform: `translate(-50%, -50%) rotate(${box.angle}rad)` }}>
             <span className="transform-rotate-stem" />
+            {/* Under the resize handles, so a pivot on a corner or edge leaves the handle there to resize with. */}
+            <button type="button" tabIndex={-1} className="transform-pivot" aria-label="Move pivot"
+              title="Pivot: X/Y place this point and the layer turns about it. Drag to move it; it snaps to the corners, edges and centre."
+              style={{ left: `${pivotOf(transformTarget).x * 100}%`, top: `${pivotOf(transformTarget).y * 100}%` }}
+              onPointerDown={event => beginHandle(event, 'pivot')} onPointerMove={moveHandle} onPointerUp={endHandle} onPointerCancel={cancelHandle} />
             <button type="button" tabIndex={-1} className="transform-handle transform-rotate" aria-label="Rotate layer" title="Drag to rotate; hold Shift to snap to 15°"
               onPointerDown={event => beginHandle(event, 'rotate')} onPointerMove={moveHandle} onPointerUp={endHandle} onPointerCancel={cancelHandle} />
             {RESIZE_HANDLES.map(([hx, hy, label]) => <button type="button" tabIndex={-1} key={label} className={`transform-handle${hx && hy ? ' corner' : ''}`}
@@ -1222,15 +1255,29 @@ export function Designer({ component: incoming, components, functions = [], onCh
               <button className="icon-button" title="Send backward (Ctrl/Cmd+[; with Shift, to the back)" aria-label="Send backward" onClick={() => orderLayers('backward')}><SendToBack size={14} /></button>
             </SectionTitle>
             <div className="field-grid transform-grid"><NumberField label="X" icon={<span className="axis-glyph">X</span>} value={node.x} onChange={x => updateNode({ x })}
-                disabled={!positionsX} title={ignoredBecause(xRules[0], 'position', 'x')} />
+                disabled={!positionsX} title={ignoredBecause(xRules[0], 'position', 'x') ?? 'Where the pivot sits, across the parent'} />
               <NumberField label="Y" icon={<span className="axis-glyph">Y</span>} value={node.y} onChange={y => updateNode({ y })}
-                disabled={!positionsY} title={ignoredBecause(yRules[0], 'position', 'y')} />
+                disabled={!positionsY} title={ignoredBecause(yRules[0], 'position', 'y') ?? 'Where the pivot sits, down the parent'} />
               <NumberField label="Width" icon={<MoveHorizontal size={14} />} value={shownSize('x')} min={1} max={4000} onChange={width => updateNode({ width })}
                 disabled={!sizesX} title={ignoredBecause(xRules[0], 'size', 'x')} />
               <NumberField label="Height" icon={<MoveVertical size={14} />} value={shownSize('y')} min={1} max={4000} onChange={height => updateNode({ height })}
                 disabled={!sizesY} title={ignoredBecause(yRules[0], 'size', 'y')} />
               <NumberField label="Rotation" icon={<RotateCw size={14} />} value={node.rotation} onChange={rotation => updateNode({ rotation })} />
               {selected.length === 1 && node.type === 'frame' && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
+            <div className="pivot-editor">
+              <div className="field"><span>Pivot<InfoTip text="The point X/Y place and the layer turns about, like a pivot in game engines. A layer that hugs its contents grows around it. Changing it keeps the layer where it is; you can also drag the pivot marker on the canvas." /></span>
+                <div className="pivot-picker" role="radiogroup" aria-label="Pivot">
+                  {PIVOT_PRESETS.map(preset => {
+                    const active = !pivotMixed && pivot?.x === preset.x && pivot?.y === preset.y;
+                    return <button key={preset.label} type="button" role="radio" aria-checked={active} aria-label={`Pivot ${preset.label.toLowerCase()}`} title={preset.label}
+                      className={active ? 'active' : ''} onClick={() => setPivot(preset.x, preset.y)}><span /></button>;
+                  })}
+                </div></div>
+              <NumberField label="Pivot X" value={pivot?.x ?? 0} mixed={selectedNodes.some(item => pivotOf(item).x !== pivot?.x)} min={0} max={1} step={.05}
+                hint="0 is the left edge, 0.5 the centre, 1 the right edge." onChange={x => setPivot(x, undefined)} />
+              <NumberField label="Pivot Y" value={pivot?.y ?? 0} mixed={selectedNodes.some(item => pivotOf(item).y !== pivot?.y)} min={0} max={1} step={.05}
+                hint="0 is the top edge, 0.5 the centre, 1 the bottom edge." onChange={y => setPivot(undefined, y)} />
+            </div>
             <div className="field-grid sizing-grid">
               {(['x', 'y'] as const).map(axis => {
                 const key = axis === 'x' ? 'widthMode' : 'heightMode', current = sizingOf(node, axis);

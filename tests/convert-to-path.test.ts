@@ -35,7 +35,8 @@ describe('converting shapes to pen paths', () => {
     const star = shape({ id: 'star', shapeKind: 'star', rotation: 30, fill: '#123456' });
     const { nodes, selected } = convertToPaths([star], ['star']);
     expect(selected).toEqual(['star']);
-    expect(nodes[0]).toMatchObject({ id: 'star', shapeKind: 'path', pathClosed: true, x: 10, y: 20, width: 100, height: 60, rotation: 30, fill: '#123456' });
+    // A layer made turned but without a pivot turns about its centre, so its X/Y are its centre (10 + 50, 20 + 30).
+    expect(nodes[0]).toMatchObject({ id: 'star', shapeKind: 'path', pathClosed: true, x: 60, y: 50, pivotX: .5, pivotY: .5, width: 100, height: 60, rotation: 30, fill: '#123456' });
     expect(() => convertToPaths(nodes, ['star'])).toThrow('Select shapes or boolean groups');
   });
 

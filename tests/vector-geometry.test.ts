@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { makeNode } from '../src/domain';
 import { combineLayers, uncombineLayers } from '../src/designerOperations';
+import { toParent } from '../src/layerGeometry';
 import { closestSegmentParameter, compoundGeometry, cubicAt, expandPathBounds, pathBounds, pathForCompound, pathForShape, polygonArea, segmentControls, splitPathSegment } from '../src/vectorGeometry';
 
 function overlappingSquares() {
@@ -17,17 +18,16 @@ describe('live vector geometry', () => {
       { x: 100, y: 0, inX: 0, inY: 120, outX: 0, outY: 0 },
     ] });
     expect(pathBounds(node)).toEqual({ minX: -5, minY: -5, maxX: 105, maxY: 95 });
-    const rotated = { ...node, rotation: 37, x: 42, y: 23 };
-    const expanded = expandPathBounds(rotated);
-    const world = (n: typeof node, x: number, y: number) => {
-      const a = n.rotation * Math.PI / 180, dx = x - n.width / 2, dy = y - n.height / 2;
-      return [n.x + n.width / 2 + dx * Math.cos(a) - dy * Math.sin(a), n.y + n.height / 2 + dx * Math.sin(a) + dy * Math.cos(a)];
-    };
-    const before = world(rotated, node.points[0].x, node.points[0].y);
-    const after = world(expanded, expanded.points[0].x, expanded.points[0].y);
-    expect(after[0]).toBeCloseTo(before[0], 10);
-    expect(after[1]).toBeCloseTo(before[1], 10);
-    expect(expanded.width).toBe(110);
+    // Growing the box keeps every point where it was, whichever point the layer turns about.
+    for (const [pivotX, pivotY] of [[0, 0], [.5, .5], [1, .2]]) {
+      const rotated = { ...node, rotation: 37, x: 42, y: 23, pivotX, pivotY };
+      const expanded = expandPathBounds(rotated);
+      const before = toParent(rotated, node.points[0].x, node.points[0].y);
+      const after = toParent(expanded, expanded.points[0].x, expanded.points[0].y);
+      expect(after.x).toBeCloseTo(before.x, 10);
+      expect(after.y).toBeCloseTo(before.y, 10);
+      expect(expanded.width).toBe(110);
+    }
   });
   it('splits a cubic exactly at the clicked curve parameter, including the closing segment', () => {
     const points = [

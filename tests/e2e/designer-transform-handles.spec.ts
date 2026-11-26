@@ -36,11 +36,12 @@ test('selected layers resize from edges and corners and rotate from the canvas h
   expect(await value(page, 'Width')).toBe(before.width + 10);
   expect(await value(page, 'Height')).toBe(before.height + 20);
 
-  const rotate = await center(page, 'Rotate layer');
-  const frame = (await page.locator('.transform-box').boundingBox())!;
-  const middle = { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 };
-  await drag(page, rotate, { x: middle.x + (middle.y - rotate.y), y: middle.y + 3 }, true);
+  // The layer turns about its pivot (its top-left corner): a quarter turn of the handle around it is 90°.
+  const rotate = await center(page, 'Rotate layer'), pivot = await center(page, 'Move pivot');
+  await drag(page, rotate, { x: pivot.x - (rotate.y - pivot.y), y: pivot.y + (rotate.x - pivot.x) + 3 }, true);
   await expect.poll(() => value(page, 'Rotation')).toBe(90);
+  const turned = await center(page, 'Move pivot');
+  expect(Math.hypot(turned.x - pivot.x, turned.y - pivot.y)).toBeLessThan(1.5);
   const rotated = (await page.locator('.transform-box').boundingBox())!;
   expect(Math.abs(rotated.width - (before.height + 20) * zoom)).toBeLessThan(3);
 

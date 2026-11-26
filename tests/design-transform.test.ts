@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { makeNode, type DesignNode } from '../src/domain';
 import { resizeNode, rotateNode } from '../src/designTransform';
+import { toParent } from '../src/layerGeometry';
 
-const corner = (node: DesignNode, hx: number, hy: number) => {
-  const angle = node.rotation * Math.PI / 180, x = hx * node.width / 2, y = hy * node.height / 2;
-  return { x: node.x + node.width / 2 + x * Math.cos(angle) - y * Math.sin(angle), y: node.y + node.height / 2 + x * Math.sin(angle) + y * Math.cos(angle) };
-};
+/** A corner or edge middle (hx, hy in -1..1) in the layer's parent. */
+const corner = (node: DesignNode, hx: number, hy: number) => toParent(node, (hx + 1) / 2 * node.width, (hy + 1) / 2 * node.height);
 
 describe('designer transform handles', () => {
   it('resizes from an edge or corner while the opposite side stays fixed', () => {
@@ -25,6 +24,18 @@ describe('designer transform handles', () => {
     expect(corner(resized, -1, -1).x).toBeCloseTo(anchor.x, 1); expect(corner(resized, -1, -1).y).toBeCloseTo(anchor.y, 1);
     const unrotated = makeNode('frame', { x: 0, y: 0, width: 100, height: 60 });
     expect(resizeNode(unrotated, 1, 0, 0, 40, Math.PI / 2, false)).toMatchObject({ width: 140, height: 60 });
+  });
+
+  it('keeps the opposite corner fixed whatever the pivot, as X/Y follow the pivot', () => {
+    for (const [pivotX, pivotY] of [[0, 0], [1, 1], [.25, .75]]) {
+      const node = makeNode('frame', { x: 80, y: 60, width: 100, height: 60, rotation: -40, pivotX, pivotY });
+      for (const [hx, hy] of [[1, 1], [-1, -1], [-1, 0], [0, 1]]) {
+        const anchor = corner(node, -hx || -1, -hy || -1);
+        const resized = { ...node, ...resizeNode(node, hx, hy, 17, -9, 0, false) };
+        const after = corner(resized, -hx || -1, -hy || -1);
+        expect(after.x).toBeCloseTo(anchor.x, 1); expect(after.y).toBeCloseTo(anchor.y, 1);
+      }
+    }
   });
 
   it('keeps proportions on corners and scales path points with the box', () => {

@@ -1,5 +1,6 @@
 import * as clipping from 'polygon-clipping';
 import type { DesignNode } from './domain';
+import { reboxed, toParent } from './layerGeometry';
 
 type Point = [number, number];
 type MultiPolygon = clipping.MultiPolygon;
@@ -62,8 +63,7 @@ export function pathBounds(node: DesignNode) {
   const padding = node.pathClosed ? (node.stroke === 'transparent' ? 0 : node.strokeWidth / 2) : Math.max(1, node.strokeWidth) / 2;
   return { minX: minX - padding, minY: minY - padding, maxX: maxX + padding, maxY: maxY + padding };
 }
-// Expand only, keeping every existing point fixed in the parent's coordinate system,
-// including when the node rotates about its own centre.
+// Expand only, keeping every existing point fixed in the parent's coordinate system, however the node is turned.
 export function expandPathBounds(node: DesignNode): DesignNode {
   if (node.type !== 'shape' || node.shapeKind !== 'path' || !node.points.length) return node;
   const bounds = pathBounds(node);
@@ -71,10 +71,8 @@ export function expandPathBounds(node: DesignNode): DesignNode {
   const width = Math.max(node.width, bounds.maxX) - left, height = Math.max(node.height, bounds.maxY) - top;
   if (width > 4000 || height > 4000) throw new Error('Path bounds cannot exceed 4000 units.');
   if (!left && !top && width === node.width && height === node.height) return node;
-  const angle = node.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
-  const dx = left + width / 2 - node.width / 2, dy = top + height / 2 - node.height / 2;
-  return { ...node, x: node.x + node.width / 2 + dx * cos - dy * sin - width / 2,
-    y: node.y + node.height / 2 + dx * sin + dy * cos - height / 2, width, height,
+  const at = reboxed(node, left, top, width, height);
+  return { ...node, x: at.x, y: at.y, width, height,
     points: node.points.map(point => ({ ...point, x: point.x - left, y: point.y - top })) };
 }
 const clippingApi = (clipping as unknown as { default: {
@@ -165,10 +163,9 @@ function operationGeometry(inputs: MultiPolygon[], operation: DesignNode['compou
 }
 
 function transformGeometry(geometry: MultiPolygon, node: DesignNode): MultiPolygon {
-  const angle = node.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
   return geometry.map(polygon => polygon.map(ring => ring.map(([x, y]) => {
-    const cx = x - node.width / 2, cy = y - node.height / 2;
-    return [node.x + node.width / 2 + cx * cos - cy * sin, node.y + node.height / 2 + cx * sin + cy * cos] as Point;
+    const at = toParent(node, x, y);
+    return [at.x, at.y] as Point;
   })));
 }
 
@@ -212,11 +209,9 @@ export function fitPathBounds(node: DesignNode): DesignNode {
   const bounds = pathBounds(node);
   const width = Math.max(1, bounds.maxX - bounds.minX), height = Math.max(1, bounds.maxY - bounds.minY);
   if (width > 4000 || height > 4000) throw new Error('Path bounds cannot exceed 4000 units.');
-  const angle = node.rotation * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
-  const dx = bounds.minX + width / 2 - node.width / 2, dy = bounds.minY + height / 2 - node.height / 2;
+  const at = reboxed(node, bounds.minX, bounds.minY, width, height);
   const round = (value: number) => Math.round(value * 100) / 100;
-  return { ...node, x: round(node.x + node.width / 2 + dx * cos - dy * sin - width / 2),
-    y: round(node.y + node.height / 2 + dx * sin + dy * cos - height / 2), width: round(width), height: round(height),
+  return { ...node, x: round(at.x), y: round(at.y), width: round(width), height: round(height),
     points: node.points.map(point => ({ ...point, x: round(point.x - bounds.minX), y: round(point.y - bounds.minY),
       inX: round(point.inX), inY: round(point.inY), outX: round(point.outX), outY: round(point.outY) })) };
 }

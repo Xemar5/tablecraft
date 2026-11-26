@@ -1,14 +1,7 @@
 import { makeNode, uid, type DesignNode } from './domain';
+import { parentBounds as bounds, toParent } from './layerGeometry';
 import { compoundRings, expandPathBounds, fitPathBounds, shapeAsPath } from './vectorGeometry';
 import { reorder, type OrderMove } from './zOrder';
-
-function bounds(node: DesignNode) {
-  const radians = node.rotation * Math.PI / 180;
-  const width = Math.abs(node.width * Math.cos(radians)) + Math.abs(node.height * Math.sin(radians));
-  const height = Math.abs(node.width * Math.sin(radians)) + Math.abs(node.height * Math.cos(radians));
-  return { left: node.x + (node.width - width) / 2, top: node.y + (node.height - height) / 2,
-    right: node.x + (node.width + width) / 2, bottom: node.y + (node.height + height) / 2 };
-}
 
 export function selectedRoots(nodes: DesignNode[], ids: string[]): DesignNode[] {
   const selected = new Set(ids);
@@ -90,11 +83,9 @@ export function ungroupLayers(nodes: DesignNode[], ids: string[]): { nodes: Desi
   const byId = new Map(groups.map(group => [group.id, group]));
   const children = nodes.filter(node => node.parent && groupIds.has(node.parent));
   const transformed = new Map(children.map(child => {
-    const group = byId.get(child.parent!)!;
-    const angle = group.rotation * Math.PI / 180;
-    const x = child.x + child.width / 2 - group.width / 2, y = child.y + child.height / 2 - group.height / 2;
-    return [child.id, { ...child, parent: group.parent, x: group.x + group.width / 2 + x * Math.cos(angle) - y * Math.sin(angle) - child.width / 2,
-      y: group.y + group.height / 2 + x * Math.sin(angle) + y * Math.cos(angle) - child.height / 2, rotation: child.rotation + group.rotation }];
+    // The child's pivot (its X/Y) goes where the group shows it; it turns with the group about that point.
+    const group = byId.get(child.parent!)!, at = toParent(group, child.x, child.y);
+    return [child.id, { ...child, parent: group.parent, x: at.x, y: at.y, rotation: child.rotation + group.rotation }];
   }));
   const result: DesignNode[] = [];
   nodes.forEach(node => {
@@ -150,16 +141,8 @@ export function uncombineLayers(nodes: DesignNode[], ids: string[]): { nodes: De
   const children = nodes.filter(node => node.parent && compoundIds.has(node.parent));
   const byId = new Map(compounds.map(compound => [compound.id, compound]));
   const transformed = new Map(children.map(child => {
-    const compound = byId.get(child.parent!)!;
-    const angle = compound.rotation * Math.PI / 180;
-    const x = child.x + child.width / 2 - compound.width / 2;
-    const y = child.y + child.height / 2 - compound.height / 2;
-    return [child.id, {
-      ...child, parent: compound.parent,
-      x: compound.x + compound.width / 2 + x * Math.cos(angle) - y * Math.sin(angle) - child.width / 2,
-      y: compound.y + compound.height / 2 + x * Math.sin(angle) + y * Math.cos(angle) - child.height / 2,
-      rotation: child.rotation + compound.rotation,
-    }];
+    const compound = byId.get(child.parent!)!, at = toParent(compound, child.x, child.y);
+    return [child.id, { ...child, parent: compound.parent, x: at.x, y: at.y, rotation: child.rotation + compound.rotation }];
   }));
   const result: DesignNode[] = [];
   nodes.forEach(node => {

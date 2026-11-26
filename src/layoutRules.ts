@@ -7,6 +7,7 @@ import type { DesignNode } from './domain';
  * - **Fixed** size: Width/Height set it. **Hug contents**: it fits its contents (a text layer's words, a stack frame's
  *   children), so only text and stack frames can hug; other layers that were saved with Hug are treated as Fixed.
  *   **Fill parent**: it stretches to its parent.
+ * - X/Y place the layer's pivot (see src/layerGeometry.ts), so a Hug layer grows around it.
  * - In an **absolute** parent (or at the top of a face), X/Y place a Fixed or Hug layer. A Fill layer has no X/Y: it is
  *   inset from the parent's edges by its margins on that axis (like left and right constraints).
  * - In a **stack** (a frame with a horizontal or vertical layout), the stack places its children, so X/Y never apply;

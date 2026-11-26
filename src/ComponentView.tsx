@@ -1,4 +1,5 @@
 import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
+import { pivotOf } from './layerGeometry';
 import { sizingOf } from './layoutRules';
 import { assetFontFamily, assetUrl, bind, resolveFontFamily, resolveImage, type Component, type DesignNode } from './domain';
 import { useMemoryFields } from './memoryBindings';
@@ -48,6 +49,12 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
     const rowFlow = parent?.layout === 'row', columnFlow = parent?.layout === 'column';
     const fillsMainAxis = flow && ((rowFlow && widthMode === 'fill') || (columnFlow && heightMode === 'fill'));
     const marginTop = node.marginTop ?? 0, marginRight = node.marginRight ?? 0, marginBottom = node.marginBottom ?? 0, marginLeft = node.marginLeft ?? 0;
+    // X/Y place the pivot (src/layerGeometry.ts): the box is shifted back by the pivot's share of its size, in % so a Hug
+    // size needs no measuring, and turns about it. Only axes that X/Y place shift; layouts place the others' boxes.
+    const pivot = pivotOf(node);
+    const shiftX = !flow && widthMode !== 'fill' ? pivot.x * 100 : 0, shiftY = !flow && heightMode !== 'fill' ? pivot.y * 100 : 0;
+    // An identity transform still creates a transform node per layer, which makes large tables slow to composite.
+    const transform = [shiftX || shiftY ? `translate(${-shiftX}%, ${-shiftY}%)` : '', node.rotation ? `rotate(${node.rotation}deg)` : ''].filter(Boolean).join(' ') || undefined;
     // In an absolute parent, X/Y place Fixed and Hug layers; Fill axes ignore them and are inset by their margins instead.
     const style: CSSProperties = {
       position: flow ? 'relative' : 'absolute',
@@ -61,8 +68,7 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
       color: node.color, borderRadius: node.type === 'shape' ? 0 : node.radius,
       fontSize: node.fontSize, fontFamily: `"${node.type === 'text' ? resolveFontFamily(node, contextData, catalog) : node.font}", sans-serif`,
       ...(node.type === 'text' ? textStyle(node) : {}),
-      // An identity rotate still creates a transform node per layer, which makes large tables slow to composite.
-      transform: node.rotation ? `rotate(${node.rotation}deg)` : undefined, opacity: node.opacity,
+      transform, transformOrigin: node.rotation ? `${pivot.x * 100}% ${pivot.y * 100}%` : undefined, opacity: node.opacity,
       paddingTop: node.paddingTop ?? node.padding, paddingRight: node.paddingRight ?? node.padding,
       paddingBottom: node.paddingBottom ?? node.padding, paddingLeft: node.paddingLeft ?? node.padding, gap: node.gap,
       display: node.type === 'frame' || node.type === 'text' ? 'flex' : 'block',

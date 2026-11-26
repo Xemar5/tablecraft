@@ -3,6 +3,7 @@ import { reorder } from './zOrder';
 import { runCommand } from './scripting';
 import { gridPointPosition, gridSchema, projectGrids, snapTarget, validateGrids } from './grids';
 import { commonTags, describeFilter, filterFromTags, matchesTags, normalizeTags, sameFilter, tagFilterSchema, tagSchema, type TagFilter } from './tags';
+import { withPivot } from './layerGeometry';
 
 const id = z.string().min(1).max(100);
 const num = z.number().finite();
@@ -19,7 +20,7 @@ export const vectorPointSchema = z.object({
   inX: num.min(-8000).max(8000).default(0), inY: num.min(-8000).max(8000).default(0),
   outX: num.min(-8000).max(8000).default(0), outY: num.min(-8000).max(8000).default(0),
 });
-export const nodeSchema = z.object({
+const nodeFields = z.object({
   id, parent: id.nullable(), name: z.string().max(100),
   type: z.enum(['frame', 'text', 'image', 'shape', 'compound', 'component']),
   x: num, y: num, width: num.min(1).max(4000), height: num.min(1).max(4000),
@@ -73,7 +74,13 @@ export const nodeSchema = z.object({
   visible: z.boolean().default(true),
   visibilityField: z.string().max(10000).default(''),
   visibilityValue: z.string().max(10000).default(''),
+  /**
+   * The layer's pivot, as fractions of its size (0,0 top-left, 0.5,0.5 centre): X/Y place it, the layer turns about it
+   * and grows around it (see src/layerGeometry.ts). Older saves have none and get the one that keeps them in place.
+   */
+  pivotX: num.min(0).max(1).optional(), pivotY: num.min(0).max(1).optional(),
 });
+export const nodeSchema = nodeFields.transform(node => withPivot(node));
 export type DesignNode = z.infer<typeof nodeSchema>;
 export const componentSchema = z.object({
   id, name: z.string().min(1).max(100), kind: z.enum(['card', 'token', 'board', 'dice', 'book', 'artwork', 'texture', 'font', 'button']),
@@ -1709,8 +1716,12 @@ export function nextSeatPlacement(players: Pick<Player, 'x' | 'y'>[]): Pick<Play
     rotation: angle > 180 ? angle - 360 : angle };
 }
 
+/**
+ * A new layer. Without a pivot it is placed by its top-left corner; one given a rotation but no pivot turns about its
+ * centre, as layers did before pivots (its X/Y then move to the centre, see `withPivot`).
+ */
 export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> = {}): DesignNode {
-  return {
+  return withPivot({
     id: values.id ?? uid('layer'), parent: null, name: type[0].toUpperCase() + type.slice(1), type,
     x: 16, y: 16, width: 150, height: 40, text: type === 'text' ? 'Your text' : '',
     fill: type === 'text' ? 'transparent' : '#e8b86d', color: '#253d37',
@@ -1726,7 +1737,7 @@ export function makeNode(type: DesignNode['type'], values: Partial<DesignNode> =
     widthMode: values.widthMode ?? 'fixed', heightMode: values.heightMode ?? 'fixed', wrap: values.wrap ?? false,
     paddingTop: values.paddingTop ?? values.padding ?? 0, paddingRight: values.paddingRight ?? values.padding ?? 0,
     paddingBottom: values.paddingBottom ?? values.padding ?? 0, paddingLeft: values.paddingLeft ?? values.padding ?? 0,
-  };
+  });
 }
 
 /** Reparent a layer and place it before a sibling, or last among its new siblings. */
