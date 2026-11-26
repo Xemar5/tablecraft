@@ -63,3 +63,39 @@ test('a pivot is placed by X/Y, the layer grows and turns around it, and it move
   expect(near(await centre(page, '.transform-pivot'), pivot)).toBeLessThan(1.5);
   expect(near(await centre(page, layer), middle)).toBeGreaterThan(5);
 });
+
+test('auto font size shrinks text to fit its box, and a box that hugs its text is grayed out', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Component designer', exact: true }).click();
+  await page.getByRole('button', { name: 'Card name', exact: true }).click();
+  await page.getByLabel('Text / binding').fill('A wandering spirit of the trees');
+  const fitted = page.locator('.artboard .fit-text');
+  await expect(fitted).toHaveCount(0);
+  await page.getByRole('checkbox', { name: /^Auto font size/ }).check();
+  await expect(fitted).toHaveCount(1);
+  const max = Number(await field(page, 'Max font size').inputValue()), min = Number(await field(page, 'Min font size').inputValue());
+  const size = async () => parseFloat(await fitted.evaluate(element => (element as HTMLElement).style.fontSize));
+  await expect.poll(size).toBeLessThan(max);
+  expect(await size()).toBeGreaterThanOrEqual(min);
+  // The words fit: no taller than the box and no wider.
+  const fits = () => fitted.evaluate(element => {
+    const span = element as HTMLElement, box = span.parentElement!;
+    return span.offsetHeight <= box.clientHeight && span.scrollWidth <= span.clientWidth;
+  });
+  expect(await fits()).toBe(true);
+  // The box needs a set size to fit, so Hug is grayed out on both axes, saying why.
+  for (const axis of ['Width', 'Height']) {
+    await expect(page.getByRole('radiogroup', { name: `${axis} sizing`, exact: true }).getByRole('radio', { name: 'Hug contents', exact: true }))
+      .toHaveAttribute('title', /Auto font size shrinks the text to fit a set box/);
+  }
+  // A taller box lets the text grow back to its full size.
+  const shrunk = await size();
+  await field(page, 'Height').fill('300');
+  await field(page, 'Height').blur();
+  await expect.poll(size).toBeGreaterThan(shrunk);
+  expect(await fits()).toBe(true);
+  // Turned off, the text is its font size again.
+  await page.getByRole('checkbox', { name: /^Auto font size/ }).uncheck();
+  await expect(fitted).toHaveCount(0);
+  await expect(field(page, 'Font size')).toHaveValue(String(max));
+});

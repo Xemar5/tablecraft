@@ -5,6 +5,7 @@ test('X/Y, sizes and margins enable by sizing and parent layout, like auto layou
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
   await page.getByRole('button', { name: 'Card name', exact: true }).click();
   const field = (name: string) => page.getByRole('spinbutton', { name, exact: true });
+  const sizing = (axis: 'Width' | 'Height', name: string) => page.getByRole('radiogroup', { name: `${axis} sizing`, exact: true }).getByRole('radio', { name, exact: true });
   const [x, y, width, height] = ['X', 'Y', 'Width', 'Height'].map(field);
   await expect(page.locator('.transform-grid .axis-glyph')).toHaveText(['X', 'Y']);
   for (const input of [x, y, width, height]) await expect(input).toBeEnabled();
@@ -18,7 +19,8 @@ test('X/Y, sizes and margins enable by sizing and parent layout, like auto layou
   });
 
   // Fill in an absolute parent: X and Width give way to the left and right margins.
-  await page.getByLabel('Width sizing').selectOption('fill');
+  await sizing('Width', 'Fill parent').click();
+  await expect(sizing('Width', 'Fill parent')).toHaveAttribute('aria-checked', 'true');
   await expect(x).toBeDisabled();
   await expect(width).toBeDisabled();
   await expect(y).toBeEnabled();
@@ -32,18 +34,24 @@ test('X/Y, sizes and margins enable by sizing and parent layout, like auto layou
 
   // Hug keeps its Y: only the height comes from the text.
   const top = (await box()).top;
-  await page.getByLabel('Height sizing').selectOption('hug');
+  await sizing('Height', 'Hug contents').click();
   await expect(y).toBeEnabled();
   await expect(height).toBeDisabled();
   expect((await box()).top).toBe(top);
   const hugged = (await box()).height;
   await expect(height).toHaveValue(String(hugged));
   // Back to Fixed, the layer keeps the size it had.
-  await page.getByLabel('Height sizing').selectOption('fixed');
+  await sizing('Height', 'Fixed').click();
   await expect(height).toBeEnabled();
   await expect(height).toHaveValue(String(hugged));
 
-  // A shape has no contents to hug.
+  // A shape has no contents to hug: Hug is grayed out, its tooltip says why, and choosing it does nothing.
   await page.getByRole('button', { name: 'Card border', exact: true }).click();
-  await expect(page.getByLabel('Width sizing').locator('option[value="hug"]')).toBeDisabled();
+  const hug = sizing('Width', 'Hug contents');
+  await expect(hug).toHaveAttribute('aria-disabled', 'true');
+  await expect(hug).toHaveAttribute('title', /isn’t available: Only text and stack frames have contents to hug/);
+  expect(Number(await hug.evaluate(element => getComputedStyle(element).opacity))).toBeLessThan(.5);
+  await hug.click({ force: true });
+  await expect(sizing('Width', 'Fixed')).toHaveAttribute('aria-checked', 'true');
+  await expect(sizing('Width', 'Fill parent')).not.toHaveAttribute('aria-disabled', 'true');
 });

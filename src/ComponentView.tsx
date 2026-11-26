@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
 import { pivotOf } from './layerGeometry';
 import { sizingOf } from './layoutRules';
 import { assetFontFamily, assetUrl, bind, resolveFontFamily, resolveImage, type Component, type DesignNode } from './domain';
@@ -136,7 +136,9 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
     return <div key={node.id} style={style} className={`design-node node-${node.type}`} data-node-id={node.id}
       onPointerDown={onNode ? event => { event.stopPropagation(); onNode(node.id, event); } : undefined}
       onDoubleClick={onNodeDoubleClick ? event => { event.stopPropagation(); onNodeDoubleClick(node.id, event); } : undefined}>
-      {node.type === 'text' && text}
+      {node.type === 'text' && (node.autoFontSize
+        ? <FitText text={text} max={node.fontSize} min={Math.min(node.fontSize, node.minFontSize ?? 8)} typography={style.fontFamily + JSON.stringify(textStyle(node))} />
+        : text)}
       {node.type === 'image' && (() => {
         const src = resolveImage(node, contextData, catalog);
         return src ? <ImageLayer src={src} node={node} contained={style.containerType === 'size'} /> : <div className="image-placeholder">Image / texture</div>;
@@ -168,6 +170,64 @@ export function hasOpenFace(component: Pick<Component, 'color'>): boolean {
   if (!functional) return false;
   const parts = functional[1].split(/[\s,/]+/).filter(Boolean);
   return parts.length === 4 && parseFloat(parts[3]) === 0;
+}
+
+const fittedSizes = new Map<string, number>();
+const fontListeners = new Set<() => void>();
+// A web font that finishes loading changes how much text fits, so fitted sizes are measured again.
+if (typeof document !== 'undefined' && document.fonts?.addEventListener) {
+  document.fonts.addEventListener('loadingdone', () => { fittedSizes.clear(); fontListeners.forEach(listener => listener()); });
+}
+
+/**
+ * Text whose font shrinks to fit its layer's box ("auto font size"): the largest size from `max` down to `min`, in
+ * half pixels, at which the words neither overflow the box's height nor break out of its width. It is measured in the
+ * page (only the layout can say how text wraps), again when the box resizes or a font loads, and remembered per text,
+ * typography and box size so a table of the same cards measures each once.
+ */
+function FitText({ text, max, min, typography }: { text: string; max: number; min: number; typography: string }) {
+  const span = useRef<HTMLSpanElement>(null);
+  const [size, setSize] = useState(max);
+  const [fonts, setFonts] = useState(0);
+  useEffect(() => {
+    const listener = () => setFonts(value => value + 1);
+    fontListeners.add(listener);
+    return () => { fontListeners.delete(listener); };
+  }, []);
+  useLayoutEffect(() => {
+    const element = span.current, box = element?.parentElement;
+    if (!element || !box) return;
+    const fit = () => {
+      const width = box.clientWidth, height = box.clientHeight;
+      if (!width || !height) return; // Not laid out (hidden): keep the size until it is.
+      const padding = getComputedStyle(box);
+      const room = height - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
+      const key = JSON.stringify([text, typography, width, height, room, min, max]);
+      let best = fittedSizes.get(key);
+      if (best === undefined) {
+        const fits = (candidate: number) => {
+          element.style.fontSize = `${candidate}px`;
+          return element.scrollWidth <= element.clientWidth + .5 && element.offsetHeight <= room + .5;
+        };
+        if (fits(max)) best = max;
+        else {
+          let low = min * 2, high = max * 2; // In half pixels: the largest that fits lies in [low, high).
+          while (high - low > 1) { const middle = Math.floor((low + high) / 2); if (fits(middle / 2)) low = middle; else high = middle; }
+          best = low / 2;
+        }
+        if (fittedSizes.size > 2000) fittedSizes.delete(fittedSizes.keys().next().value!);
+        if (document.fonts?.status !== 'loading') fittedSizes.set(key, best);
+      }
+      element.style.fontSize = `${best}px`;
+      setSize(best);
+    };
+    fit();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(fit);
+    observer.observe(box);
+    return () => observer.disconnect();
+  }, [text, typography, min, max, fonts]);
+  return <span ref={span} className="fit-text" style={{ fontSize: size }}>{text}</span>;
 }
 
 /** Typography for text layers: weight, style, decoration, case, spacing, outline and shadow. */

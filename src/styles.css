@@ -147,6 +147,10 @@
 .field-icon-label{position:relative;display:flex;align-items:center}
 .visually-hidden{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 .sizing-grid{margin-top:0}
+/* Width/height sizing: Fixed, Hug, Fill. One a layer can't use is grayed out; its tooltip says why. */
+.sizing-choice button{font-size:10px;font-weight:600}
+.sizing-choice button[aria-disabled=true]{opacity:.38;cursor:not-allowed}
+.sizing-choice button[aria-disabled=true]:hover{color:#7d8f6e}
 /* Pivot: a 3x3 picker of corners, edge middles and centre, then Pivot X and Y. */
 .pivot-editor{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px;align-items:end;margin:8px 0}
 .pivot-picker{display:grid;grid-template-columns:repeat(3,14px);grid-template-rows:repeat(3,14px);gap:2px;padding:3px;background:#f3f6ef;border:1px solid #e1e8d9;border-radius:6px;width:max-content}

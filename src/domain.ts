@@ -79,6 +79,9 @@ const nodeFields = z.object({
    * and grows around it (see src/layerGeometry.ts). Older saves have none and get the one that keeps them in place.
    */
   pivotX: num.min(0).max(1).optional(), pivotY: num.min(0).max(1).optional(),
+  /** A text layer's font shrinks to fit its box, from `fontSize` down to `minFontSize` (8 when absent). */
+  autoFontSize: z.boolean().optional(),
+  minFontSize: num.min(4).max(400).optional(),
 });
 export const nodeSchema = nodeFields.transform(node => withPivot(node));
 export type DesignNode = z.infer<typeof nodeSchema>;

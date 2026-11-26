@@ -20,7 +20,7 @@ import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { ZoomPresets } from './ZoomPresets';
 import { cssPx, uiScale } from './uiScale';
-import { canHug, ignoredBecause, layerAxisRules, sizingOf, type Axis } from './layoutRules';
+import { ignoredBecause, layerAxisRules, sizingOf, sizingUnavailable, type Axis, type SizingMode } from './layoutRules';
 import { fromParent, PIVOT_PRESETS, pivotOf, repivoted, toParent } from './layerGeometry';
 
 type Face = 'front' | 'back';
@@ -45,6 +45,12 @@ type HandleDrag = { id: string; kind: 'resize' | 'rotate' | 'pivot'; hx: number;
 const RESIZE_HANDLES = [[-1, -1, 'top-left corner'], [0, -1, 'top edge'], [1, -1, 'top-right corner'], [1, 0, 'right edge'],
   [1, 1, 'bottom-right corner'], [0, 1, 'bottom edge'], [-1, 1, 'bottom-left corner'], [-1, 0, 'left edge']] as const;
 const RESIZE_CURSORS = ['ew-resize', 'nwse-resize', 'ns-resize', 'nesw-resize'];
+/** The sizings, with their button text, full name and what they do on an axis. */
+const SIZINGS: readonly (readonly [SizingMode, string, string, (size: string, position: string, edges: string) => string])[] = [
+  ['fixed', 'Fixed', 'Fixed', size => `the ${size} set above`],
+  ['hug', 'Hug', 'Hug contents', size => `the ${size} fits its text or stacked children`],
+  ['fill', 'Fill', 'Fill parent', (size, position, edges) => `stretches to its parent’s ${size}; in an absolute parent the ${edges} margins replace ${position}`],
+];
 type PointDrag = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; pointer: number; clientX: number; clientY: number; inverse: DOMMatrix; localX: number; localY: number; point: DesignNode['points'][number] };
 type VectorPoint = DesignNode['points'][number];
 type PointEdit = { nodeId: string; pointIndex: number; handle: 'point' | 'in' | 'out'; event: PointerEvent<SVGElement>; inverse: DOMMatrix };
@@ -323,12 +329,12 @@ export function Designer({ component: incoming, components, functions = [], onCh
     const measure = (axis: Axis, stored: number, laidOut: number | undefined) => sizingOf(item, axis) === 'fixed' || !laidOut ? stored : Math.round(laidOut * 100) / 100;
     return { width: measure('x', item.width, element?.offsetWidth), height: measure('y', item.height, element?.offsetHeight) };
   };
-  const setSizing = (axis: Axis, mode: DesignNode['widthMode']) => {
-    const size = mode === 'fixed' && measured?.id === node?.id && !(axis === 'x' ? xRules[0]?.size : yRules[0]?.size)
-      ? { [axis === 'x' ? 'width' : 'height']: Math.max(1, axis === 'x' ? measured!.width : measured!.height) } : {};
-    updateNode({ [axis === 'x' ? 'widthMode' : 'heightMode']: mode, ...size });
-  };
-  const hugAllowed = selectedNodes.some(canHug);
+  /** Sets a sizing on every selected layer that can use it; switching to Fixed keeps the size it showed. */
+  const setSizing = (axis: Axis, mode: SizingMode) => updateEach(item => {
+    if (sizingUnavailable(item, nodes, axis, mode)) return undefined;
+    const key = axis === 'x' ? 'widthMode' : 'heightMode', size = axis === 'x' ? 'width' : 'height';
+    return { [key]: mode, ...mode === 'fixed' && sizingOf(item, axis) !== 'fixed' ? { [size]: Math.max(1, shownSizeOf(item)[size]) } : {} };
+  });
   /** Moves the selected layers' pivots (an axis left undefined keeps its own), keeping each layer where it is. */
   const setPivot = (pivotX?: number, pivotY?: number) => updateEach(item => {
     const current = pivotOf(item), size = shownSizeOf(item);
@@ -337,6 +343,15 @@ export function Designer({ component: incoming, components, functions = [], onCh
   });
   const pivot = node && pivotOf(node);
   const pivotMixed = !!pivot && selectedNodes.some(item => pivotOf(item).x !== pivot.x || pivotOf(item).y !== pivot.y);
+  /** Auto font size needs a set box to fit, so a text that hugs its words gets the size it showed instead. */
+  const setAutoFontSize = (on: boolean) => updateEach(item => {
+    if (item.type !== 'text') return undefined;
+    if (!on) return { autoFontSize: false };
+    const shown = shownSizeOf(item);
+    return { autoFontSize: true, minFontSize: item.minFontSize ?? Math.min(8, item.fontSize),
+      ...sizingOf(item, 'x') === 'hug' ? { widthMode: 'fixed' as const, width: Math.max(1, shown.width) } : {},
+      ...sizingOf(item, 'y') === 'hug' ? { heightMode: 'fixed' as const, height: Math.max(1, shown.height) } : {} };
+  });
   useEffect(() => {
     if (pointSelectionNode.current !== node?.id) { pointSelectionNode.current = node?.id; setSelectedPoint(-1); return; }
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
@@ -1280,15 +1295,20 @@ export function Designer({ component: incoming, components, functions = [], onCh
             </div>
             <div className="field-grid sizing-grid">
               {(['x', 'y'] as const).map(axis => {
-                const key = axis === 'x' ? 'widthMode' : 'heightMode', current = sizingOf(node, axis);
-                const mixed = selectedNodes.some(item => sizingOf(item, axis) !== current);
-                return <Field key={axis} label={axis === 'x' ? 'Width sizing' : 'Height sizing'}
-                  hint={axis === 'x' ? 'Fixed: the width above. Hug contents: fits its text or stacked children (text and stack frames only). Fill parent: stretches to its parent; in an absolute parent X is replaced by the left and right margins.' : undefined}>
-                  <select value={mixed ? 'mixed' : current} onChange={event => { if (event.target.value !== 'mixed') setSizing(axis, event.target.value as DesignNode[typeof key]); }}>
-                    {mixed && <option value="mixed" disabled>Mixed</option>}
-                    <option value="fixed">Fixed</option>
-                    <option value="hug" disabled={!hugAllowed} title={hugAllowed ? undefined : 'Only text and stack frames have contents to hug'}>Hug contents</option>
-                    <option value="fill">Fill parent</option></select></Field>;
+                const current = sizingOf(node, axis), mixed = selectedNodes.some(item => sizingOf(item, axis) !== current);
+                const label = axis === 'x' ? 'Width sizing' : 'Height sizing';
+                const words = axis === 'x' ? ['width', 'X', 'left and right'] as const : ['height', 'Y', 'top and bottom'] as const;
+                // A sizing none of the selected layers can use is grayed out, its tooltip saying why.
+                return <div className="field" key={axis}><span>{label}</span>
+                  <div className="icon-choice sizing-choice" role="radiogroup" aria-label={label}>
+                    {SIZINGS.map(([mode, text, name, explain]) => {
+                      const reasons = selectedNodes.map(item => sizingUnavailable(item, nodes, axis, mode));
+                      const reason = reasons.every(Boolean) ? reasons[0] : undefined, active = !mixed && current === mode;
+                      return <button key={mode} type="button" role="radio" aria-checked={active} aria-label={name} aria-disabled={reason ? true : undefined}
+                        title={reason ? `${name} isn’t available: ${reason}.` : `${name}: ${explain(words[0], words[1], words[2])}.`} className={active ? 'active' : ''}
+                        onClick={() => { if (!reason && !active) setSizing(axis, mode); }}>{text}</button>;
+                    })}
+                  </div></div>;
               })}
             </div>
             {(marginsX || marginsY) && <div className="padding-editor margin-editor"><span>Margins per edge</span><div className="field-grid">
@@ -1320,8 +1340,11 @@ export function Designer({ component: incoming, components, functions = [], onCh
               <SearchSelect label="Imported font" value={node.fontId ?? ''} onChange={value => updateNode({ fontId: value || undefined })}
                 options={[{ value: '', label: 'Use Google font or binding' }, ...components.filter(item => item.kind === 'font').map(item => ({ value: item.id, label: item.name }))]} />
               <FontPicker key={node.id} label="Google font / binding" value={node.font} disabled={!!node.fontId} onChange={font => updateNode({ font })} />
+              <Toggle label="Auto font size" description="Shrinks the text to fit its box, from the max size down to the min size." checked={!!node.autoFontSize} onChange={setAutoFontSize} />
               <div className="field-grid">
-                <NumberField label="Font size" value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
+                <NumberField label={node.autoFontSize ? 'Max font size' : 'Font size'} value={node.fontSize} min={4} max={400} onChange={fontSize => updateNode({ fontSize })} />
+                {node.autoFontSize && <NumberField label="Min font size" hint="The smallest the text shrinks to; text that still doesn’t fit overflows its box."
+                  value={Math.min(node.fontSize, node.minFontSize ?? 8)} min={4} max={node.fontSize} onChange={minFontSize => updateNode({ minFontSize })} />}
                 <Field label="Weight"><select value={node.fontWeight ?? 400} onChange={event => updateNode({ fontWeight: Number(event.target.value) })}>
                   {FONT_WEIGHTS.map(([weight, name]) => <option key={weight} value={weight}>{name}</option>)}
                 </select></Field>
