@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, makeInstance, validateProject, withGroupLocks, type Command, type Project } from '../src/domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { createGroupCommand, groupMembers, groupSelection, nextGroupName, pieceTree, selectedGroups } from '../src/pieceGroups';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const ids = (p: Project) => {
   const card = p.components.find(c => c.kind === 'card')!.id, token = p.components.find(c => c.kind === 'token')!.id;
@@ -17,7 +17,7 @@ const group = (p: Project, id: string, name: string, pieces: string[], groups: s
 
 describe('piece groups', () => {
   it('arranges pieces and whole groups above or below a row as one block in render order', () => {
-    const p = starterProject(), { cards, tokens } = ids(p);
+    const p = starterTable(), { cards, tokens } = ids(p);
     const board = p.instances.find(i => p.components.find(c => c.id === i.componentId)!.kind === 'board')!;
     // Bottom-to-top table units (stacks once, boards excluded since they always render underneath).
     const units = (project: Project) => [...new Set(project.instances
@@ -47,7 +47,7 @@ describe('piece groups', () => {
     expect(() => validateProject(next)).not.toThrow();
   });
   it('groups whole stacks, renames, nests and ungroups without moving anything on the table', () => {
-    const p = starterProject(), { deck, cards, tokens } = ids(p);
+    const p = starterTable(), { deck, cards, tokens } = ids(p);
     let next = group(p, 'tokens', 'Amber', tokens.slice(0, 2));
     next = group(next, 'deck', 'Deck', [deck[3]]);
     expect(next.instances.filter(i => i.stack === 'starter-deck').every(i => i.group === 'deck')).toBe(true);
@@ -67,7 +67,7 @@ describe('piece groups', () => {
   });
 
   it('moves pieces and groups between groups, rejects cycles and removes groups that become empty', () => {
-    const p = starterProject(), { cards, tokens } = ids(p);
+    const p = starterTable(), { cards, tokens } = ids(p);
     let next = group(p, 'a', 'A', [cards[0]]);
     next = group(next, 'b', 'B', [cards[1]], [], 'a');
     expect(() => applyCommand(next, { type: 'moveToGroup', parent: 'b', ids: [], groups: ['a'] })).toThrow('into itself');
@@ -83,7 +83,7 @@ describe('piece groups', () => {
   });
 
   it('keeps stacks in one group, drops held pieces from groups and validates references', () => {
-    const p = starterProject(), { cards } = ids(p);
+    const p = starterTable(), { cards } = ids(p);
     let next = group(p, 'played', 'Played', [cards[0]]);
     // Stacking adopts the group of the bottom piece.
     next = applyCommand(next, { type: 'stack', ids: [cards[1], cards[0]], stackId: 'pile' });
@@ -103,7 +103,7 @@ describe('piece groups', () => {
   });
 
   it('undoes grouping with the rest of the table', () => {
-    const p = starterProject(), { tokens } = ids(p);
+    const p = starterTable(), { tokens } = ids(p);
     const result = applyPlaygroundCommand(p, emptyPlaygroundHistory(), { type: 'createGroup', id: 'g', name: 'Tokens', parent: null, ids: tokens, groups: [] }, 'player-1');
     const renamed = applyPlaygroundCommand(result.project, result.history, { type: 'renameGroup', id: 'g', name: 'Amber' }, 'player-1');
     const back = undoPlayground(renamed.project, renamed.history);
@@ -112,7 +112,7 @@ describe('piece groups', () => {
   });
 
   it('plans grouping from the selection: whole groups nest, loose pieces join, in the deepest common group', () => {
-    const p = starterProject(), { deck, cards, tokens } = ids(p);
+    const p = starterTable(), { deck, cards, tokens } = ids(p);
     let next = group(p, 'outer', 'Outer', [cards[0]]);
     next = group(next, 'inner', 'Inner', tokens.slice(0, 2), [], 'outer');
     expect(selectedGroups(next, tokens.slice(0, 2)).map(g => g.id)).toEqual(['inner']);
@@ -130,7 +130,7 @@ describe('piece groups', () => {
   });
 
   it('lists groups and pieces topmost first with collapsible groups and expandable stacks', () => {
-    const p = starterProject(), { deck, tokens } = ids(p);
+    const p = starterTable(), { deck, tokens } = ids(p);
     const next = group(p, 'g', 'Tokens', tokens);
     const rows = pieceTree(next, new Set(), new Set());
     const groupRow = rows.findIndex(row => row.kind === 'group');
@@ -147,7 +147,7 @@ describe('piece groups', () => {
   });
 
   it('keeps every group together in table order, so raising a grouped piece raises its whole group', () => {
-    const p = starterProject(), { cards, tokens } = ids(p);
+    const p = starterTable(), { cards, tokens } = ids(p);
     const units = (project: Project) => [...new Set(project.instances
       .filter(i => !i.holder && project.components.find(c => c.id === i.componentId)!.kind !== 'board').map(i => i.stack ?? i.id))];
     // Scattered pieces gather at the topmost one when grouped.
@@ -175,7 +175,7 @@ describe('piece groups', () => {
   });
 
   it('locks a group separately from its pieces: the group holds them in place and unlocking it restores their own locks', () => {
-    const p = starterProject(), { cards, tokens } = ids(p);
+    const p = starterTable(), { cards, tokens } = ids(p);
     let next = group(p, 'outer', 'Outer', [tokens[0], tokens[1]]);
     next = group(next, 'inner', 'Inner', [tokens[1]], [], 'outer');
     next = applyCommand(next, { type: 'move', ids: [tokens[1]], patch: { locked: true } });

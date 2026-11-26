@@ -1,13 +1,5 @@
-import { bind, makeInstance, makeNode, uid, type Component, type DesignNode, type Project } from './domain';
-
-const cardRows = [
-  { id: 'fern', name: 'Forest guardian', type: 'WOODLAND SPIRIT', cost: '3', power: '4', description: 'When played, draw a card.\nThe forest remembers its own.', art: 'fern' },
-  { id: 'moon', name: 'Moonlit passage', type: 'ANCIENT MAGIC', cost: '2', power: '2', description: 'Move a spirit to any clearing.\nFollow the light between the trees.', art: 'moon' },
-  { id: 'sun', name: 'Golden harvest', type: 'SEASONAL RITUAL', cost: '1', power: '3', description: 'Gain two amber tokens.\nA little sunlight goes a long way.', art: 'sun' },
-  { id: 'oak', name: 'The elder oak', type: 'WOODLAND SPIRIT', cost: '5', power: '7', description: 'Protect all adjacent spirits.\nDeep roots. Quiet strength.', art: 'fern' },
-  { id: 'seed', name: 'A new beginning', type: 'SEASONAL RITUAL', cost: '1', power: '1', description: 'Return a spirit to your hand.\nEvery story starts with a seed.', art: 'sun' },
-  { id: 'night', name: 'Night wanderer', type: 'WOODLAND SPIRIT', cost: '4', power: '5', description: 'Look at the top three cards.\nNot all who wander are lost.', art: 'moon' },
-];
+import { bind, makeNode, uid, type Component, type DesignNode, type Project } from './domain';
+import { amberToken, botanicalArt, forestClearing, spiritCards, spiritDie, wildwoodProject } from './wildwood';
 
 const bookRows = [
   { page: '1', title: 'Welcome, wanderer', text: 'The forest is older than any map.\nRead on to learn its ways.' },
@@ -16,7 +8,13 @@ const bookRows = [
 ];
 
 export type TemplateKind = Exclude<Component['kind'], 'texture' | 'font'> | 'blank';
-export function template(kind: TemplateKind): Component {
+/** Kinds whose template shows the botanical art (a linked artwork component, see templateBundle). */
+const ILLUSTRATED: readonly TemplateKind[] = ['card', 'token', 'board'];
+/**
+ * A new component of a kind, as **Add component** makes it: the card, token, board and dice templates are Wildwood's
+ * own components (see src/wildwood.ts). Illustrated ones link the art component `artId`, or leave an empty linked layer.
+ */
+export function template(kind: TemplateKind, artId?: string): Component {
   const base: Component = {
     id: uid('component'), name: 'Untitled component', kind: kind === 'blank' ? 'card' : kind,
     width: 220, height: 308, color: '#e9e5d7', front: [], back: [],
@@ -28,35 +26,11 @@ export function template(kind: TemplateKind): Component {
     Object.assign(base, { name: 'Untitled artwork', width: 200, height: 200, color: 'transparent',
       flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
   } else if (kind === 'card') {
-    base.name = 'Spirit cards';
-    base.stackTags = ['spirit'];
-    base.rows = cardRows;
-    base.csv = 'id,name,type,cost,power,description,art\n' + cardRows.map(r => [r.id, r.name, r.type, r.cost, r.power, `"${r.description}"`, r.art].join(',')).join('\n');
-    base.front = [
-      makeNode('shape', { name: 'Card border', x: 6, y: 6, width: 208, height: 296, fill: '#e9e5d7', radius: 10 }),
-      makeNode('shape', { name: 'Illustration', x: 14, y: 14, width: 192, height: 168, fill: '#294c40', radius: 6, text: '{{art}}' }),
-      makeNode('shape', { name: 'Cost badge', x: 24, y: 24, width: 30, height: 30, fill: '#e9dcb6', radius: 30 }),
-      makeNode('text', { name: 'Cost', x: 24, y: 26, width: 30, height: 26, text: '{{cost}}', fontSize: 17, align: 'center' }),
-      makeNode('text', { name: 'Card name', x: 18, y: 193, width: 186, height: 27, text: '{{name}}', fontSize: 20, font: 'Lora' }),
-      makeNode('text', { name: 'Type', x: 18, y: 224, width: 184, height: 18, text: '{{type}}', fontSize: 8, color: '#7d806c' }),
-      makeNode('text', { name: 'Rules text', x: 18, y: 247, width: 164, height: 44, text: '{{description}}', fontSize: 10, color: '#666e60' }),
-      makeNode('text', { name: 'Power', x: 183, y: 268, width: 23, height: 26, text: '{{power}}', fontSize: 21, font: 'Lora', align: 'center' }),
-    ];
-    base.back = [
-      makeNode('shape', { name: 'Back field', x: 0, y: 0, width: 220, height: 308, fill: '#294c40', radius: 12, text: 'fern' }),
-      makeNode('text', { name: 'Back title', x: 15, y: 225, width: 190, height: 28, text: 'W I L D W O O D', color: '#e8d8ae', font: 'Lora', fontSize: 16, align: 'center' }),
-    ];
+    return spiritCards(artId);
   } else if (kind === 'token') {
-    Object.assign(base, { name: 'Amber token', width: 80, height: 80, color: '#dbb66a', flippable: false, hideInHand: false, shufflable: false, stackTag: '', stackTags: ['amber'] });
-    base.front = [
-      makeNode('shape', { name: 'Token face', x: 3, y: 3, width: 74, height: 74, radius: 50, fill: '#e6bc6c', text: 'sun' }),
-    ];
+    return amberToken(artId);
   } else if (kind === 'board') {
-    Object.assign(base, { name: 'Forest clearing', width: 640, height: 420, color: '#263e35', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
-    base.front = [
-      makeNode('shape', { name: 'Clearing', x: 12, y: 12, width: 616, height: 396, radius: 200, fill: '#304c3e', text: 'fern' }),
-      makeNode('text', { name: 'Board title', x: 160, y: 34, width: 320, height: 44, text: 'THE CLEARING', font: 'Lora', fontSize: 25, color: '#d8d6b7', align: 'center' }),
-    ];
+    return forestClearing(artId);
   } else if (kind === 'button') {
     // Pressing a button on the table calls the script function chosen as its action.
     Object.assign(base, { name: 'Button', width: 170, height: 56, color: '#365d46', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
@@ -73,10 +47,7 @@ export function template(kind: TemplateKind): Component {
       makeNode('text', { name: 'Page number', x: 120, y: 350, width: 60, height: 22, text: '{{page}}', fontSize: 11, color: '#9a9172', align: 'center' }),
     ];
   } else {
-    Object.assign(base, { name: 'Spirit die', width: 70, height: 70, color: '#e9e5d7', flippable: false, hand: false, stackable: false });
-    base.front = [makeNode('text', { name: 'Value', x: 0, y: 5, width: 70, height: 60, text: '{{value}}', fontSize: 42, align: 'center' })];
-    base.rows = Array.from({ length: 6 }, (_, i) => ({ value: String(i + 1) }));
-    base.csv = 'value\n1\n2\n3\n4\n5\n6';
+    return spiritDie();
   }
   return base;
 }
@@ -167,35 +138,15 @@ export function upgradeLegacyArtworkProject(project: Project): Project {
   return components === project.components ? project : { ...project, components };
 }
 
+/** A template with the components it links, dependencies first: the illustrated ones come with their own botanical art. */
 export function templateBundle(kind: TemplateKind): { root: Component; components: Component[] } {
-  const initial = template(kind);
-  const components = upgradeLegacyArtwork([initial]);
-  return { root: components.find(item => item.id === initial.id)!, components };
+  if (!ILLUSTRATED.includes(kind)) { const root = template(kind); return { root, components: [root] }; }
+  const art = botanicalArt(), root = template(kind, art.id);
+  return { root, components: [art, root] };
 }
 
-export function starterProject(): Project {
-  const bundles = (['card', 'token', 'board', 'dice'] as const).map(templateBundle);
-  const [card, token, board, die] = bundles.map(bundle => bundle.root);
-  const deck = Array.from({ length: 12 }, (_, n) => ({
-    ...makeInstance(card.id, n % 6, 600, 400), stack: 'starter-deck', order: n, flipped: true, scale: 0.72,
-  }));
-  return {
-    id: uid('project'), name: 'Wildwood', description: 'A little magic. A lot of possibility.',
-    components: [...bundles.map(bundle => bundle.root), ...bundles.flatMap(bundle => bundle.components.filter(item => item.id !== bundle.root.id))],
-    instances: [
-      { ...makeInstance(board.id, 0, 1050, 430), scale: 0.85, locked: true },
-      ...deck,
-      ...[0, 1, 2].map((row, i) => ({ ...makeInstance(card.id, row, 810 + i * 185, 460 + (i % 2) * 22), scale: 0.72, rotation: (i - 1) * 5 })),
-      ...Array.from({ length: 5 }, (_, i) => ({ ...makeInstance(token.id, 0, 790 + i * 62, 740), scale: 0.65 })),
-      { ...makeInstance(die.id, 3, 1200, 720), scale: 0.85, rotation: 12 },
-    ],
-    players: [
-      { id: 'player-1', owner: 'local', name: 'Player 1', color: '#b7cc91', x: 980, y: 1000, rotation: 0 },
-      { id: 'player-2', owner: 'local', name: 'Player 2', color: '#ce9e7b', x: 980, y: 100, rotation: 180 },
-    ],
-    settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },
-  };
-}
+/** The sample project a new workspace starts with (see src/wildwood.ts). */
+export const starterProject = (): Project => wildwoodProject();
 
 export function blankProject(name = 'Untitled project', description = '', profile = { name: 'Player 1', color: '#b7cc91' }): Project {
   return {

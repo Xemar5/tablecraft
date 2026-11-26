@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { applyCommand, type Archive } from '../../src/domain';
-import { starterProject } from '../../src/templates';
+import { starterTable } from '../fixtures';
 
 async function seedHand(page: Page, rotation = 0) {
-  let project = starterProject();
+  let project = starterTable();
   const deck = project.instances.find(i => i.stack)!;
   project = applyCommand(project, { type: 'drawMany', id: deck.id, count: 3, playerId: 'player-1' }, 'player-1');
   project.players[0] = { ...project.players[0], x: 1000, y: 600, rotation };

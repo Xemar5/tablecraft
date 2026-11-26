@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, makeInstance, makeNode, type Archive } from '../src/domain';
 import { linkComponent, localComponentCopy, refreshProjectLinks } from '../src/projectLinks';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 import { parseArchive } from '../src/storage';
 
 function setup() {
-  const source = starterProject(), target = starterProject();
+  const source = starterTable(), target = starterTable();
   source.id = 'source'; target.id = 'target';
   target.components = []; target.instances = [];
   const root = source.components.find(c => c.kind === 'card')!;

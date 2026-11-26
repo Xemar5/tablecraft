@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 import { hoverPreviewSize, hoverPreviewWidth, previewOnLeft, previewPermission, snappedPositions } from '../src/playgroundPreview';
 
-const project = starterProject();
+const project = starterTable();
 const component = { ...project.components.find(c => c.kind === 'card')!, flippable: true, hideInHand: true };
 const item = { ...project.instances.find(i => i.componentId === component.id)!, stack: null };
 

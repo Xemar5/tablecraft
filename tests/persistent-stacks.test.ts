@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, validateProject, type Project } from '../src/domain';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const setup = () => {
-  const p = starterProject();
+  const p = starterTable();
   const card = p.components.find(c => c.kind === 'card')!, token = p.components.find(c => c.kind === 'token')!;
   return {
     p, card, token,

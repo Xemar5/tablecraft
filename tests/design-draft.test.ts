@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, makeInstance, makeNode, type Component } from '../src/domain';
 import { addDraftEdit, draftComponents, recoverDesignDraft, withDraft, type DraftEdit } from '../src/designDraft';
-import { blankProject, starterProject, templateBundle } from '../src/templates';
+import { blankProject, templateBundle } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const card = (id: string, patch: Partial<Component> = {}): Component => ({
   id, name: id, kind: 'card', width: 100, height: 140, color: '#fff', front: [], back: [], csv: '', rows: [],
@@ -42,7 +43,7 @@ describe('designer drafts', () => {
   });
 
   it('shows the draft only for its own project', () => {
-    const project = starterProject(), other = blankProject();
+    const project = starterTable(), other = blankProject();
     const component = { ...project.components[0], color: '#abcdef' };
     const draft = { projectId: project.id, edits: [{ component }] };
     expect(withDraft(project, draft).components[0].color).toBe('#abcdef');

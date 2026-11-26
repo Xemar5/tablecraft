@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { applyCommand, makeNode, type Archive, type Project } from '../../src/domain';
-import { starterProject } from '../../src/templates';
+import { starterTable } from '../fixtures';
 
 async function seed(page: Page, project: Project) {
   const archive: Archive = { format: 'tablecraft', version: 1, projects: [project] };
@@ -97,7 +97,7 @@ test('fullscreen preview keeps following the pointer while zooming, rotating and
 });
 
 test('Z works for main hands and private table hands without exposing a hidden front', async ({ page }) => {
-  let project = starterProject();
+  let project = starterTable();
   const deck = project.instances.find(i => i.stack)!;
   project = applyCommand(project, { type: 'drawMany', id: deck.id, count: 1, playerId: 'player-1' }, 'player-1');
   project = applyCommand(project, { type: 'drawMany', id: deck.id, count: 1, playerId: 'player-2' }, 'player-2');
@@ -124,7 +124,7 @@ test('Z works for main hands and private table hands without exposing a hidden f
 });
 
 test('open preview immediately enforces changed actor, viewer and hand visibility permissions', async ({ page }) => {
-  const project = starterProject();
+  const project = starterTable();
   const component = {
     ...project.components.find(c => c.kind === 'card')!, flippable: true, hideInHand: true,
     front: [makeNode('text', { text: 'Private front sentinel' })],
@@ -194,7 +194,7 @@ test('selection fallback works and typing/dialog keys do not open preview', asyn
 });
 
 test('empty seatless tables have no overlay or active hand controls', async ({ page }) => {
-  const project = starterProject();
+  const project = starterTable();
   project.players = [];
   project.instances = [];
   await seed(page, project);
@@ -205,7 +205,7 @@ test('empty seatless tables have no overlay or active hand controls', async ({ p
 });
 
 test('multi-drag snaps each unit separately while preserving stacks', async ({ page }) => {
-  const project = starterProject();
+  const project = starterTable();
   const component = project.components.find(c => c.kind === 'card')!;
   const base = project.instances.find(i => i.componentId === component.id)!;
   project.players = project.players.map((player, index) => ({ ...player, x: index ? 1500 : 300, y: 100, rotation: 0 }));

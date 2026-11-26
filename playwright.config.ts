@@ -1,7 +1,9 @@
 import { defineConfig } from '@playwright/test';
-import { starterProject } from './src/templates';
+import { starterTable } from './tests/fixtures';
 
-const project = starterProject();
+// Tests start from a plain, stable table (Wildwood's core pieces), not the sample project, which keeps gaining
+// showcase pieces; tests/e2e/home.spec.ts covers the sample itself.
+const project = starterTable();
 
 export default defineConfig({
   testDir: './tests/e2e',

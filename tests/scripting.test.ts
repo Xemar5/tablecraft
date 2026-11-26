@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { applyCommand, setMemory, type Command, type Project } from '../src/domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { checkScriptSyntax, scriptFunctions } from '../src/scripting';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
-const withScript = (source: string, project = starterProject()): Project => applyCommand(project, { type: 'script', script: { id: 'rules', name: 'Rules', source } });
+const withScript = (source: string, project = starterTable()): Project => applyCommand(project, { type: 'script', script: { id: 'rules', name: 'Rules', source } });
 const call = (name: string, extra: Partial<Extract<Command, { type: 'call' }>> = {}): Command => ({ type: 'call', name, args: [], seed: 7, ...extra });
 const errors = (p: Project) => (p.scriptLog ?? []).filter(line => line.level === 'error').map(line => line.text);
 const tokens = (p: Project) => p.instances.filter(i => p.components.find(c => c.id === i.componentId)?.kind === 'token');
@@ -76,7 +76,7 @@ describe('table scripts', () => {
   });
 
   it('pass the pressed piece and the acting seat, and resolve dotted function names', () => {
-    const token = starterProject().instances.find(i => i.scale === .65)!;
+    const token = starterTable().instances.find(i => i.scale === .65)!;
     const p = withScript(`ui = {} function ui.press(piece, player, bonus) memory.pressed = { piece.id, player.seat, bonus } end`);
     const pressed = applyCommand({ ...p, instances: p.instances.map(i => i.id === token.id ? token : i) }, call('ui.press', { piece: p.instances.find(i => i.scale === .65)!.id, args: [3] }), 'player-2');
     expect(pressed.memory?.pressed).toEqual([p.instances.find(i => i.scale === .65)!.id, 2, 3]);
@@ -114,13 +114,13 @@ describe('table scripts', () => {
     expect(ticked.project.memory).toEqual({ time: 1.5 });
     expect(ticked.history.entries).toHaveLength(0);
     // Without an update function a tick changes nothing at all.
-    expect(applyCommand(starterProject(), { type: 'tick', dt: 1, seed: 1 }).memory).toBeUndefined();
+    expect(applyCommand(starterTable(), { type: 'tick', dt: 1, seed: 1 }).memory).toBeUndefined();
   });
 
   it('keep lists, empty lists and tables apart in memory', () => {
     const p = withScript(`function shape()
       memory.list = { "a", "b" }; memory.empty = memory.empty; memory.map = { [3] = true }; memory.nested = { x = { 1, 2 } }
-    end`, { ...starterProject(), memory: { empty: [] } });
+    end`, { ...starterTable(), memory: { empty: [] } });
     expect(applyCommand(p, call('shape')).memory).toEqual({ empty: [], list: ['a', 'b'], map: { 3: true }, nested: { x: [1, 2] } });
     const stored = withScript('function bad() memory.f = print end');
     expect(errors(applyCommand(stored, call('bad'))).at(-1)).toMatch(/memory\.f can't hold a function/);

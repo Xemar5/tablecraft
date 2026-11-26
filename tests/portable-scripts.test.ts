@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { createPortableZip, readPortableZip } from '../src/portable';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const scripted = () => ({
-  ...starterProject(), name: 'Scripted',
+  ...starterTable(), name: 'Scripted',
   scripts: [{ id: 'script-rules', name: 'Rules / main', source: 'function onLoad() memory.round = 1 end\n' }, { id: 'script-ui', name: 'UI', source: '-- buttons\n' }],
   memory: { round: 3, names: ['Ada'] },
 });

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, assetFontFamily, assetUrl, makeInstance, makeNode, namedAssetReferences, resolveFontFamily, resolveImage, uniqueAssetName, withUniqueAssetNames, type Component } from '../src/domain';
 import { exportComponentBundle, remapComponentBundle } from '../src/storage';
-import { blankProject, starterProject, templateBundle } from '../src/templates';
+import { blankProject, templateBundle } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const asset = (id: string, name: string, kind: 'texture' | 'font' = 'texture'): Component => ({
@@ -15,7 +16,7 @@ describe('books and dice pages', () => {
     const book = templateBundle('book').root;
     expect(book).toMatchObject({ kind: 'book', stackable: false, hand: false });
     expect(book.rows.length).toBe(3);
-    const p = starterProject();
+    const p = starterTable();
     const die = p.instances.find(i => p.components.find(c => c.id === i.componentId)?.kind === 'dice')!;
     let next = applyCommand({ ...p, components: [...p.components, book] }, { type: 'spawn', instances: [{ ...makeInstance(book.id), id: 'book' }] });
     next = applyCommand(next, { type: 'cycleVariant', ids: ['book'], delta: -1 });

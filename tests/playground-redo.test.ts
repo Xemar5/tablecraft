@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground } from '../src/playgroundHistory';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
-const token = (p: ReturnType<typeof starterProject>) => p.instances.find(i => p.components.find(c => c.id === i.componentId)?.kind === 'token')!;
+const token = (p: ReturnType<typeof starterTable>) => p.instances.find(i => p.components.find(c => c.id === i.componentId)?.kind === 'token')!;
 
 describe('playground redo', () => {
   it('returns to what undo went back from, one step at a time, and undoes it again', () => {
-    const start = starterProject();
+    const start = starterTable();
     const id = token(start).id;
     let state = { project: start, history: emptyPlaygroundHistory() };
     state = applyPlaygroundCommand(state.project, state.history, { type: 'transform', ids: [id], dx: 10, dy: 0 });
@@ -29,7 +29,7 @@ describe('playground redo', () => {
   });
 
   it('forgets what could be redone once something new happens', () => {
-    const start = starterProject();
+    const start = starterTable();
     const id = token(start).id;
     let state = applyPlaygroundCommand(start, emptyPlaygroundHistory(), { type: 'transform', ids: [id], dx: 10, dy: 0 });
     const undone = undoPlayground(state.project, state.history);

@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { makeInstance } from '../../src/domain';
-import { starterProject, template } from '../../src/templates';
+import { template } from '../../src/templates';
+import { starterTable } from '../fixtures';
 import { fillServer, pickSeat } from './liveSeat';
 import { toggleHeader } from './headerMenus';
 
@@ -11,7 +12,7 @@ function update(dt) memory.ticks = (memory.ticks or 0) + 1 end
 
 /** The starter table with a script and a button that runs nextRound, its label showing memory. */
 function scriptedProject() {
-  const project = starterProject();
+  const project = starterTable();
   const button = { ...template('button'), id: 'component-next-round', action: 'nextRound' };
   button.front = button.front.map(node => ({ ...node, text: 'Round {{memory.round}}' }));
   return {

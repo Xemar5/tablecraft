@@ -7,14 +7,15 @@ import {
   addSnapshot, assignLegacySnapshots, deleteBlocker, deleteSession, deleteSnapshot, emptyHistory, hasUnsavedChanges, historySchema, isOutdated, latestSnapshot,
   makeSnapshot, remapHistory, renameItem, restingSnapshot, restoreSnapshot, selectHistory, setStatus, startSession, type History,
 } from '../src/projectHistory';
-import { blankProject, starterProject, template } from '../src/templates';
+import { blankProject, template } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const png = Uint8Array.from(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64'));
 const texture: Component = { ...template('artwork'), id: 'texture', kind: 'texture', name: 'texture', asset: { name: 'texture.png', mime: 'image/png', data: bytesToBase64(png) } };
 
 /** A finished project: two drafts (the first is the base), a session from it with one move saved. */
 function finishedProject() {
-  const starter = starterProject();
+  const starter = starterTable();
   const project = { ...starter, id: 'game', components: [...starter.components, texture], scripts: [{ id: 'rules', name: 'Rules', source: 'function hello() end' }] };
   const first = makeSnapshot(project, 'First draft', 1);
   const second = makeSnapshot({ ...project, instances: [] }, 'Second draft', 2);
@@ -123,7 +124,7 @@ describe('project histories', () => {
   });
 
   it('assigns snapshots saved before histories to the projects whose components they share', () => {
-    const a = { ...starterProject(), id: 'a' }, b = { ...blankProject('B'), id: 'b', components: [{ ...template('blank'), id: 'b-card' }] };
+    const a = { ...starterTable(), id: 'a' }, b = { ...blankProject('B'), id: 'b', components: [{ ...template('blank'), id: 'b-card' }] };
     const fromA = { ...a, id: 'snapshot-1', name: 'A playtest' }, fromB = { ...b, id: 'snapshot-2', name: 'B playtest' };
     const orphan = { ...blankProject('Gone'), id: 'snapshot-3', components: [{ ...template('blank'), id: 'gone-card' }] };
     const { byProject, unmatched } = assignLegacySnapshots([a, b], [fromA, orphan, fromB]);

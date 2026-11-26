@@ -127,8 +127,8 @@ test('dragging a component or using its spawn-all button spawns every variant, s
   await chooseHeader(page, 'Undo');
   await expect.poll(async () => (await state(page)).instances).toEqual(before.instances);
 
-  const fern = item('Botanical artwork (fern)');
-  await fern.getByRole('button', { name: 'Spawn all Botanical artwork (fern) variants', exact: true }).click({ force: true });
+  const fern = item('Botanical artwork');
+  await fern.getByRole('button', { name: 'Spawn all Botanical artwork variants', exact: true }).click({ force: true });
   await expect.poll(async () => (await state(page)).instances.length).toBe(before.instances.length + 3);
   added = (await state(page)).instances.slice(-3);
   expect(added.map(i => i.row)).toEqual([0, 1, 2]);

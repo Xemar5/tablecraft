@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ComponentView } from '../src/ComponentView';
 import { applyCommand, makeNode, nodeSchema } from '../src/domain';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
 describe('layer visibility', () => {
   it('defaults legacy layers to visible and persists toggles through shared component commands', () => {
@@ -10,7 +10,7 @@ describe('layer visibility', () => {
     const { visible: _visible, ...legacy } = node;
     expect(nodeSchema.parse(legacy).visible).toBe(true);
     expect(() => nodeSchema.parse({ ...node, visible: 'false' })).toThrow();
-    const project = starterProject();
+    const project = starterTable();
     const component = { ...project.components[0], front: [node] };
     const withNode = applyCommand(project, { type: 'component', component });
     const hidden = { ...component, front: [{ ...node, visible: false }] };
@@ -26,7 +26,7 @@ describe('layer visibility', () => {
     const child = makeNode('text', { parent: group.id, text: 'Group child' });
     const hiddenChild = makeNode('text', { parent: group.id, text: 'Hidden child', visible: false });
     const conditional = makeNode('text', { text: 'Conditional', visibilityField: 'show', visibilityValue: 'yes' });
-    const component = { ...starterProject().components[0], front: [group, child, hiddenChild, conditional], rows: [{ show: 'no' }, { show: 'yes' }] };
+    const component = { ...starterTable().components[0], front: [group, child, hiddenChild, conditional], rows: [{ show: 'no' }, { show: 'yes' }] };
     const original = structuredClone(component);
     expect(renderToStaticMarkup(<ComponentView component={component} row={1} />)).not.toContain('Group child');
     const shown = { ...component, front: [{ ...group, visible: true }, child, hiddenChild, conditional] };
@@ -43,7 +43,7 @@ describe('layer visibility', () => {
     const nested = makeNode('compound', { id: 'nested', parent: compound.id, width: 100, height: 100 });
     const first = makeNode('shape', { parent: nested.id, x: 0, y: 0, width: 100, height: 100 });
     const second = makeNode('shape', { parent: compound.id, x: 100, y: 0, width: 100, height: 100 });
-    const component = { ...starterProject().components[0], front: [compound, nested, first, second] };
+    const component = { ...starterTable().components[0], front: [compound, nested, first, second] };
     const path = (front: typeof component.front) => {
       const markup = renderToStaticMarkup(<ComponentView component={{ ...component, front }} />);
       return markup.match(/<path d="([^"]*)"/)?.[1];

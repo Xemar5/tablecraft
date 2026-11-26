@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, makeInstance, type Project } from '../src/domain';
 import { stackPlan, stackSlot } from '../src/stackOrder';
-import { starterProject, template } from '../src/templates';
+import { template } from '../src/templates';
+import { starterTable } from './fixtures';
 
 function table(): Project {
-  const project = starterProject();
+  const project = starterTable();
   const card = { ...template('card'), id: 'card', stackable: true, stackTags: ['spirit'] };
   const token = { ...template('token'), id: 'token', stackable: true, stackTag: '', stackTags: ['amber'] };
   project.components = [card, token];

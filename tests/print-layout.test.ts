@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { gameProject } from '../src/gameProjects';
 import { DEFAULT_PRINT_OPTIONS, GLUE_WING, MM_PER_PX, oversizedPieces, PAPER_SIZES, printCopies, printLayout } from '../src/printLayout';
-import { starterProject } from '../src/templates';
+import { starterTable } from './fixtures';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
 
 describe('print layout', () => {
   it('prints one copy per piece, every page of a book and every face of a die', () => {
-    const project = starterProject();
+    const project = starterTable();
     const copies = printCopies(project);
     const count = (kind: string) => copies.filter(copy => copy.component.kind === kind).length;
     // 12 cards in the deck and 3 on the table, 5 tokens, 1 board and one six-sided die.
@@ -23,7 +23,7 @@ describe('print layout', () => {
   });
 
   it('can add one copy of each variant of components with no pieces', () => {
-    const project = starterProject();
+    const project = starterTable();
     const unused = project.components.find(component => component.kind === 'card')!;
     const without = { ...project, instances: project.instances.filter(item => item.componentId !== unused.id) };
     expect(printCopies(without).some(copy => copy.component.id === unused.id)).toBe(false);
@@ -33,7 +33,7 @@ describe('print layout', () => {
   });
 
   it('packs pieces inside the margins at print size, followed by mirrored pages of backs', () => {
-    const project = starterProject();
+    const project = starterTable();
     const options = { ...DEFAULT_PRINT_OPTIONS };
     const pages = printLayout(project, options);
     const paper = PAPER_SIZES.a4;
@@ -65,7 +65,7 @@ describe('print layout', () => {
   });
 
   it('gives every piece a back, even components that can’t be flipped or have no back design', () => {
-    const project = starterProject();
+    const project = starterTable();
     const backs = printLayout(project, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'back').flatMap(page => page.items);
     const fronts = printLayout(project, DEFAULT_PRINT_OPTIONS).filter(page => page.side === 'front').flatMap(page => page.items);
     // Tokens (not flippable, no back design) and the board get backs; only die faces don't.
@@ -76,7 +76,7 @@ describe('print layout', () => {
   });
 
   it('splits pieces too big for a page into parts with glue wings that cover the whole piece', () => {
-    const project = starterProject();
+    const project = starterTable();
     const options = { ...DEFAULT_PRINT_OPTIONS, scale: 4 };
     const pages = printLayout(project, options);
     const board = project.components.find(component => component.kind === 'board')!;

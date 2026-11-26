@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { makeInstance, type Command, type Project } from '../src/domain';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, PLAYGROUND_HISTORY_LIMIT, undoPlayground } from '../src/playgroundHistory';
-import { starterProject, template } from '../src/templates';
+import { template } from '../src/templates';
+import { starterTable } from './fixtures';
 
 function table(): Project {
-  const project = starterProject();
+  const project = starterTable();
   const card = template('card');
   card.id = 'card';
   project.components = [card];

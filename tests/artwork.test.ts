@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, componentSchema, makeNode, validateProject, type Component, type Project } from '../src/domain';
 import { exportComponentBundle, parseComponentBundle, remapComponentBundle } from '../src/storage';
-import { starterProject, template, templateBundle } from '../src/templates';
+import { template, templateBundle } from '../src/templates';
+import { starterTable } from './fixtures';
 
 function project(components: Component[]): Project {
-  return { ...starterProject(), components, instances: [] };
+  return { ...starterTable(), components, instances: [] };
 }
 
 describe('Artwork components', () => {
@@ -36,7 +37,7 @@ describe('Artwork components', () => {
       const dependencies = bundle.components.filter(item => item.id !== bundle.root.id);
       expect(dependencies.length).toBeGreaterThan(0);
       expect(dependencies.every(item => item.kind === 'artwork' && item.color === 'transparent')).toBe(true);
-      expect(dependencies.every(item => item.front.length > 0 && item.front.every(node => node.type === 'shape'))).toBe(true);
+      expect(dependencies.every(item => item.front.length > 0 && item.front.every(node => node.type === 'shape' || node.type === 'compound'))).toBe(true);
       validateProject(project(bundle.components));
     }
   });

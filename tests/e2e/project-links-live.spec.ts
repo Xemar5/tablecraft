@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { starterProject } from '../../src/templates';
+import { starterTable } from '../fixtures';
 import { fillServer, pickSeat } from './liveSeat';
 import { chooseHeader } from './headerMenus';
 
@@ -7,8 +7,8 @@ test('live project links share readonly snapshots without requiring the source w
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
   const a = await first.newPage(), b = await second.newPage();
   try {
-    const source = { ...starterProject(), id: 'source', name: 'Source artwork' };
-    const target = { ...starterProject(), id: 'destination', name: 'Linked game', components: [], instances: [] };
+    const source = { ...starterTable(), id: 'source', name: 'Source artwork' };
+    const target = { ...starterTable(), id: 'destination', name: 'Linked game', components: [], instances: [] };
     await a.goto('/');
     await a.evaluate(projects => {
       localStorage.setItem('tablecraft.workspace.v1', JSON.stringify({ format: 'tablecraft', version: 1, projects }));

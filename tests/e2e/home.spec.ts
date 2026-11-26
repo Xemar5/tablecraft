@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { starterProject } from '../../src/templates';
+import { starterTable } from '../fixtures';
 import { linkComponent } from '../../src/projectLinks';
 import { createPortableZip } from '../../src/portable';
 import type { Archive } from '../../src/domain';
@@ -45,6 +46,36 @@ test('Home actions retain aligned spacing and icons, and New project has a padde
   await expect(page.locator('.home-project')).toHaveCount(1);
 });
 
+test('the Wildwood sample shows its showcase: shared art, a scripted button with memory, and a snapping path', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Load project Wildwood', exact: true }).click();
+  const pieces = page.locator('[data-testid="table-piece"]');
+  // One botanical artwork serves every card, token and board.
+  await expect(page.getByRole('button', { name: /^Spawn Botanical artwork/ })).toHaveCount(1);
+  const tally = pieces.filter({ hasText: 'AMBER GATHERED' });
+  await expect(tally).toContainText('0');
+  await pieces.filter({ hasText: 'Gather amber' }).click();
+  await expect(tally).toContainText('1');
+  await expect(page.getByText('Player 1 gathers amber.')).toBeVisible();
+  await expect(page.locator('.hand-card')).toHaveCount(1);
+  await expect(page.locator('[data-testid="table-piece"][aria-label="Amber token, stack of 7"]')).toBeVisible();
+  // A wanderer dropped near a stone of the path snaps onto it and the script announces it.
+  const project = async () => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0]);
+  const { grids } = await project();
+  const stone = grids.find((grid: { id: string }) => grid.id === 'wanderers-path').points[0];
+  const walker = page.locator('[data-testid="table-piece"][aria-label^="Wanderer"]:not([aria-label^="Wanderer’s"])').first();
+  const box = (await walker.boundingBox())!;
+  const zoom = await walker.evaluate(el => new DOMMatrix(getComputedStyle(el.closest('.table-world')!).transform).a);
+  const id = await walker.getAttribute('data-piece-id');
+  const start = (await project()).instances.find((item: { id: string }) => item.id === id);
+  await walker.hover();
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 + (stone.x + 10 - start.x) * zoom, box.y + box.height / 2 + (stone.y - 10 - start.y) * zoom, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => (await project()).instances.find((item: { id: string }) => item.id === id)).toMatchObject({ x: stone.x, y: stone.y });
+  await expect(page.getByText(`reaches the ${stone.label}.`)).toBeVisible();
+});
+
 test('fresh visits start at Home, open projects resume, and the logo returns Home', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('region', { name: 'Project home' })).toBeVisible();
@@ -77,7 +108,7 @@ test('fresh visits start at Home, open projects resume, and the logo returns Hom
   await unsaved.getByRole('button', { name: 'Save snapshot', exact: true }).click();
   await expect(open).toHaveCount(0);
   await expect(page.locator('.home-project')).toContainText('2 snapshots');
-  await expect(page.locator('.home-project')).toContainText('23 pieces');
+  await expect(page.locator('.home-project')).toContainText(`${starterProject().instances.length + 1} pieces`);
   await page.reload();
   await expect(page.getByRole('region', { name: 'Project home' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Load project Wildwood', exact: true })).toBeVisible();
@@ -137,8 +168,8 @@ test('a finished project starts new games from its base and saves to its session
 });
 
 test('importing a workspace remaps internal project links to the imported sources', async ({ page }) => {
-  const source = { ...starterProject(), id: 'export-source', name: 'Exported source' };
-  const target = { ...starterProject(), id: 'export-target', name: 'Exported target', components: [], instances: [] };
+  const source = { ...starterTable(), id: 'export-source', name: 'Exported source' };
+  const target = { ...starterTable(), id: 'export-target', name: 'Exported target', components: [], instances: [] };
   const linked = linkComponent(target, source, source.components[0].id).project;
   await page.goto('/');
   await page.locator('input[type=file]').first().setInputFiles({
@@ -172,7 +203,7 @@ test('Home creates, reorders, exports, imports and deletes projects including th
   const download = page.waitForEvent('download');
   await page.getByRole('dialog', { name: 'Export My prototype' }).getByRole('button', { name: 'Export ZIP', exact: true }).click();
   expect((await download).suggestedFilename()).toBe('My prototype.tablecraft.zip');
-  const exported: Archive = { format: 'tablecraft', version: 1, projects: [{ ...starterProject(), id: 'imported', name: 'Imported project' }] };
+  const exported: Archive = { format: 'tablecraft', version: 1, projects: [{ ...starterTable(), id: 'imported', name: 'Imported project' }] };
   await page.locator('input[type=file]').first().setInputFiles({ name: 'import.tablecraft.zip', mimeType: 'application/zip', buffer: Buffer.from(createPortableZip(exported)) });
   await expect(page.getByRole('button', { name: 'Load project Imported project', exact: true })).toBeVisible();
   // New and imported projects start with a snapshot of their initial state.
@@ -195,8 +226,8 @@ test('Home creates, reorders, exports, imports and deletes projects including th
 });
 
 test('linked components stay read-only, refresh from their source, survive source deletion and allow local copies', async ({ page }) => {
-  const source = { ...starterProject(), id: 'source', name: 'Source' };
-  const target = { ...starterProject(), id: 'target', name: 'Target', components: [], instances: [] };
+  const source = { ...starterTable(), id: 'source', name: 'Source' };
+  const target = { ...starterTable(), id: 'target', name: 'Target', components: [], instances: [] };
   await page.goto('/');
   await page.evaluate(projects => {
     localStorage.setItem('tablecraft.workspace.v1', JSON.stringify({ format: 'tablecraft', version: 1, projects }));

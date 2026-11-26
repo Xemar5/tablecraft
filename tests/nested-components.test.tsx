@@ -100,7 +100,7 @@ describe('nested linked components', () => {
     const bundle = templateBundle('card');
     validateProject(project(bundle.components));
     const art = bundle.components.find(item => item.name.includes('Botanical artwork') && item.front.some(node => node.visibilityField))!;
-    expect(art.front.every(node => node.type === 'shape')).toBe(true);
+    expect(art.front.every(node => node.type === 'shape' || node.type === 'compound')).toBe(true);
     expect(art.rows.map(row => row.art)).toEqual(['fern', 'moon', 'sun']);
     expect(renderToStaticMarkup(<ComponentView component={art} />)).toContain('#b5c391');
     const fern = renderToStaticMarkup(<ComponentView component={bundle.root} components={bundle.components} row={0} />);

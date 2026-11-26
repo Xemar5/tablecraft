@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Starting the development server automatically opens **http://127.0.0.1:5173** in your browser. The component designer and hotseat playground work without a backend, account or multiplayer connection. The included Wildwood project is a fully editable example, not a fixed game.
+Starting the development server automatically opens **http://127.0.0.1:5173** in your browser. The component designer and hotseat playground work without a backend, account or multiplayer connection. The included Wildwood project is a fully editable example, not a fixed game. It doubles as a tour of the app: spirit cards, amber tokens, a die and a clearing board built from CSV rows and one linked botanical artwork (fitted inside each frame, with a boolean-cut moon); a persistent amber supply; the **Wanderer's path**, a board whose stepping stones are a points grid that only takes the two wanderers (by grid tag), under a faint table grid; a book, the **Wanderer's guide**, that explains each part; and a **Gather amber** button whose Lua script draws amber into your hand and counts it in memory for the **Amber tally**. The path (a locked group), the wanderers and the guide and its controls are filed in Pieces-panel groups. Its card, token, board and dice are also the **Add component** templates.
 
 ### Project home and reusable components
 
@@ -389,6 +389,7 @@ Unit tests cover bindings, hierarchy validation, stack compatibility, shuffle/re
 - `src/uiScale.ts`: the interface scale (CSS zoom) and conversion from pointer to page pixels.
 - `src/FontPicker.tsx`: the font combobox used by text layers.
 - `src/ComponentView.tsx`: safe recursive component renderer and procedural template artwork.
+- `src/wildwood.ts`: the Wildwood sample project (also the card, token, board and dice templates) and its table script.
 - `src/App.tsx`, `src/storage.ts`: workspace/projects, portable saves and application shell.
 - `src/multiplayer.ts`, `src/module_bindings/`: typed SpaceTimeDB connection/subscriptions.
 - `server/src/index.ts`: authoritative room reducers and private room view, and the `room_tick` timer that runs scripts' `update(dt)`.
