@@ -11,15 +11,13 @@ type Gesture = { pointer: number; x: number; y: number; grid: ComponentGrid; kin
 /**
  * Editing a component's grid on the designer canvas, over its layers (in screen pixels, so handles keep their size):
  * drag the canvas to move a square or hex grid's points, drag the handles of the dashed frame to set the grid's bounds,
- * and on a points grid click to add a snap point (into the selected point group), drag points to move them and click
+ * and on a points grid click to add a snap point, drag points to move them and click
  * one to select it. Changes show at once (`onDraft`) and are saved when the drag ends (`onCommit`), so each drag is one
  * undo step. It also shows how far the grid reaches: a dotted frame half a cell outside a square or hex grid's bounds,
  * and a dashed circle of the snap distance around each point of a points grid inside its bounds.
  */
-export function ComponentGridCanvas({ grid, zoom, color, point, group, highlighted, onSelectPoint, onDraft, onCommit, readOnly }: {
+export function ComponentGridCanvas({ grid, zoom, color, point, onSelectPoint, onDraft, onCommit, readOnly }: {
   grid: ComponentGrid; zoom: number; color: string; point?: string; onSelectPoint: (id: string | undefined) => void;
-  /** The selected point group: new points go into it, and `highlighted` are the points in it. */
-  group?: string; highlighted?: string[];
   onDraft: (grid: ComponentGrid | undefined) => void; onCommit: (grid: ComponentGrid) => void; readOnly?: boolean;
 }) {
   const layer = useRef<HTMLDivElement>(null);
@@ -47,7 +45,7 @@ export function ComponentGridCanvas({ grid, zoom, color, point, group, highlight
         // A click where there's no point adds one there.
         const at = local(event);
         id = uid('point');
-        next = { ...grid, points: [...grid.points ?? [], { id, x: round(at.x), y: round(at.y), ...(group ? { group } : {}) }] };
+        next = { ...grid, points: [...grid.points ?? [], { id, x: round(at.x), y: round(at.y) }] };
         changed = true;
         show(next);
       }
@@ -100,7 +98,7 @@ export function ComponentGridCanvas({ grid, zoom, color, point, group, highlight
     </div>
     {grid.shape === 'points' && <svg className="grid-edit-points" aria-hidden="false">
       <g aria-hidden="true">{(grid.points ?? []).filter(inside).map(item => <circle key={item.id} className="grid-snap-reach" cx={item.x * zoom} cy={item.y * zoom} r={radius} />)}</g>
-      {(grid.points ?? []).map(item => <g key={item.id} data-grid-point={item.id} className={`grid-handle${item.id === point ? ' selected' : ''}${highlighted?.includes(item.id) ? ' highlighted' : ''}`}
+      {(grid.points ?? []).map(item => <g key={item.id} data-grid-point={item.id} className={`grid-handle${item.id === point ? ' selected' : ''}`}
         transform={`translate(${item.x * zoom} ${item.y * zoom})`} role="button" aria-label={`Point ${item.label || item.id}`}>
         <circle className="grid-handle-hit" />
         <circle className="grid-handle-dot" />

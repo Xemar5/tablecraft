@@ -17,19 +17,23 @@ export const pointName = (point: GridPoint, index: number) => point.label || `Po
  * clicking a group selects the group (new points added on the table go into it, and its points are highlighted).
  * Groups are renamed by double-clicking (or F2). Dragging a row onto the middle of a group puts it inside; onto the top
  * or bottom of a row places it above or below that row, in that row's group; onto the empty list, at the top level.
+ * Without `grouped` (the designer's grid panel) it's a flat list of the points, reordered by dragging, with no groups.
  */
-export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, onChange, readOnly, surface = 'the table' }: {
+export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, onChange, readOnly, surface = 'the table', grouped = true }: {
   grid: Grid; point?: string; onSelectPoint: (id: string | undefined) => void; group?: string; onSelectGroup: (id: string | undefined) => void;
   onChange: (grid: Grid) => Promise<boolean>; readOnly: boolean;
   /** Where points are added: the table, or (for a component's grid in the designer) the canvas. */
   surface?: string;
+  /** Whether points are shown (and can be put) in point groups. */
+  grouped?: boolean;
 }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string>();
   const [dragging, setDragging] = useState<Dragged>();
   const [dropTarget, setDropTarget] = useState<{ key: string; mode: DropMode } | null>();
   const list = useRef<HTMLDivElement>(null);
-  const rows = useMemo(() => pointTree(grid, collapsed), [grid, collapsed]);
+  const rows = useMemo<PointTreeRow[]>(() => grouped ? pointTree(grid, collapsed)
+    : (grid.points ?? []).map((item, index) => ({ kind: 'point', key: `point:${item.id}`, depth: 0, point: item, index })), [grid, collapsed, grouped]);
   const groups = grid.pointGroups ?? [], points = grid.points ?? [];
   const selectedGroup = groups.find(item => item.id === group);
   useEffect(() => { list.current?.querySelector('.layer-row.active')?.scrollIntoView({ block: 'nearest' }); }, [point, group]);
@@ -39,7 +43,7 @@ export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, 
     const box = event.currentTarget.getBoundingClientRect(), at = (event.clientY - box.top) / Math.max(1, box.height);
     return row.kind === 'group' ? at < .28 ? 'above' : at > .72 ? 'below' : 'inside' : at < .5 ? 'above' : 'below';
   };
-  const dropParent = (row: PointTreeRow | undefined, mode: DropMode | undefined) => !row ? null : mode === 'inside' && row.kind === 'group' ? row.group.id : parentOf(row);
+  const dropParent = (row: PointTreeRow | undefined, mode: DropMode | undefined) => !row || !grouped ? null : mode === 'inside' && row.kind === 'group' ? row.group.id : parentOf(row);
   // A group can't go into itself or a group inside it.
   const canDrop = (moving: Dragged | undefined, parent: string | null) => !!moving && !(moving.group && pointGroupAncestors(groups, parent).includes(moving.group));
 
@@ -103,9 +107,11 @@ export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, 
 
   return <>
     <div className="panel-heading"><span><LocateFixed size={15} /> Points</span><span className="panel-heading-actions">
-      <button className="icon-button" title="New point group (it takes the selected point)" aria-label="New point group" disabled={readOnly} onClick={() => void newGroup()}><FolderPlus size={14} /></button>
-      <button className="icon-button" title="Ungroup the selected point group" aria-label="Ungroup point group" disabled={readOnly || !selectedGroup}
-        onClick={() => { if (selectedGroup) { void onChange(ungroupPoints(grid, selectedGroup.id)); onSelectGroup(undefined); } }}><Ungroup size={14} /></button>
+      {grouped && <>
+        <button className="icon-button" title="New point group (it takes the selected point)" aria-label="New point group" disabled={readOnly} onClick={() => void newGroup()}><FolderPlus size={14} /></button>
+        <button className="icon-button" title="Ungroup the selected point group" aria-label="Ungroup point group" disabled={readOnly || !selectedGroup}
+          onClick={() => { if (selectedGroup) { void onChange(ungroupPoints(grid, selectedGroup.id)); onSelectGroup(undefined); } }}><Ungroup size={14} /></button>
+      </>}
       <span className="subtle">{points.length}</span></span></div>
     <p className="points-panel-grid">{grid.name}</p>
     <div ref={list} className={`layer-list piece-tree points-tree${dropTarget === null ? ' drop-root' : ''}`} role="tree" aria-label="Snap points"

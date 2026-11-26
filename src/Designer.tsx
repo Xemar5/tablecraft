@@ -5,7 +5,7 @@ import Papa from 'papaparse';
 import { ComponentView, fittedImageSize, imagePlacement, useNaturalSize } from './ComponentView';
 import { componentTags, hasPages, isAsset, makeNode, moveLayer, resolveImage, type Component, type DesignNode } from './domain';
 import { TagListField } from './TagEditors';
-import { boundsReach, componentGridTags, DEFAULT_POINT_RADIUS, pointGroupAncestors, type ComponentGrid } from './grids';
+import { boundsReach, componentGridTags, DEFAULT_POINT_RADIUS, type ComponentGrid } from './grids';
 import { ComponentGrids, gridColor, opaqueColor } from './GridLayers';
 import { GRID_SHAPES, GridEditor, gridShapeIcon, newGrid, type GridActions } from './GridEditor';
 import { PointsPanel } from './GridPoints';
@@ -289,9 +289,9 @@ export function Designer({ component: incoming, components, functions = [], onCh
   // Double-clicking an image layer edits where its picture sits inside the layer's frame.
   const [imageEdit, setImageEdit] = useState<string>();
   // The component's grid selected in the Layers panel (its settings in the inspector, its bounds and points on the
-  // canvas), with its selected snap point and point group; a grid being dragged on the canvas before it's saved; and a
-  // grid row being dragged in the Layers panel to another place in the list.
-  const [gridEdit, setGridEdit] = useState<{ grid: string; point?: string; group?: string }>();
+  // canvas), with its selected snap point; a grid being dragged on the canvas before it's saved; and a grid row being
+  // dragged in the Layers panel to another place in the list.
+  const [gridEdit, setGridEdit] = useState<{ grid: string; point?: string }>();
   const [gridDraft, setGridDraft] = useState<ComponentGrid>();
   const [gridDrag, setGridDrag] = useState<string>();
   const [gridDrop, setGridDrop] = useState<{ id: string; mode: 'before' | 'after' }>();
@@ -671,16 +671,16 @@ export function Designer({ component: incoming, components, functions = [], onCh
       const command = event.ctrlKey || event.metaKey;
       const key = event.key.toLowerCase();
       if (key === 'escape' && toolMenu) { event.preventDefault(); setToolMenu(null); return; }
-      // With a grid selected, Escape deselects its snap point or point group, or else the grid; Delete removes the
-      // selected point, or else the grid (a selected point group stays: ungroup it in the points list).
+      // With a grid selected, Escape deselects its snap point, or else the grid; Delete removes the selected point, or
+      // else the grid.
       if (gridEdit && !command) {
-        if (key === 'escape') { event.preventDefault(); if (gridEdit.point || gridEdit.group) setGridEdit({ grid: gridEdit.grid }); else setGridEdit(undefined); return; }
+        if (key === 'escape') { event.preventDefault(); if (gridEdit.point) setGridEdit({ grid: gridEdit.grid }); else setGridEdit(undefined); return; }
         if (key === 'delete' || key === 'backspace') {
           event.preventDefault();
           if (editedGrid?.shape === 'points' && gridEdit.point) {
             gridActions.save({ ...editedGrid, points: (editedGrid.points ?? []).filter(point => point.id !== gridEdit.point) });
             setGridEdit({ ...gridEdit, point: undefined });
-          } else if (editedGrid && !gridEdit.group) gridActions.remove(editedGrid.id);
+          } else if (editedGrid) gridActions.remove(editedGrid.id);
           return;
         }
       }
@@ -1235,8 +1235,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
               idPrefix="designer-grid" editing={!!editedGrid} selected={editedGrid?.id} style={{ '--grid-zoom': zoom } as React.CSSProperties} />}
           </div>
           {gridEdit && editedGrid && <ComponentGridCanvas grid={editedGrid} zoom={zoom} color={opaqueColor(gridColor(editedGrid, shownGrids.indexOf(editedGrid)))}
-            point={gridEdit.point} group={gridEdit.group} onSelectPoint={point => setGridEdit({ grid: editedGrid.id, point, group: gridEdit.group })} onDraft={setGridDraft}
-            highlighted={gridEdit.group ? (editedGrid.points ?? []).filter(point => pointGroupAncestors(editedGrid.pointGroups ?? [], point.group).includes(gridEdit.group!)).map(point => point.id) : undefined}
+            point={gridEdit.point} onSelectPoint={point => setGridEdit({ grid: editedGrid.id, point })} onDraft={setGridDraft}
             onCommit={grid => { gridActions.save(grid); }} />}
           {editedImage && editedBox && editedBase && (() => {
             const placed = imagePlacement(editedImage);
@@ -1353,8 +1352,8 @@ export function Designer({ component: incoming, components, functions = [], onCh
         </> : gridEdit && editedGrid ? <GridEditor grids={shownGrids} selected={editedGrid} list={false} onSelect={grid => setGridEdit({ grid })} point={gridEdit.point}
           onSelectPoint={point => setGridEdit({ ...gridEdit, point })} actions={gridActions} disabled={false} tags={gridTags} onDone={() => setGridEdit(undefined)} surface="the canvas"
           intro={<>This component carries the grid: each of its pieces takes it along on the table as it moves, turns and scales, and pieces snap to it before the table’s grids (the topmost piece’s first, then the first grid in the Layers panel). Drag the canvas to move it{editedGrid.shape === 'points' ? ', click it to add a snap point' : ''}, and drag the dashed frame’s handles to set its bounds.</>}
-          pointsList={<div className="grid-points-list"><PointsPanel grid={editedGrid} point={gridEdit.point} group={gridEdit.group} readOnly={false} surface="the canvas"
-            onSelectPoint={point => setGridEdit(current => current && { ...current, point })} onSelectGroup={group => setGridEdit(current => current && { ...current, group })}
+          pointsList={<div className="grid-points-list"><PointsPanel grid={editedGrid} point={gridEdit.point} readOnly={false} surface="the canvas" grouped={false}
+            onSelectPoint={point => setGridEdit(current => current && { ...current, point })} onSelectGroup={() => {}}
             onChange={grid => saveGrids(componentGrids.map(item => item.id === grid.id ? { ...item, ...grid } : item))} /></div>}
           boundsEditor={grid => {
             const reach = boundsReach(grid);

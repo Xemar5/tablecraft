@@ -64,6 +64,8 @@ test('a component carries grids whose bounds are set in the designer, and pieces
   const points = page.locator('.grid-points-list').getByRole('treeitem');
   await expect(points).toHaveCount(3);
   await expect(points.nth(2)).toHaveAttribute('aria-selected', 'true');
+  // It's a flat list: points don't go into point groups here.
+  await expect(page.locator('.grid-points-list').getByRole('button', { name: 'New point group' })).toHaveCount(0);
   // Dropping a row on itself keeps the order; dropping it below the next one moves it there.
   const where = page.locator('.grid-points-list .point-row-detail'), order = await where.allTextContents();
   const rowBox = (await points.nth(0).boundingBox())!;
