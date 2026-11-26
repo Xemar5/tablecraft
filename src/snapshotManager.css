@@ -69,3 +69,6 @@
 .home-unsaved { color: #9a5a2e; font-size: 11px; font-weight: 600; }
 .project-heading .project-context { flex: none; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; line-height: 16px; }
 @media (max-width: 960px) { .project-heading .project-context { display: none; } }
+/* Naming a new game before it starts (GameNameForm). */
+.history-new-game-form { margin: 0 0 12px; padding: 12px; border: 1px solid #dfe8d3; border-radius: 10px; background: #fff; }
+.history-new-game-form .modal-actions { margin-top: 8px; }

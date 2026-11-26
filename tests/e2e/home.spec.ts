@@ -168,6 +168,9 @@ test('a finished project starts new games from its base and saves to its session
   await page.getByRole('button', { name: 'Load project Wildwood', exact: true }).click();
   const chooser = page.getByRole('dialog', { name: 'Play Wildwood' });
   await expect(chooser).toContainText('No sessions yet.');
+  // It asks what to call the game: the name starts empty, and starting needs one.
+  await expect(chooser.getByRole('textbox', { name: 'Session name' })).toHaveValue('');
+  await expect(chooser.getByRole('button', { name: 'Start a new game', exact: true })).toBeDisabled();
   await chooser.getByRole('textbox', { name: 'Session name' }).fill('Friday');
   await chooser.getByRole('button', { name: 'Start a new game', exact: true }).click();
   await expect(page.locator('.project-heading')).toContainText('Session · Friday');
@@ -189,6 +192,11 @@ test('a finished project starts new games from its base and saves to its session
   await page.getByRole('region', { name: 'Draft snapshots' }).locator('.history-snapshot').filter({ hasText: 'initial state' }).getByRole('button', { name: 'Make base' }).click();
   await expect(sessions).toContainText('Outdated');
   await expect(sessions).toContainText('from “Version two”');
+  // Starting another game from here asks for its name too.
+  await sessions.getByRole('button', { name: 'Start a new game', exact: true }).click();
+  await expect(sessions.getByRole('textbox', { name: 'Session name' })).toBeFocused();
+  await expect(sessions.getByRole('button', { name: 'Start a new game', exact: true })).toBeDisabled();
+  await sessions.getByRole('button', { name: 'Cancel', exact: true }).click();
   // Sessions and snapshots can be renamed.
   await sessions.getByRole('button', { name: 'Rename session Friday', exact: true }).click();
   await sessions.getByRole('textbox', { name: 'New name for session Friday' }).fill('Friday night');

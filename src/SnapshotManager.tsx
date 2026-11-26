@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, ChevronRight, Download, FlagTriangleRight, History as HistoryIcon, PencilLine, Play, Plus, Save, Star, Trash2, X } from 'lucide-react';
 import type { Project } from './domain';
-import { baseSnapshot, deleteBlocker, isOutdated, latestSnapshot, nextGameName, type History, type OpenProject, type Session, type Snapshot } from './projectHistory';
+import { baseSnapshot, deleteBlocker, isOutdated, latestSnapshot, type History, type OpenProject, type Session, type Snapshot } from './projectHistory';
 import { Field, Modal } from './ui';
 import './snapshotManager.css';
 
@@ -54,9 +54,21 @@ function SnapshotRow({ snapshot, history, open, session, latest, onLoad, onRenam
   </li>;
 }
 
+/** Asks what to call a new game (session): a name is required. */
+function GameNameForm({ onStart, onCancel, disabled, title }: { onStart: (name: string) => void; onCancel?: () => void; disabled?: boolean; title?: string }) {
+  const [name, setName] = useState('');
+  return <form className="history-new-game-form" onSubmit={event => { event.preventDefault(); if (name.trim()) onStart(name.trim()); }}>
+    <Field label="Session name"><input autoFocus value={name} maxLength={100} required placeholder="What shall we call this game?" onChange={event => setName(event.target.value)} /></Field>
+    <div className="modal-actions">
+      {onCancel && <button type="button" className="button" onClick={onCancel}>Cancel</button>}
+      <button className="button primary" type="submit" disabled={disabled || !name.trim()} title={name.trim() ? title : 'Name the game first'}><Play size={15} /> Start a new game</button>
+    </div>
+  </form>;
+}
+
 /**
  * A project's draft snapshots and sessions: its status (draft or finished, with its base), renaming, deleting and
- * loading them, and starting a new game. Saving a snapshot is SaveDialog's.
+ * loading them, and starting a new game (which asks what to call it). Saving a snapshot is SaveDialog's.
  */
 export function HistoryManager({ project: _project, history, open, readOnly, onLoad, onContinue, onStartGame, onRename, onDeleteSnapshot, onDeleteSession, onStatus, onExport }: {
   project: Project; history: History; open?: OpenProject; readOnly?: string;
@@ -65,6 +77,7 @@ export function HistoryManager({ project: _project, history, open, readOnly, onL
   onStatus: (status: History['status'], baseId?: string) => void; onExport: () => void;
 }) {
   const session = open?.session ? history.sessions.find(item => item.id === open.session) : undefined;
+  const [naming, setNaming] = useState(false);
   const [expanded, setExpanded] = useState<string[]>(() => session ? [session.id] : []);
   const base = baseSnapshot(history);
   const finished = history.status === 'finished';
@@ -90,7 +103,8 @@ export function HistoryManager({ project: _project, history, open, readOnly, onL
     </section>
     {(finished || sessions.length > 0) && <section className="history-section" aria-label="Sessions">
       <h3><Play size={15} /> Sessions <span className="history-count">{history.sessions.length}</span></h3>
-      {finished && <button type="button" className="button history-new-game" disabled={!!readOnly} title={readOnly} onClick={() => onStartGame(nextGameName(history))}><Plus size={14} /> Start a new game</button>}
+      {finished && (naming ? <GameNameForm disabled={!!readOnly} title={readOnly} onCancel={() => setNaming(false)} onStart={name => { setNaming(false); onStartGame(name); }} />
+        : <button type="button" className="button history-new-game" disabled={!!readOnly} title={readOnly} onClick={() => setNaming(true)}><Plus size={14} /> Start a new game</button>)}
       {!sessions.length && <p className="help-text">No sessions yet.</p>}
       <ul className="history-list">{sessions.map(item => {
         const outdated = isOutdated(history, item), shown = expanded.includes(item.id), playing = open?.session === item.id;
@@ -124,17 +138,15 @@ export function HistoryManager({ project: _project, history, open, readOnly, onL
 export function GameChooser({ project, history, onStart, onContinue, onClose }: {
   project: Project; history: History; onStart: (name: string) => void; onContinue: (sessionId: string) => void; onClose: () => void;
 }) {
-  const [name, setName] = useState(() => nextGameName(history));
   const base = baseSnapshot(history);
   const sessions = [...history.sessions].sort((a, b) => (b.snapshots.at(-1)?.createdAt ?? b.createdAt) - (a.snapshots.at(-1)?.createdAt ?? a.createdAt));
   return <Modal title={`Play ${project.name}`} subtitle="Start a new game from the base snapshot, or pick up a session where it was saved." onClose={onClose}>
     <div className="game-chooser">
-      <form className="game-chooser-new" onSubmit={event => { event.preventDefault(); onStart(name); }}>
+      <div className="game-chooser-new">
         <h3><Plus size={16} /> New game</h3>
         <p className="help-text">Starts a session from a copy of the base, <strong>{base?.name}</strong>. Snapshots you save while playing go to the session.</p>
-        <Field label="Session name"><input autoFocus value={name} maxLength={100} onChange={event => setName(event.target.value)} /></Field>
-        <button className="button primary" type="submit"><Play size={15} /> Start a new game</button>
-      </form>
+        <GameNameForm onStart={onStart} />
+      </div>
       <section className="game-chooser-sessions" aria-label="Existing sessions">
         <h3><HistoryIcon size={16} /> Continue a session</h3>
         {!sessions.length && <p className="help-text">No sessions yet.</p>}
