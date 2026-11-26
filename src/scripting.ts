@@ -237,8 +237,7 @@ function detectEvents(before: Project, after: Project, command: Command, actor?:
   if (rolled.length) add('onRoll', pieces(rolled), player);
   if (wanted('onSnap')) {
     // Pieces that came to rest on a grid point they weren't on before (moving onto the same point again doesn't count).
-    const grids = new Map([[before, placedGrids(before)], [after, placedGrids(after)]]);
-    const key = (project: Project, item: Instance) => { const snap = snapOf(project, item, grids.get(project)); return snap ? `${snap.grid}|${snap.point}` : ''; };
+    const key = (project: Project, item: Instance) => { const snap = snapOf(project, item, placedOn(project)); return snap ? `${snap.grid}|${snap.point}` : ''; };
     const snapped = after.instances.filter(item => {
       const was = previous.get(item.id), now = key(after, item);
       return now && (!was || (was.x !== item.x || was.y !== item.y || !!was.holder) && key(before, was) !== now);
@@ -470,9 +469,20 @@ function pieceInfo(project: Project, item: Instance): PieceInfo {
     group: item.group, snap: snapInfo(project, item),
   };
 }
+/**
+ * The grids on a table (see placedGrids), placed once per table state. A script reads many pieces' snaps (every piece
+ * of game.pieces() and of an event), and each would otherwise place every grid the table's pieces carry again. Script
+ * runs never change a project in place, so a project object always has the same grids.
+ */
+const placedCache = new WeakMap<Project, PlacedGrid[]>();
+function placedOn(project: Project): PlacedGrid[] {
+  let placed = placedCache.get(project);
+  if (!placed) placedCache.set(project, placed = placedGrids(project));
+  return placed;
+}
 /** The grid point a piece rests on: its grid's key, point id and label (points grids), and the piece carrying the grid. */
 function snapInfo(project: Project, item: Instance): MemoryValue | undefined {
-  const snap = snapOf(project, item);
+  const snap = snapOf(project, item, placedOn(project));
   const host = snap?.grid.includes('/') ? snap.grid.slice(0, snap.grid.indexOf('/')) : undefined;
   return snap && { grid: snap.grid, point: snap.point, ...(snap.label ? { label: snap.label } : {}), ...(host ? { piece: host } : {}) };
 }
@@ -614,7 +624,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
   let noUndoMemory: Memory | undefined;
   // A grid by its key (a table grid's id, or "piece id/grid id"), a table grid's name, or "piece id/grid name".
   const findGrid = (value: MemoryValue | undefined) => {
-    const key = text(value, 'grid'), grids = placedGrids(state.live);
+    const key = text(value, 'grid'), grids = placedOn(state.live);
     const found = grids.find(grid => grid.key === key) ?? grids.find(grid => !grid.host && grid.grid.name === key)
       ?? grids.find(grid => grid.host && `${grid.host}/${grid.grid.name}` === key);
     if (!found) throw new ScriptError(`There is no grid ${key}.`);
@@ -779,7 +789,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       return 0;
     },
     unstack: L => { act({ type: 'unstack', id: stackPiece(arg(L, 1, 'stack')).id }); return 0; },
-    grids: L => { pushValue(L, placedGrids(state.live).map(gridInfo)); return 1; },
+    grids: L => { pushValue(L, placedOn(state.live).map(gridInfo)); return 1; },
     gridPoint: L => {
       const placed = findGrid(arg(L, 1, 'grid')), point = pointArg(L, 2);
       const at = placedPointPosition(placed, point);
@@ -796,7 +806,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     },
     nearestGridPoint: L => {
       const x = number(arg(L, 1, 'x'), 'x'), y = number(arg(L, 2, 'y'), 'y'), only = arg(L, 3, 'grid');
-      const candidates = (only === undefined ? placedGrids(state.live) : [findGrid(only)]).map(grid => nearestPlacedPoint(grid, x, y)).filter(found => !!found);
+      const candidates = (only === undefined ? placedOn(state.live) : [findGrid(only)]).map(grid => nearestPlacedPoint(grid, x, y)).filter(found => !!found);
       const best = candidates.sort((a, b) => a!.distance - b!.distance)[0];
       pushValue(L, best && { grid: best.grid, point: best.point, x: best.x, y: best.y, rotation: best.rotation, distance: best.distance });
       return 1;
@@ -807,7 +817,7 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       return 0;
     },
     piecesAt: L => {
-      const grid = findGrid(arg(L, 1, 'grid')), point = pointArg(L, 2), placed = placedGrids(state.live);
+      const grid = findGrid(arg(L, 1, 'grid')), point = pointArg(L, 2), placed = placedOn(state.live);
       pushValue(L, state.live.instances.filter(item => { const snap = snapOf(state.live, item, placed); return snap?.grid === grid.key && snap.point === point; }).map(item => pieceInfo(state.live, item)));
       return 1;
     },
