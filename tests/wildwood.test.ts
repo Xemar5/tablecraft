@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyCommand, validateProject } from '../src/domain';
 import { gridAccepts } from '../src/grids';
+import { gridColor } from '../src/GridLayers';
 import { templateBundle } from '../src/templates';
 import { wildwoodProject } from '../src/wildwood';
 
@@ -14,8 +15,9 @@ describe('Wildwood sample', () => {
     const links = project.components.flatMap(component => [...component.front, ...component.back]).filter(node => node.type === 'component');
     expect(links.length).toBeGreaterThanOrEqual(5);
     expect(links.every(node => node.componentId === art[0].id && node.nestedFit === 'contain')).toBe(true);
-    // The table grid is drawn faintly, with a translucent colour.
-    expect(project.grids!.find(grid => grid.id === 'table-grid')!.color).toMatch(/^#[0-9a-f]{8}$/i);
+    // The table grid is drawn faintly, in the default colour at 10% alpha.
+    const table = project.grids!.findIndex(grid => grid.id === 'table-grid');
+    expect(gridColor(project.grids![table], table)).toMatch(/^#[0-9a-f]{6}1a$/i);
   });
 
   it('gathers amber from the persistent supply into the presser’s hand and counts it in memory', () => {
@@ -40,12 +42,13 @@ describe('Wildwood sample', () => {
     expect(moved.scriptLog?.at(-1)?.text).toBe(`${walker.row ? 'Ember' : 'Moss'} wanderer reaches the ${stone.label}.`);
   });
 
-  it('gives illustrated templates their own art, linked and fitted inside', () => {
-    for (const kind of ['card', 'token', 'board'] as const) {
-      const { root, components } = templateBundle(kind);
-      expect(components.map(component => component.kind)).toEqual(['artwork', root.kind]);
-      const links = [...root.front, ...root.back].filter(node => node.type === 'component');
-      expect(links.every(node => node.componentId === components[0].id && node.nestedFit === 'contain')).toBe(true);
-    }
+  it('gives the card template one drawing for every variant, fitted inside its frame without stretching', () => {
+    const { root, components } = templateBundle('card');
+    expect(components).toEqual([root]);
+    expect(root.rows.every(row => !('art' in row))).toBe(true);
+    const frame = root.front.find(node => node.name === 'Art')!;
+    const stem = root.front.find(node => node.parent === frame.id && node.name === 'Stem')!;
+    // The 200 × 180 drawing keeps its proportions: the stem is scaled as much across as along.
+    expect(stem.width / 3).toBeCloseTo(stem.height / 148, 2);
   });
 });

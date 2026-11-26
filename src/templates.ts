@@ -1,5 +1,5 @@
 import { bind, makeNode, uid, type Component, type DesignNode, type Project } from './domain';
-import { amberToken, botanicalArt, forestClearing, spiritCards, spiritDie, wildwoodProject } from './wildwood';
+import { amberToken, forestClearing, spiritCards, spiritDie, wildwoodProject } from './wildwood';
 
 const bookRows = [
   { page: '1', title: 'Welcome, wanderer', text: 'The forest is older than any map.\nRead on to learn its ways.' },
@@ -8,13 +8,12 @@ const bookRows = [
 ];
 
 export type TemplateKind = Exclude<Component['kind'], 'texture' | 'font'> | 'blank';
-/** Kinds whose template shows the botanical art (a linked artwork component, see templateBundle). */
-const ILLUSTRATED: readonly TemplateKind[] = ['card', 'token', 'board'];
 /**
  * A new component of a kind, as **Add component** makes it: the card, token, board and dice templates are Wildwood's
- * own components (see src/wildwood.ts). Illustrated ones link the art component `artId`, or leave an empty linked layer.
+ * own components (see src/wildwood.ts), with their botanical art drawn in (the same for every variant) rather than
+ * linked, so adding one adds no other component.
  */
-export function template(kind: TemplateKind, artId?: string): Component {
+export function template(kind: TemplateKind): Component {
   const base: Component = {
     id: uid('component'), name: 'Untitled component', kind: kind === 'blank' ? 'card' : kind,
     width: 220, height: 308, color: '#e9e5d7', front: [], back: [],
@@ -26,11 +25,11 @@ export function template(kind: TemplateKind, artId?: string): Component {
     Object.assign(base, { name: 'Untitled artwork', width: 200, height: 200, color: 'transparent',
       flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
   } else if (kind === 'card') {
-    return spiritCards(artId);
+    return spiritCards();
   } else if (kind === 'token') {
-    return amberToken(artId);
+    return amberToken();
   } else if (kind === 'board') {
-    return forestClearing(artId);
+    return forestClearing();
   } else if (kind === 'button') {
     // Pressing a button on the table calls the script function chosen as its action.
     Object.assign(base, { name: 'Button', width: 170, height: 56, color: '#365d46', flippable: false, hand: false, hideInHand: false, stackable: false, shufflable: false });
@@ -138,11 +137,10 @@ export function upgradeLegacyArtworkProject(project: Project): Project {
   return components === project.components ? project : { ...project, components };
 }
 
-/** A template with the components it links, dependencies first: the illustrated ones come with their own botanical art. */
+/** A template with the components it links, dependencies first (templates link none, so it is the template alone). */
 export function templateBundle(kind: TemplateKind): { root: Component; components: Component[] } {
-  if (!ILLUSTRATED.includes(kind)) { const root = template(kind); return { root, components: [root] }; }
-  const art = botanicalArt(), root = template(kind, art.id);
-  return { root, components: [art, root] };
+  const root = template(kind);
+  return { root, components: [root] };
 }
 
 /** The sample project a new workspace starts with (see src/wildwood.ts). */

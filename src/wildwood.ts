@@ -27,7 +27,7 @@ const cardRows = [
 const guidePages = [
   { page: '1', title: 'Welcome to Wildwood', text: 'A small sample of what Tablecraft can do. Every piece here is an ordinary component: click a name in the library to open it in the designer.\n\nTurn pages with Shift+Q and Shift+E.' },
   { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it.' },
-  { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, and each wanderer a union of two.' },
+  { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Grids', text: 'The table has a faint square grid. The stepping stones of the Wanderer’s path are a points grid that only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nTurn on the Grids tool (under the select and pan tools) to edit both.' },
   { page: '5', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows.\n\nWanderers announce the stone they reach.' },
   { page: '6', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots from Actions → Save/Load, and invite players to play together.' },
@@ -95,51 +95,76 @@ function component(name: string, kind: Component['kind'], width: number, height:
   return { ...item, csv: csv(item.rows) };
 }
 
+const ART_SIZE = { width: 200, height: 180 };
+type Art = 'fern' | 'moon' | 'sun';
+
+/** One botanical drawing's layers, in a 200 × 180 box (a compound's sources are its children). */
+function artShapes(art: Art): DesignNode[] {
+  const shape = (name: string, values: Partial<DesignNode>) => makeNode('shape', { name, fill: '#b5c391', ...values });
+  if (art === 'fern') {
+    return [
+      shape('Stem', { x: 98, y: 27, width: 3, height: 148, rotation: 3 }),
+      ...Array.from({ length: 7 }, (_, i) => {
+        const y = 35 + i * 17, w = 22 + Math.sin(i / 7 * Math.PI) * 27;
+        return [
+          shape(`Left leaf ${i + 1}`, { shapeKind: 'ellipse', x: 98 - w, y, width: w, height: 13, rotation: 32, opacity: .7 + i * .04 }),
+          shape(`Right leaf ${i + 1}`, { shapeKind: 'ellipse', x: 100, y: y - 4, width: w, height: 13, rotation: -32, opacity: .7 + i * .04 }),
+        ];
+      }).flat(),
+      ...[[45, 37], [151, 71], [143, 146]].map(([x, y], i) => shape(`Star ${i + 1}`, { shapeKind: 'ellipse', x, y, width: 4, height: 4, fill: '#e1cf9e' })),
+    ];
+  }
+  if (art === 'moon') {
+    // A true crescent: the shadow disc is cut out of the moon (a live Subtract compound), so it works on any background.
+    const moon = makeNode('compound', { name: 'Moon', x: 64, y: 25, width: 84, height: 81, fill: '#d9d9b2', compoundOperation: 'subtract' });
+    return [moon,
+      shape('Moon disc', { parent: moon.id, shapeKind: 'ellipse', x: 0, y: 9, width: 72, height: 72, fill: '#d9d9b2' }),
+      shape('Moon shadow', { parent: moon.id, shapeKind: 'ellipse', x: 18, y: 0, width: 66, height: 66, fill: '#d9d9b2' }),
+      ...[30, 60, 135, 162].map((x, i) => shape(`Tree ${i + 1}`, { shapeKind: 'polygon', sides: 3, x, y: 70 + i * 4, width: 12, height: 28, opacity: .45 })),
+    ];
+  }
+  return [
+    shape('Sun', { shapeKind: 'ellipse', x: 68, y: 50, width: 64, height: 64, fill: '#ead39a' }),
+    ...Array.from({ length: 12 }, (_, i) => shape(`Sun ray ${i + 1}`,
+      { x: 99 + Math.sin(i * Math.PI / 6) * 60, y: 74 - Math.cos(i * Math.PI / 6) * 60, width: 2, height: 15, rotation: i * 30, fill: '#ead39a' })),
+  ];
+}
+
 /**
- * A layer showing the botanical art, fitted inside its box. Without `art` (a variant), it follows the parent's own `art`
- * field; without an art component it is an empty linked layer to choose one for.
+ * The botanical art in a box, fitted inside it. With an art component (`artId`), a linked layer: of the `art` variant,
+ * or following the parent's own `art` field without one. Without, the drawing itself (`art`, a fern by default) in an
+ * `Art` frame, the same for every variant: what **Add component** templates use, so they bring no extra component.
  */
-function artLayer(artId: string | undefined, values: Partial<DesignNode>, art?: string): DesignNode {
-  return makeNode('component', { name: 'Art', fill: 'transparent', nestedFit: 'contain', ...values, ...artId ? { componentId: artId } : {},
-    ...art ? { dataSource: 'row', dataRow: ART_VARIANTS.indexOf(art) } : { dataSource: 'inherit' } });
+function artLayer(artId: string | undefined, values: Partial<DesignNode> & Pick<DesignNode, 'x' | 'y' | 'width' | 'height'>, art?: Art): DesignNode[] {
+  if (artId) return [makeNode('component', { name: 'Art', fill: 'transparent', nestedFit: 'contain', ...values, componentId: artId,
+    ...art ? { dataSource: 'row', dataRow: ART_VARIANTS.indexOf(art) } : { dataSource: 'inherit' } })];
+  const frame = makeNode('frame', { name: 'Art', fill: 'transparent', layout: 'absolute', padding: 0, ...values });
+  const scale = Math.min(values.width / ART_SIZE.width, values.height / ART_SIZE.height);
+  const left = (values.width - ART_SIZE.width * scale) / 2, top = (values.height - ART_SIZE.height * scale) / 2;
+  const round = (value: number) => Math.round(value * 100) / 100;
+  return [frame, ...artShapes(art ?? 'fern').map(node => ({ ...node, parent: node.parent ?? frame.id,
+    x: round((node.parent ? 0 : left) + node.x * scale), y: round((node.parent ? 0 : top) + node.y * scale),
+    // Layers are at least 1 px across (the smallest a layer can be), which only thickens the finest strokes.
+    width: Math.max(1, round(node.width * scale)), height: Math.max(1, round(node.height * scale)) }))];
 }
 
 /** The fern, moon and sun drawings: one artwork component whose `art` field picks the variant. */
 export function botanicalArt(): Component {
-  const front: DesignNode[] = [];
-  const add = (name: string, art: string, values: Partial<DesignNode>) => {
-    const node = makeNode('shape', { name, fill: '#b5c391', ...values, ...when('art', art) });
-    front.push(node);
-    return node;
-  };
-  add('Stem', 'fern', { x: 98, y: 27, width: 3, height: 148, rotation: 3 });
-  for (let i = 0; i < 7; i++) {
-    const y = 35 + i * 17, w = 22 + Math.sin(i / 7 * Math.PI) * 27;
-    add(`Left leaf ${i + 1}`, 'fern', { shapeKind: 'ellipse', x: 98 - w, y, width: w, height: 13, rotation: 32, opacity: .7 + i * .04 });
-    add(`Right leaf ${i + 1}`, 'fern', { shapeKind: 'ellipse', x: 100, y: y - 4, width: w, height: 13, rotation: -32, opacity: .7 + i * .04 });
-  }
-  [[45, 37], [151, 71], [143, 146]].forEach(([x, y], i) => add(`Star ${i + 1}`, 'fern', { shapeKind: 'ellipse', x, y, width: 4, height: 4, fill: '#e1cf9e' }));
-  // A true crescent: the shadow disc is cut out of the moon (a live Subtract compound), so it works on any background.
-  const moon = makeNode('compound', { name: 'Moon', x: 64, y: 25, width: 84, height: 81, fill: '#d9d9b2', compoundOperation: 'subtract', ...when('art', 'moon') });
-  front.push(moon,
-    makeNode('shape', { name: 'Moon disc', parent: moon.id, shapeKind: 'ellipse', x: 0, y: 9, width: 72, height: 72, fill: '#d9d9b2' }),
-    makeNode('shape', { name: 'Moon shadow', parent: moon.id, shapeKind: 'ellipse', x: 18, y: 0, width: 66, height: 66, fill: '#d9d9b2' }));
-  [30, 60, 135, 162].forEach((x, i) => add(`Tree ${i + 1}`, 'moon', { shapeKind: 'polygon', sides: 3, x, y: 70 + i * 4, width: 12, height: 28, opacity: .45 }));
-  add('Sun', 'sun', { shapeKind: 'ellipse', x: 68, y: 50, width: 64, height: 64, fill: '#ead39a' });
-  for (let i = 0; i < 12; i++) {
-    const angle = i * Math.PI / 6;
-    add(`Sun ray ${i + 1}`, 'sun', { x: 99 + Math.sin(angle) * 60, y: 74 - Math.cos(angle) * 60, width: 2, height: 15, rotation: i * 30, fill: '#ead39a' });
-  }
-  return component('Botanical artwork', 'artwork', 200, 180, { rows: ART_ROWS, front });
+  // Each drawing shows for its own variant (a compound's sources go with it).
+  const front = ART_VARIANTS.flatMap(art => artShapes(art as Art).map(node => node.parent ? node : { ...node, ...when('art', art) }));
+  // The same drawing on the back, so a printed piece of it has one.
+  return component('Botanical artwork', 'artwork', ART_SIZE.width, ART_SIZE.height, { rows: ART_ROWS, front, back: front.map(node => ({ ...node })) });
 }
 
 export function spiritCards(artId?: string): Component {
+  // Without linked art every card shows the same drawing, so the rows need no art field.
+  const rows = artId ? cardRows : cardRows.map(({ art: _, ...row }) => row);
   return component('Spirit cards', 'card', 220, 308, {
-    color: '#e9e5d7', flippable: true, hand: true, hideInHand: true, stackable: true, shufflable: true, stackTags: ['spirit'], rows: cardRows,
+    color: '#e9e5d7', flippable: true, hand: true, hideInHand: true, stackable: true, shufflable: true, stackTags: ['spirit'], rows,
     front: [
       makeNode('shape', { name: 'Card border', x: 6, y: 6, width: 208, height: 296, fill: '#e9e5d7', radius: 10 }),
       makeNode('shape', { name: 'Illustration', x: 14, y: 14, width: 192, height: 168, fill: FOREST, radius: 6 }),
-      artLayer(artId, { x: 22, y: 22, width: 176, height: 152 }),
+      ...artLayer(artId, { x: 22, y: 22, width: 176, height: 152 }),
       makeNode('shape', { name: 'Cost badge', x: 24, y: 24, width: 30, height: 30, fill: '#e9dcb6', radius: 30 }),
       makeNode('text', { name: 'Cost', x: 24, y: 26, width: 30, height: 26, text: '{{cost}}', fontSize: 17, align: 'center' }),
       makeNode('text', { name: 'Card name', x: 18, y: 193, width: 186, height: 27, text: '{{name}}', fontSize: 20, font: 'Lora' }),
@@ -149,7 +174,7 @@ export function spiritCards(artId?: string): Component {
     ],
     back: [
       makeNode('shape', { name: 'Back field', x: 0, y: 0, width: 220, height: 308, fill: FOREST, radius: 12 }),
-      artLayer(artId, { x: 30, y: 46, width: 160, height: 150 }, 'fern'),
+      ...artLayer(artId, { x: 30, y: 46, width: 160, height: 150 }, 'fern'),
       makeNode('text', { name: 'Back title', x: 15, y: 225, width: 190, height: 28, text: 'W I L D W O O D', color: '#e8d8ae', font: 'Lora', fontSize: 16, align: 'center' }),
     ],
   });
@@ -160,7 +185,7 @@ export function amberToken(artId?: string): Component {
     color: '#d39b3a', hand: true, stackable: true, stackTags: ['amber'],
     front: [
       makeNode('shape', { name: 'Token face', shapeKind: 'ellipse', x: 3, y: 3, width: 74, height: 74, fill: '#d39b3a', stroke: '#a8722a', strokeWidth: 2 }),
-      artLayer(artId, { x: 10, y: 12, width: 60, height: 54 }, 'sun'),
+      ...artLayer(artId, { x: 10, y: 12, width: 60, height: 54 }, 'sun'),
     ],
   });
 }
@@ -170,7 +195,7 @@ export function forestClearing(artId?: string): Component {
     color: '#263e35',
     front: [
       makeNode('shape', { name: 'Clearing', x: 12, y: 12, width: 616, height: 396, radius: 200, fill: '#304c3e' }),
-      artLayer(artId, { x: 170, y: 70, width: 300, height: 300, opacity: .55 }, 'fern'),
+      ...artLayer(artId, { x: 170, y: 70, width: 300, height: 300, opacity: .55 }, 'fern'),
       makeNode('text', { name: 'Board title', x: 160, y: 34, width: 320, height: 44, text: 'THE CLEARING', font: 'Lora', fontSize: 25, color: '#d8d6b7', align: 'center' }),
     ],
   });
@@ -209,14 +234,21 @@ function wanderersPath(): Component {
   return component('Wanderer’s path', 'board', PATH.width, PATH.height, { color: '#263e35', front });
 }
 
+/**
+ * A page is a vertical stack: the chapter line and the title hug their text (a title can take one line or two), the
+ * body fills the rest, and all three span the page's width.
+ */
 function wanderersGuide(): Component {
+  const page = makeNode('frame', { name: 'Page', x: 22, y: 22, width: 196, height: 256, fill: 'transparent', layout: 'column', gap: 8, padding: 0, align: 'start' });
+  const stacked = (name: string, values: Partial<DesignNode>) => makeNode('text', { name, parent: page.id, widthMode: 'fill', heightMode: 'hug', align: 'center', verticalAlign: 'start', ...values });
   return component('Wanderer’s guide', 'book', 240, 320, {
     color: '#f3eedf', rows: guidePages,
     front: [
       makeNode('shape', { name: 'Page edge', x: 8, y: 8, width: 224, height: 304, fill: 'transparent', stroke: '#c9bf9f', strokeWidth: 1.5, radius: 6 }),
-      makeNode('text', { name: 'Chapter', x: 20, y: 24, width: 200, height: 16, text: 'THE WANDERER’S GUIDE', fontSize: 8, letterSpacing: 1.5, color: '#9a9172', align: 'center' }),
-      makeNode('text', { name: 'Title', x: 20, y: 42, width: 200, height: 46, text: '{{title}}', fontSize: 18, lineHeight: 1.15, font: 'Lora', align: 'center', verticalAlign: 'center', color: '#24413a' }),
-      makeNode('text', { name: 'Body', x: 24, y: 96, width: 192, height: 184, text: '{{text}}', fontSize: 10, lineHeight: 1.45, color: '#4e5b4f', align: 'start', verticalAlign: 'start' }),
+      page,
+      stacked('Chapter', { text: 'THE WANDERER’S GUIDE', fontSize: 8, letterSpacing: 1.5, color: '#9a9172' }),
+      stacked('Title', { text: '{{title}}', fontSize: 18, lineHeight: 1.15, font: 'Lora', color: '#24413a', marginBottom: 4 }),
+      stacked('Body', { text: '{{text}}', heightMode: 'fill', fontSize: 10, lineHeight: 1.45, color: '#4e5b4f', align: 'start' }),
       makeNode('text', { name: 'Page number', x: 90, y: 284, width: 60, height: 18, text: '{{page}}', fontSize: 9, color: '#9a9172', align: 'center' }),
     ],
   });
@@ -229,12 +261,12 @@ function gatherButton(): Component {
   });
 }
 
-function amberTally(artId?: string): Component {
+function amberTally(artId: string): Component {
   return component('Amber tally', 'card', 150, 92, {
     color: '#f3eedf', previewWhenLocked: true,
     front: [
       makeNode('shape', { name: 'Sun disc', shapeKind: 'ellipse', x: 12, y: 22, width: 48, height: 48, fill: '#d39b3a' }),
-      artLayer(artId, { x: 16, y: 26, width: 40, height: 40 }, 'sun'),
+      ...artLayer(artId, { x: 16, y: 26, width: 40, height: 40 }, 'sun'),
       makeNode('text', { name: 'Label', x: 66, y: 18, width: 76, height: 14, text: 'AMBER GATHERED', fontSize: 7, letterSpacing: 1.2, color: '#7d806c', align: 'start' }),
       // Bound to script memory: the number changes as Gather amber counts.
       makeNode('text', { name: 'Count', x: 66, y: 32, width: 76, height: 40, text: '{{memory.gathered}}', fontSize: 30, font: 'Lora', color: '#24413a', align: 'start', verticalAlign: 'center' }),
@@ -242,7 +274,14 @@ function amberTally(artId?: string): Component {
   });
 }
 
-export function wildwoodProject(): Project {
+export const WILDWOOD = { name: 'Wildwood', description: 'A little magic. A lot of possibility.' };
+
+/**
+ * The sample, laid out like the ready-to-play games (see src/gameProjects.ts): your profile takes the first seat, every
+ * piece is filed in a Pieces-panel group, the boards are held by their groups' locks, and the starting piles (the
+ * spirit deck and the amber supply) are persistent stacks that take only their own kind back.
+ */
+export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.description, profile = { name: 'Player 1', color: '#b7cc91' }): Project {
   const art = botanicalArt();
   const card = spiritCards(art.id), token = amberToken(art.id), board = forestClearing(art.id), die = spiritDie();
   const walker = wanderer(), path = wanderersPath(), guide = wanderersGuide(), button = gatherButton(), tally = amberTally(art.id);
@@ -251,19 +290,22 @@ export function wildwoodProject(): Project {
   }));
   const supply = { x: 600, y: 640 };
   const groups: PieceGroup[] = [
+    { id: 'group-clearing', name: 'Clearing', parent: null, locked: true },
+    { id: 'group-spirits', name: 'Spirit cards', parent: null },
+    { id: 'group-amber', name: 'Amber and die', parent: null },
     { id: 'group-path', name: 'Wanderer’s path', parent: null, locked: true },
     { id: 'group-wanderers', name: 'Wanderers', parent: null },
     { id: 'group-guide', name: 'Guide and controls', parent: null },
   ];
   const pathAt = { x: 1500, y: 440 };
   const instances: Instance[] = [
-    { ...makeInstance(board.id, 0, 1050, 430), scale: 0.85, locked: true },
-    ...deck,
-    ...[0, 1, 2].map((row, i) => ({ ...makeInstance(card.id, row, 810 + i * 185, 460 + (i % 2) * 22), scale: 0.72, rotation: (i - 1) * 5 })),
-    ...Array.from({ length: 5 }, (_, i) => ({ ...makeInstance(token.id, 0, 790 + i * 62, 740), scale: 0.65 })),
-    { ...makeInstance(die.id, 3, 1200, 720), scale: 0.85, rotation: 12 },
+    { ...makeInstance(board.id, 0, 1050, 430), scale: 0.85, group: 'group-clearing' },
+    ...deck.map(item => ({ ...item, group: 'group-spirits' })),
+    ...[0, 1, 2].map((row, i) => ({ ...makeInstance(card.id, row, 810 + i * 185, 460 + (i % 2) * 22), scale: 0.72, rotation: (i - 1) * 5, group: 'group-spirits' })),
+    ...Array.from({ length: 5 }, (_, i) => ({ ...makeInstance(token.id, 0, 790 + i * 62, 740), scale: 0.65, group: 'group-amber' })),
+    { ...makeInstance(die.id, 3, 1200, 720), scale: 0.85, rotation: 12, group: 'group-amber' },
     // The amber supply: a persistent stack that keeps its place (and takes amber back) even when it runs out.
-    ...Array.from({ length: 8 }, (_, n) => ({ ...makeInstance(token.id, 0, supply.x, supply.y), scale: 0.65, stack: 'amber-supply', order: n })),
+    ...Array.from({ length: 8 }, (_, n) => ({ ...makeInstance(token.id, 0, supply.x, supply.y), scale: 0.65, stack: 'amber-supply', order: n, group: 'group-amber' })),
     { ...makeInstance(path.id, 0, pathAt.x, pathAt.y), group: 'group-path' },
     ...WANDERERS.map((_, row) => ({ ...makeInstance(walker.id, row, pathAt.x - 26 + row * 52, pathAt.y + PATH.height / 2 + 40), group: 'group-wanderers' })),
     { ...makeInstance(guide.id, 0, 330, 420), scale: 0.6, group: 'group-guide' },
@@ -278,19 +320,23 @@ export function wildwoodProject(): Project {
       filter: filterFromTags(['wanderer']),
       points: STONES.map((stone, index) => ({ id: `stone-${index + 1}`, label: stone.name,
         x: pathAt.x - PATH.width / 2 + stone.x, y: pathAt.y - PATH.height / 2 + stone.y })) },
-    { id: 'table-grid', name: 'Table grid', shape: 'square', visible: true, snap: false, size: 25, offsetX: 0, offsetY: 0, color: '#7d9b6040' },
+    // The table grid keeps the default colour: faint, at 10% alpha.
+    { id: 'table-grid', name: 'Table grid', shape: 'square', visible: true, snap: false, size: 25, offsetX: 0, offsetY: 0 },
   ];
   const tableTag = (item: Component) => item.kind === 'artwork' || item.gridTags ? item : { ...item, gridTags: ['table'] };
   return {
-    id: uid('project'), name: 'Wildwood', description: 'A little magic. A lot of possibility.',
+    id: uid('project'), name, description,
     components: [card, token, board, die, art, walker, path, guide, button, tally].map(tableTag),
     instances,
     players: [
-      { id: 'player-1', owner: 'local', name: 'Player 1', color: '#b7cc91', x: 980, y: 1000, rotation: 0 },
+      { id: 'player-1', owner: 'local', name: profile.name, color: profile.color, x: 980, y: 1000, rotation: 0 },
       { id: 'player-2', owner: 'local', name: 'Player 2', color: '#ce9e7b', x: 980, y: 100, rotation: 180 },
     ],
     groups, grids,
-    stacks: [{ id: 'amber-supply', tag: '', filter: filterFromTags(['amber']), x: supply.x, y: supply.y, rotation: 0, scale: 0.65, componentId: token.id }],
+    stacks: [
+      { id: 'starter-deck', tag: '', filter: filterFromTags(['spirit']), x: 600, y: 400, rotation: 0, scale: 0.72, componentId: card.id },
+      { id: 'amber-supply', tag: '', filter: filterFromTags(['amber']), x: supply.x, y: supply.y, rotation: 0, scale: 0.65, componentId: token.id },
+    ],
     settings: { grid: true, snap: false, gridSize: 25, hands: true, turns: false, turn: 0 },
     scripts: [{ id: 'wildwood-script', name: 'Wildwood', source: WILDWOOD_SCRIPT }],
     memory: { gathered: 0 },

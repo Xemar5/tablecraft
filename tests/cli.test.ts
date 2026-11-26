@@ -54,13 +54,13 @@ describe('agent CLI', () => {
     expect(run('list', '--file', file, '--what', 'components').every((item: { kind: string }) => item.kind === 'artwork')).toBe(true);
   }, 30000);
 
-  it('creates, generates linked templates, spawns, exports and imports bundles', () => {
+  it('creates, generates templates, spawns, exports and imports bundles', () => {
     const file = join(dir, 'game.json'), other = join(dir, 'other.json'), bundle = join(dir, 'card.json');
     run('new', '--out', file, '--template', 'blank');
     expect(fail('new', '--out', file)).toMatch(/exist/i);
     const component = run('generate', '--file', file, '--template', 'card').component;
-    const project = run('inspect', '--file', file);
-    expect(project.components.length).toBeGreaterThan(1);
+    // A template draws its art in, so it adds just itself.
+    expect(run('inspect', '--file', file).components).toHaveLength(1);
     run('spawn', '--file', file, '--component', component.id, '--count', '2');
     expect(run('list', '--file', file, '--what', 'instances')).toHaveLength(2);
     run('export', '--file', file, '--component', component.id, '--out', bundle);
@@ -90,7 +90,7 @@ describe('agent CLI', () => {
     run('new', '--out', file, '--template', 'wildwood');
     // Wildwood has groups of its own; these checks look only at the ones made here.
     const instances: { id: string; stack: string | null; group?: string }[] = run('list', '--file', file, '--what', 'instances');
-    const deck = instances.find(i => i.stack === 'starter-deck')!, loose = instances.filter(i => !i.stack && !i.group);
+    const deck = instances.find(i => i.stack === 'starter-deck')!, loose = instances.filter(i => !i.stack);
     const ours = <T extends { id: string }>(groups: T[]) => groups.filter(group => ['deck', 'outer'].includes(group.id));
     const created = run('group', 'create', '--file', file, '--name', 'Deck', '--pieces', deck.id, '--id', 'deck');
     expect(ours(created.groups)).toEqual([{ id: 'deck', name: 'Deck', parent: null }]);

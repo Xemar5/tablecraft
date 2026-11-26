@@ -8,6 +8,10 @@ test('New project can start from a ready-to-play game, which fills in its name a
   const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
   const start = dialog.getByRole('group', { name: 'Start from' });
   await expect(start.getByRole('radio', { name: /^Blank project/ })).toBeChecked();
+  // Wildwood, the sample tour, is offered first; Backgammon isn't offered.
+  await expect(start.getByRole('radio')).toHaveCount(6);
+  await expect(start.getByRole('radio').nth(1)).toHaveAccessibleName(/^Wildwood/);
+  await expect(start.getByRole('radio', { name: /^Backgammon/ })).toHaveCount(0);
   await start.getByRole('radio', { name: /^Tidewater Isles/ }).check();
   await expect(dialog.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Tidewater Isles');
   await expect(dialog.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue(/tidal archipelago/);

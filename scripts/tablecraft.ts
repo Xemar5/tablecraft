@@ -17,7 +17,7 @@ import { refreshProjectLinks } from '../src/projectLinks';
 const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzero exit.
 Usage: npm --silent run cli -- <command> [options]
 
-  new --out FILE [--template blank|wildwood|chess|checkers|backgammon|go|tidewater] [--name NAME] [--force]
+  new --out FILE [--template blank|wildwood|chess|checkers|go|tidewater] [--name NAME] [--force]
   generate --file FILE --template blank|card|token|board|dice|book|artwork|button [--name NAME] [--data JSON_FILE]
   import --file FILE --bundle COMPONENT_ZIP
   list --file FILE [--what components|instances|players|groups]
@@ -61,7 +61,7 @@ options: --name, --show on|off, --snap on|off, --size N (square cell width, hex 
 between cells), --size-y N (square cell height), --offset-x/--offset-y N, --orientation
 pointy|flat (hex), --rotation DEG (pieces snapped to it turn to it; "none" clears it), --radius
 N (points grids' snap distance), --tags A,B (it takes pieces with any of these grid tags;
-"none" takes every piece). grid point adds a snap point to a points grid. The chess, checkers, backgammon, go
+"none" takes every piece). grid point adds a snap point to a points grid. The wildwood, chess, checkers, go
 and tidewater templates are ready-to-play games with grouped, partly locked pieces. Book pages and dice faces
 step with {"type":"cycleVariant","ids":[...],"delta":1} in apply.
 Scripts are Lua 5.3, run in order by the shared command engine (onLoad runs when they

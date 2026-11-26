@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ComponentView } from '../src/ComponentView';
 import { applyCommand, makeNode, nodeSchema, validateProject, type Component, type Project } from '../src/domain';
 import { exportComponentBundle, parseArchive, parseComponentBundle, remapComponentBundle } from '../src/storage';
-import { template, templateBundle, upgradeLegacyArtworkProject } from '../src/templates';
+import { template, upgradeLegacyArtworkProject } from '../src/templates';
+import { botanicalArt, spiritCards } from '../src/wildwood';
 
 function component(id: string, name: string, rows: Record<string, string>[] = [], front = [] as Component['front']): Component {
   return { ...template('blank'), id, name, width: 120, height: 80, rows, front };
@@ -96,8 +97,9 @@ describe('nested linked components', () => {
     expect(applyCommand(linkedProject, { type: 'removeComponent', id: parent.id }).components).toHaveLength(1);
   });
 
-  it('creates linked editable template art and switches it by inherited data', () => {
-    const bundle = templateBundle('card');
+  it('links editable sample art that switches by inherited data', () => {
+    const art0 = botanicalArt(), card = spiritCards(art0.id);
+    const bundle = { root: card, components: [art0, card] };
     validateProject(project(bundle.components));
     const art = bundle.components.find(item => item.name.includes('Botanical artwork') && item.front.some(node => node.visibilityField))!;
     expect(art.front.every(node => node.type === 'shape' || node.type === 'compound')).toBe(true);

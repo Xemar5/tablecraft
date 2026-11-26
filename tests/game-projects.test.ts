@@ -44,7 +44,7 @@ describe('game projects', () => {
       // Boards are held in place by their group's lock rather than their own, so unlocking the group frees them.
       expect(heldByGroup(project, project.instances.filter(item => kind(project, item.componentId) === 'board'))).toBe(true);
     }
-    for (const id of ['chess', 'checkers', 'backgammon', 'go'] as const) {
+    for (const id of ['chess', 'checkers', 'go'] as const) {
       const project = build(id);
       expect(lockedGroups(project)).toEqual(['Board']);
       expect(named(project, 'Board')).toHaveLength(1);
@@ -54,8 +54,9 @@ describe('game projects', () => {
     expect(named(chess, 'White pieces').every(item => chess.components[1].rows[item.row].side === 'white' && !item.locked)).toBe(true);
     const checkers = build('checkers');
     expect([named(checkers, 'Light checkers').length, named(checkers, 'Dark checkers').length]).toEqual([12, 12]);
-    const backgammon = build('backgammon');
-    expect([named(backgammon, 'Light checkers').length, named(backgammon, 'Dark checkers').length, named(backgammon, 'Dice and doubling cube').length]).toEqual([15, 15, 3]);
+    const wildwood = build('wildwood');
+    expect(lockedGroups(wildwood)).toEqual(['Clearing', 'Wanderer’s path']);
+    expect([named(wildwood, 'Spirit cards').length, named(wildwood, 'Amber and die').length, named(wildwood, 'Wanderers').length]).toEqual([15, 14, 2]);
     const go = build('go');
     const black = named(go, 'Black stones');
     expect(black.filter(item => item.locked).map(item => go.components.find(component => component.id === item.componentId)!.name)).toEqual(['Stone bowl']);
@@ -79,14 +80,12 @@ describe('game projects', () => {
     }
   });
 
-  it('sets up chess, checkers, backgammon and go', () => {
+  it('sets up chess, checkers and go', () => {
     const chess = build('chess');
     expect(count(chess, 'Chess pieces')).toBe(32);
     expect([0, 1, 2, 3, 4, 5].map(row => count(chess, 'Chess pieces', row))).toEqual([1, 1, 2, 2, 2, 8]);
     expect(count(build('checkers'), 'Checker', 0)).toBe(12);
     expect(count(build('checkers'), 'Checker', 1)).toBe(12);
-    const backgammon = build('backgammon');
-    expect([count(backgammon, 'Backgammon checker', 0), count(backgammon, 'Backgammon checker', 1), count(backgammon, 'Die')]).toEqual([15, 15, 2]);
     const go = build('go');
     expect([count(go, 'Go stone', 0), count(go, 'Go stone', 1)]).toEqual([181, 180]);
     expect(new Set(go.instances.filter(instance => instance.stack).map(instance => instance.stack)).size).toBe(2);
@@ -186,7 +185,6 @@ describe('game projects', () => {
     const steps = (project: Project) => Object.fromEntries(project.components.filter(component => component.rotationStep).map(component => [component.name, component.rotationStep]));
     expect(steps(build('chess'))).toEqual({ 'Chess board': 180, 'Chess pieces': 180 });
     expect(steps(build('checkers'))).toEqual({ 'Checkers board': 180 });
-    expect(steps(build('backgammon'))).toEqual({ 'Backgammon board': 180, 'Doubling cube': 180 });
     expect(steps(build('go'))).toEqual({});
     const game = build('tidewater');
     expect(steps(game)).toEqual({ 'Island tile': 60, Harbor: 60, Hut: 30, Lighthouse: 30, Boardwalk: 60 });
@@ -211,7 +209,8 @@ describe('game projects', () => {
         expect(record.filter, record.id).toEqual({ anyOf: tags.map(tag => ({ has: [tag], lacks: [] })) });
       }
     }
-    expect([build('chess'), build('checkers'), build('backgammon')].map(project => project.stacks)).toEqual([undefined, undefined, undefined]);
+    expect([build('chess'), build('checkers')].map(project => project.stacks)).toEqual([undefined, undefined]);
+    expect(build('wildwood').stacks!.map(record => record.id)).toEqual(['starter-deck', 'amber-supply']);
     expect(build('go').stacks).toHaveLength(2);
     // Tidewater: five resource piles, the tide card deck, and a hut, lighthouse and boardwalk pile per player.
     const game = build('tidewater');
@@ -240,19 +239,6 @@ describe('game projects', () => {
     expect(snapTarget(game, componentNamed(game, 'Squall'), point.x + 12, point.y - 10)).toMatchObject({ grid: 'grid-slots', point: point.id, x: point.x, y: point.y });
     expect(snapTarget(game, componentNamed(game, 'Hut'), point.x, point.y)?.grid).not.toBe('grid-slots');
     expect(snapTarget(game, componentNamed(game, 'Resource'), point.x, point.y)).toBeUndefined();
-  });
-
-  it('snaps backgammon checkers to spots along the points and on the bar', () => {
-    const game = build('backgammon');
-    const spots = game.grids!.find(grid => grid.id === 'grid-spots')!;
-    expect(spots.points).toHaveLength(24 * 5 + 2 * 5);
-    // The starting checkers all sit on spots.
-    for (const piece of piecesOf(game, 'Backgammon checker')) expect(snapOf(game, piece)?.grid).toBe('grid-spots');
-    const checker = componentNamed(game, 'Backgammon checker'), first = spots.points![0];
-    expect(snapTarget(game, checker, first.x + 15, first.y + 10)).toMatchObject({ point: first.id, x: first.x, y: first.y });
-    // Far from every spot (the bear-off tray), and for the dice and cube, nothing snaps.
-    expect(snapTarget(game, checker, 980 + 330, 550)).toBeUndefined();
-    for (const name of ['Die', 'Doubling cube', 'Backgammon board']) expect(snapTarget(game, componentNamed(game, name), first.x, first.y), name).toBeUndefined();
   });
 
   describe("Tidewater's rules script", () => {
@@ -447,7 +433,7 @@ describe('game projects', () => {
       const placed = game.instances.filter(instance => !instance.stack && game.components.find(component => component.id === instance.componentId)?.name === piece);
       for (const instance of placed) expect([snapToGrid(instance.x, size, gridOffsetX), snapToGrid(instance.y, size, gridOffsetY)]).toEqual([instance.x, instance.y]);
     }
-    for (const id of ['backgammon', 'tidewater'] as const) expect(build(id).settings).toMatchObject({ grid: false, snap: false });
+    expect(build('tidewater').settings).toMatchObject({ grid: false, snap: false });
   });
 
   it('snaps to grid points at the offset plus whole cells', () => {

@@ -30,14 +30,14 @@ describe('Artwork components', () => {
     expect(template('dice')).toMatchObject({ kind: 'dice', rows: Array.from({ length: 6 }, (_, i) => ({ value: String(i + 1) })) });
   });
 
-  it('uses artwork for the linked botanical assets without retyping their parents', () => {
+  it("draws the illustrated templates' botanical art in, adding no artwork component", () => {
     for (const kind of ['card', 'token', 'board'] as const) {
       const bundle = templateBundle(kind);
       expect(bundle.root.kind).toBe(kind);
-      const dependencies = bundle.components.filter(item => item.id !== bundle.root.id);
-      expect(dependencies.length).toBeGreaterThan(0);
-      expect(dependencies.every(item => item.kind === 'artwork' && item.color === 'transparent')).toBe(true);
-      expect(dependencies.every(item => item.front.length > 0 && item.front.every(node => node.type === 'shape' || node.type === 'compound'))).toBe(true);
+      expect(bundle.components).toEqual([bundle.root]);
+      const art = bundle.root.front.find(node => node.type === 'frame' && node.name === 'Art')!;
+      expect(bundle.root.front.filter(node => node.parent === art.id).every(node => node.type === 'shape' && !node.visibilityField)).toBe(true);
+      expect(bundle.root.front.some(node => node.type === 'component')).toBe(false);
       validateProject(project(bundle.components));
     }
   });

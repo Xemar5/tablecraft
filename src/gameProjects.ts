@@ -2,22 +2,23 @@ import { componentTags, makeInstance, makeNode, nextSeatPlacement, uid, type Com
 import { hexCorners, type Grid } from './grids';
 import { filterFromTags } from './tags';
 import { TIDEWATER_SCRIPT } from './tidewaterScript';
+import { WILDWOOD, wildwoodProject } from './wildwood';
 
 /**
- * Ready-to-play projects offered under **New project**: four classic public-domain board games and Tidewater Isles,
- * an original hex-island trading game. Everything is built from ordinary components, so every piece stays editable.
+ * Ready-to-play projects offered under **New project**: Wildwood (the sample tour of Tablecraft, src/wildwood.ts),
+ * three classic public-domain board games and Tidewater Isles, an original hex-island trading game. Everything is built from ordinary components, so every piece stays editable.
  * Each side's or player's pieces sit in a named group in the Pieces panel. Parts that never move during play are
  * locked so pieces can be dragged and box-selected over them: whole groups (each board, the laid-out island) through
  * the group's lock, and single pieces among moving ones (Go's stone bowls, reference cards) through their own.
  */
-export type GameProjectId = 'chess' | 'checkers' | 'backgammon' | 'go' | 'tidewater';
+export type GameProjectId = 'wildwood' | 'chess' | 'checkers' | 'go' | 'tidewater';
 export const GAME_PROJECTS: readonly { id: GameProjectId; name: string; summary: string; description: string }[] = [
+  { id: 'wildwood', name: WILDWOOD.name, summary: '2 players · a tour of what Tablecraft can do',
+    description: `${WILDWOOD.description} A sample of cards, linked art, grids, scripts and memory; the Wanderer’s guide explains each part.` },
   { id: 'chess', name: 'Chess', summary: '2 players · board and 32 pieces',
     description: 'The classic game of kings. White moves first; checkmate the opposing king to win.' },
   { id: 'checkers', name: 'Checkers', summary: '2 players · board and 24 checkers',
     description: 'Jump and capture on the dark squares. Flip a checker that reaches the far row to crown it king.' },
-  { id: 'backgammon', name: 'Backgammon', summary: '2 players · board, 30 checkers, dice and doubling cube',
-    description: 'Race your fifteen checkers around the board and bear them off before your opponent does.' },
   { id: 'go', name: 'Go', summary: '2 players · 19×19 board and stone bowls',
     description: 'Place stones to surround territory. Shift-drag a stone off its bowl to play it.' },
   { id: 'tidewater', name: 'Tidewater Isles', summary: '3–4 players · hex islands, trading and building',
@@ -214,62 +215,6 @@ export function checkersProject(name: string, description: string, profile: Prof
     ...into(add('Light checkers'), side(0, [0, 1, 2])), ...into(add('Dark checkers'), side(1, [5, 6, 7])),
   ];
   return project(name, description, [board, checker], instances, seats(profile, ['#f1e6cc', '#a8382e']), groups, false, boardGrid(60, square(0, 0)));
-}
-
-// Backgammon points are numbered from the light player's side: 1–6 bottom right (light's home), 7–12 bottom left,
-// 13–18 top left and 19–24 top right. Light moves from 24 down to 1; dark the other way.
-const POINT_WIDTH = 50, POINT_HEIGHT = 200;
-function pointX(point: number) {
-  const right = point <= 6 || point >= 19, column = point <= 6 ? 6 - point : point <= 12 ? 12 - point : point <= 18 ? point - 13 : point - 19;
-  return (right ? 360 : 20) + POINT_WIDTH / 2 + column * POINT_WIDTH;
-}
-export function backgammonProject(name: string, description: string, profile: Profile): Project {
-  const front: DesignNode[] = [
-    shape('Frame', { x: 0, y: 0, width: 760, height: 560, fill: '#5c3a24', radius: 16 }),
-    shape('Outer table', { x: 20, y: 30, width: 300, height: 500, fill: '#e9d9b4' }),
-    shape('Home table', { x: 360, y: 30, width: 300, height: 500, fill: '#e9d9b4' }),
-    shape('Bar', { x: 320, y: 20, width: 40, height: 520, fill: '#4a2f1f', radius: 4 }),
-    shape('Bear-off tray', { x: 680, y: 30, width: 60, height: 500, fill: '#3e2717', radius: 6 }),
-    label('Tray label', { x: 680, y: 268, width: 60, height: 24, text: 'OFF', fontSize: 11, letterSpacing: 2, color: '#d9c39a' }),
-  ];
-  for (let point = 1; point <= 24; point++) {
-    const top = point >= 13, x = pointX(point) - POINT_WIDTH / 2;
-    front.push(shape(`Point ${point}`, { shapeKind: 'path', x, y: top ? 30 : 530 - POINT_HEIGHT, width: POINT_WIDTH, height: POINT_HEIGHT,
-      fill: point % 2 ? '#9b3b2e' : '#2e5450', points: outline(top ? [[0, 0], [50, 0], [25, 200]] : [[0, 200], [50, 200], [25, 0]]) }));
-    front.push(label(`Point ${point} number`, { x, y: top ? 8 : 534, width: POINT_WIDTH, height: 18, text: String(point), fontSize: 10, color: '#d9c39a' }));
-  }
-  const board = component('Backgammon board', 'board', 760, 560, { color: '#5c3a24', front, rotationStep: 180 });
-  const checkerSides = [{ side: 'light', fill: '#f2e8d0', edge: '#9d8a5f' }, { side: 'dark', fill: '#2d2a28', edge: '#8e8576' }];
-  const checker = component('Backgammon checker', 'token', 40, 40, {
-    gridTags: ['checker'], rows: [{ name: 'Light checker', side: 'light' }, { name: 'Dark checker', side: 'dark' }],
-    front: checkerFaces(40, checkerSides, false), back: checkerFaces(40, checkerSides, false),
-  });
-  const die = pipDie('Die', '#f4efe2', '#2b2622');
-  const cube = component('Doubling cube', 'dice', 48, 48, { color: '#efe7d2', rotationStep: 180,
-    rows: ['64', '2', '4', '8', '16', '32'].map(value => ({ value })),
-    front: [label('Value', { x: 0, y: 0, width: 48, height: 48, text: '{{value}}', fontSize: 20, font: 'Lora', color: '#3b2a1c' })] });
-  const left = CENTER.x - 380, top = CENTER.y - 280;
-  /** Where the `index`th checker on a point sits: lined up from the point's outer edge towards the middle. */
-  const spot = (point: number, index: number) => ({ x: left + pointX(point), y: point >= 13 ? top + 30 + 20 + index * 40 : top + 530 - 20 - index * 40 });
-  const stackOn = (point: number, count: number, row: number) => Array.from({ length: count }, (_, index) => place(checker, row, spot(point, index).x, spot(point, index).y));
-  // Checkers snap to five spots on each point and five on each half of the bar (hit checkers), within 22 px. Checkers
-  // dropped elsewhere (a sixth on a point, the bear-off tray) stay where they land.
-  const spots = [
-    ...Array.from({ length: 24 }, (_, n) => Array.from({ length: 5 }, (__, index) => ({ id: `point-${n + 1}-${index + 1}`, ...spot(n + 1, index) }))).flat(),
-    ...Array.from({ length: 5 }, (_, index) => [{ id: `bar-top-${index + 1}`, x: left + 340, y: top + 50 + index * 40 }, { id: `bar-bottom-${index + 1}`, x: left + 340, y: top + 510 - index * 40 }]).flat(),
-  ];
-  const grids: Grid[] = [{ id: 'grid-spots', name: 'Checker spots', shape: 'points', visible: false, snap: true, size: 50, offsetX: 0, offsetY: 0, radius: 22, filter: onlyTag('checker'), points: spots }];
-  const { groups, add, into } = grouping();
-  const instances = [
-    ...into(add('Board', null, true), [place(board, 0, CENTER.x, CENTER.y)]),
-    ...into(add('Light checkers'), [...stackOn(24, 2, 0), ...stackOn(13, 5, 0), ...stackOn(8, 3, 0), ...stackOn(6, 5, 0)]),
-    ...into(add('Dark checkers'), [...stackOn(1, 2, 1), ...stackOn(12, 5, 1), ...stackOn(17, 3, 1), ...stackOn(19, 5, 1)]),
-    ...into(add('Dice and doubling cube'), [place(die, 2, CENTER.x + 440, CENTER.y - 40, { rotation: 8 }), place(die, 4, CENTER.x + 445, CENTER.y + 30, { rotation: -6 }),
-      place(cube, 0, left + 340, CENTER.y)]),
-  ];
-  // Only checkers snap; the board, dice and cube move freely.
-  const components = [board, checker, die, cube].map(item => item.gridTags ? item : { ...item, snapToGrid: false });
-  return { ...project(name, description, components, instances, seats(profile, ['#f2e8d0', '#2d2a28']), groups), grids };
 }
 
 export function goProject(name: string, description: string, profile: Profile): Project {
@@ -620,6 +565,6 @@ export function tidewaterProject(name: string, description: string, profile: Pro
 }
 
 export function gameProject(id: GameProjectId, name: string, description: string, profile: Profile): Project {
-  const build = { chess: chessProject, checkers: checkersProject, backgammon: backgammonProject, go: goProject, tidewater: tidewaterProject }[id];
+  const build = { wildwood: wildwoodProject, chess: chessProject, checkers: checkersProject, go: goProject, tidewater: tidewaterProject }[id];
   return build(name, description, profile);
 }
