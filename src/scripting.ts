@@ -73,6 +73,7 @@ export const SCRIPT_API = [
   { name: 'game.setScale', args: '(pieces, scale)', doc: 'Sizes pieces (0.1 to 5).' },
   { name: 'game.lock', args: '(pieces, locked?)', doc: 'Locks pieces in place (or unlocks them with false). Scripts follow locks too: unlock pieces to move them.' },
   { name: 'game.unlock', args: '(pieces)', doc: 'Unlocks pieces.' },
+  { name: 'game.lockOrder', args: '(pieces, locked?)', doc: 'Keeps pieces in their places in the table order and their groups (or lets them go with false); they can still move on the table.' },
   { name: 'game.setRow', args: '(pieces, row)', doc: 'Shows variant, page or face number row (from 1).' },
   { name: 'game.roll', args: '(dice)', doc: 'Rolls dice and returns them; piece.row is the face rolled.' },
   { name: 'game.stack', args: '(pieces)', doc: 'Stacks pieces (the first at the bottom) and returns the stack id.' },
@@ -459,7 +460,7 @@ function pieceInfo(project: Project, item: Instance): PieceInfo {
     id: item.id, componentId: item.componentId, component: component?.name, kind: component?.kind,
     row: item.row + 1, data: component?.rows[item.row] ?? {},
     x: item.x, y: item.y, rotation: item.rotation, scale: item.scale,
-    faceUp: !visibleBack(item), locked: item.locked, holder: item.holder ?? undefined, stack: item.stack ?? undefined, hiddenFrom: item.hiddenFrom ?? [],
+    faceUp: !visibleBack(item), locked: item.locked, orderLocked: !!item.orderLocked, holder: item.holder ?? undefined, stack: item.stack ?? undefined, hiddenFrom: item.hiddenFrom ?? [],
     group: item.group, snap: snapInfo(project, item),
   };
 }
@@ -730,6 +731,11 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     unlock: L => {
       const items = pieces(arg(L, 1, 'pieces'));
       if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { locked: false } });
+      return 0;
+    },
+    lockOrder: L => {
+      const items = pieces(arg(L, 1, 'pieces'));
+      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { orderLocked: arg(L, 2, 'locked') !== false } });
       return 0;
     },
     setRow: L => {

@@ -59,7 +59,7 @@ test('selecting a piece locked on its own leaves the table order alone', async (
   const id = await page.locator('.table-viewport').getByRole('button', { name: 'Spirit cards', exact: true }).first().getAttribute('data-piece-id');
   const card = page.locator(`.table-piece[data-piece-id="${id}"]`);
   await card.click();
-  await page.locator('.action-grid button', { hasText: 'Lock' }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock(?! order)/ }).click();
   await expect(card).toHaveClass(/locked/);
   await page.keyboard.press('Escape');
   const before = await order(page);

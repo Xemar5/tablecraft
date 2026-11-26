@@ -34,6 +34,13 @@ describe('Wildwood sample', () => {
     expect(layer('Wanderer’s guide', 'Page number')).toMatchObject({ pivotX: .5, pivotY: 1, widthMode: 'hug' });
   });
 
+  it('keeps the guide and its controls in their place in the order', () => {
+    const project = wildwoodProject();
+    expect(project.groups!.find(group => group.id === 'group-guide')).toMatchObject({ orderLocked: true });
+    const guide = project.instances.find(item => item.group === 'group-guide')!;
+    expect(() => applyCommand(project, { type: 'zOrder', ids: [guide.id], move: 'back' }, 'player-1')).toThrow('order is locked');
+  });
+
   it('gathers amber from the persistent supply into the presser’s hand and counts it in memory', () => {
     const before = wildwoodProject();
     const supply = () => before.instances.filter(item => item.stack === 'amber-supply');

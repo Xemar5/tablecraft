@@ -184,6 +184,11 @@ export const instanceSchema = z.object({
   id, componentId: id, row: z.number().int().min(0), x: num, y: num,
   rotation: num, scale: num.min(0.1).max(5), flipped: z.boolean(),
   holder: id.nullable(), stack: id.nullable(), order: num, locked: z.boolean(),
+  /**
+   * Keeps the piece in its place in the hierarchy (the Pieces panel): it isn't brought forward, sent back, raised when
+   * clicked, dragged to another place or moved into or out of a group. It can still move on the table; see `locked`.
+   */
+  orderLocked: z.boolean().optional(),
   stackReversed: z.boolean().optional(),
   rolls: z.number().int().min(0).optional(),
   /** Counts shuffles of the stack this piece is in, so every player sees the shuffle animate. */
@@ -210,7 +215,11 @@ export const persistentStackSchema = z.object({
   filter: tagFilterSchema.optional(),
 });
 export type PersistentStack = z.infer<typeof persistentStackSchema>;
-export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(), locked: z.boolean().optional() });
+/**
+ * A Pieces-panel group. `locked` holds its pieces in place on the table; `orderLocked` keeps it, its subgroups and its
+ * pieces in their places in the hierarchy (see Instance.orderLocked).
+ */
+export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(), locked: z.boolean().optional(), orderLocked: z.boolean().optional() });
 export type PieceGroup = z.infer<typeof pieceGroupSchema>;
 export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
@@ -306,7 +315,8 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createGroup'), id, name: pieceGroupSchema.shape.name, parent: id.nullable().default(null),
     ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
   z.object({ type: z.literal('renameGroup'), id, name: pieceGroupSchema.shape.name }),
-  z.object({ type: z.literal('lockGroups'), ids: z.array(id).min(1).max(2000), locked: z.boolean() }),
+  /** Locks or unlocks groups: their pieces' places on the table, or with `order` their places in the hierarchy. */
+  z.object({ type: z.literal('lockGroups'), ids: z.array(id).min(1).max(2000), locked: z.boolean(), order: z.boolean().optional() }),
   /** Makes the stack of `ids` persistent, stacking the pieces first (as `stackId`) when they aren't one stack yet. */
   z.object({ type: z.literal('persistStack'), ids: z.array(id).min(1).max(10000), stackId: id }),
   /** Makes a persistent stack ordinary again (an empty one disappears; a single piece is no longer a stack). */
@@ -332,7 +342,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
   z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
   z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional(), snap: z.boolean().optional() }),
-  z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true }).partial() }),
+  z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true, orderLocked: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(),
     positions: z.array(z.object({ id, x: num, y: num })).min(1).max(10000).optional(),
     rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional(),
@@ -718,20 +728,29 @@ export function groupAncestors(groups: PieceGroup[], id: string | null | undefin
 }
 
 /**
- * The project as play sees it: pieces in a locked group (or in a group inside one) count as locked, while their own
- * `locked` flags stay as they are in the saved project. Returns `p` itself when no group is locked.
+ * The project as play sees it: pieces in a locked group (or in a group inside one) count as locked, and pieces in an
+ * order-locked one as order-locked, while their own flags stay as they are in the saved project. Returns `p` itself
+ * when no group is locked either way.
  */
 export function withGroupLocks(p: Project): Project {
-  const groups = p.groups ?? [], locked = new Set(groups.filter(group => group.locked).map(group => group.id));
-  if (!locked.size) return p;
+  const groups = p.groups ?? [];
+  const locked = new Set(groups.filter(group => group.locked).map(group => group.id)), ordered = new Set(groups.filter(group => group.orderLocked).map(group => group.id));
+  if (!locked.size && !ordered.size) return p;
   let changed = false;
   const instances = p.instances.map(item => {
-    if (item.locked || !item.group || !groupAncestors(groups, item.group).some(id => locked.has(id))) return item;
+    if (!item.group) return item;
+    const around = groupAncestors(groups, item.group);
+    const lock = !item.locked && around.some(id => locked.has(id)), order = !item.orderLocked && around.some(id => ordered.has(id));
+    if (!lock && !order) return item;
     changed = true;
-    return { ...item, locked: true };
+    return { ...item, ...lock ? { locked: true } : {}, ...order ? { orderLocked: true } : {} };
   });
   return changed ? { ...p, instances } : p;
 }
+
+/** Whether a group keeps its place in the hierarchy: its own order lock, or one of a group around it. */
+export const groupOrderLocked = (groups: PieceGroup[], id: string | null | undefined) =>
+  groupAncestors(groups, id).some(key => groups.find(group => group.id === key)?.orderLocked);
 
 /** Rotations land on tenths of a degree, so steps such as 3 × 0.1 or 360 / 7 don't leave floating-point leftovers. */
 export const snapAngle = (degrees: number) => { const snapped = Math.round(degrees * 10) / 10; return snapped === 0 ? 0 : snapped; };
@@ -853,6 +872,13 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
   // A piece is held in place by its own lock or by a locked group around it.
   const lockedByGroup = (i: Instance) => !!i.group && groupAncestors(p.groups ?? [], i.group).some(id => p.groups?.find(group => group.id === id)?.locked);
   const isLocked = (i: Instance) => i.locked || lockedByGroup(i);
+  // A piece keeps its place in the hierarchy (table order and group) by its own order lock or an order-locked group.
+  const isOrderLocked = (i: Instance) => !!i.orderLocked || groupOrderLocked(p.groups ?? [], i.group);
+  const ORDER_LOCKED = 'Its place in the order is locked. Unlock its order first.';
+  /** Refuses to move pieces or groups (with everything in them as one block) to another place in the hierarchy. */
+  const keepOrder = (pieces: Instance[], groups: PieceGroup[] = []) => {
+    if (pieces.some(isOrderLocked) || groups.some(group => groupOrderLocked(p.groups ?? [], group.id))) throw new Error(ORDER_LOCKED);
+  };
   const component = (i: Instance) => {
     const c = p.components.find(c => c.id === i.componentId);
     if (!c) throw new Error('Component no longer exists.');
@@ -1050,7 +1076,8 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       break;
     }
     case 'front': {
-      const items = [...new Set(command.ids)].map(get);
+      // Raising is a side effect of picking pieces up, so order-locked pieces simply stay where they are.
+      const items = [...new Set(command.ids)].map(get).filter(item => !isOrderLocked(item));
       items.forEach(editable);
       p.instances = [...p.instances.filter(i => !items.includes(i)), ...items];
       break;
@@ -1060,6 +1087,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       const { rest, units } = tableUnits();
       const chosen = new Set(units.filter(members => members.some(item => ids.has(item.id))));
       chosen.forEach(members => members.forEach(editable));
+      keepOrder([...chosen].flat());
       const box = (members: Instance[]) => {
         const item = members.at(-1)!, c = component(item), turn = item.rotation * Math.PI / 180;
         const cos = Math.abs(Math.cos(turn)), sin = Math.abs(Math.sin(turn));
@@ -1110,6 +1138,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       if (command.parent && !groups.some(group => group.id === command.parent)) throw new Error('Parent group no longer exists.');
       const pieces = groupedPieces(command.ids), moving = existingGroups(command.groups);
       if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to group.');
+      keepOrder(pieces, moving);
       groups.push({ id: command.id, name: command.name, parent: command.parent });
       regroup(pieces, moving, command.id);
       break;
@@ -1197,10 +1226,13 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       ordered.forEach((i, n) => Object.assign(i, { holder: null, stack: record.id, stackReversed: false, order: members.length + n, x: at.x, y: at.y }));
       break;
     }
-    case 'lockGroups':
-      for (const group of existingGroups(command.ids)) { if (command.locked) group.locked = true; else delete group.locked; }
+    case 'lockGroups': {
+      const key = command.order ? 'orderLocked' : 'locked';
+      for (const group of existingGroups(command.ids)) { if (command.locked) group[key] = true; else delete group[key]; }
       break;
+    }
     case 'ungroup':
+      keepOrder([], existingGroups(command.ids));
       for (const group of existingGroups(command.ids)) {
         p.instances.forEach(item => { if (item.group === group.id) { if (group.parent) item.group = group.parent; else delete item.group; } });
         p.groups!.forEach(child => { if (child.parent === group.id) child.parent = group.parent; });
@@ -1211,6 +1243,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       const pieces = groupedPieces(command.ids), moving = existingGroups(command.groups);
       if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to move.');
       if (command.parent && !(p.groups ?? []).some(group => group.id === command.parent)) throw new Error('Group no longer exists.');
+      keepOrder(pieces, moving);
       regroup(pieces, moving, command.parent);
       break;
     }
@@ -1218,6 +1251,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       const pieces = groupedPieces(command.ids), moving = existingGroups(command.groups);
       if (!pieces.length && !moving.length) throw new Error('Select pieces or groups to move.');
       if (command.parent && !(p.groups ?? []).some(group => group.id === command.parent)) throw new Error('Group no longer exists.');
+      keepOrder(pieces, moving);
       const target = new Set(command.target.map(key => get(key).id));
       regroup(pieces, moving, command.parent);
       const inMoving = (item: Instance) => pieces.includes(item) ||
@@ -1305,9 +1339,11 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       for (const key of command.ids) {
         const item = get(key);
         editable(item);
-        if (item.locked && command.patch.locked !== false) throw new Error('Unlock this component first.');
-        // A piece in a locked group can only change its own lock.
-        if (lockedByGroup(item) && Object.keys(command.patch).some(key => key !== 'locked')) throw new Error('Unlock its group first.');
+        // Its order lock is separate from its place on the table, so it changes even while the piece is held in place.
+        const locksOnly = Object.keys(command.patch).every(key => key === 'orderLocked');
+        if (item.locked && command.patch.locked !== false && !locksOnly) throw new Error('Unlock this component first.');
+        // A piece in a locked group can only change its own locks.
+        if (lockedByGroup(item) && Object.keys(command.patch).some(key => key !== 'locked' && key !== 'orderLocked')) throw new Error('Unlock its group first.');
         if (command.patch.flipped !== undefined && !component(item).flippable) throw new Error('This component is not flippable.');
         Object.assign(item, command.patch);
         if (command.patch.rotation !== undefined) item.rotation = snapAngle(item.rotation);

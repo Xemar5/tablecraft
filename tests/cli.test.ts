@@ -125,6 +125,10 @@ describe('agent CLI', () => {
     expect(run('unlock', '--file', file, '--pieces', stone.id).unlocked).toEqual([]);
     expect(fail('lock', '--file', file)).toMatch(/--pieces or --groups/);
     expect(fail('lock', '--file', file, '--groups', 'missing')).toMatch(/does not exist/);
+    // --order locks places in the order instead: a stone's whole stack, and with group lock the group itself.
+    expect(run('lock', '--file', file, '--pieces', stone.id, '--order')).toMatchObject({ order: true });
+    expect((instances() as (Row & { orderLocked?: boolean })[]).filter(item => item.stack === stone.stack).every(item => item.orderLocked && !item.locked)).toBe(true);
+    expect(run('group', 'lock', '--file', file, '--group', black.id, '--order').groups.find((group: { id: string }) => group.id === black.id)).toMatchObject({ orderLocked: true });
     expect(run('validate', '--file', file).valid).toBe(true);
     const island = join(dir, 'tidewater.json');
     expect(run('new', '--out', island, '--template', 'tidewater', '--name', 'Isles').project).toMatchObject({ name: 'Isles' });

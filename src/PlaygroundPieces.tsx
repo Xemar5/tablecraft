@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from 'react';
-import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, LockKeyhole, MousePointerClick, Palette, Square, UnlockKeyhole } from 'lucide-react';
-import { groupAncestors, type Command, type Component, type Project } from './domain';
+import { BookOpen, ChevronDown, ChevronRight, Circle, Folder, FolderOpen, Layers, ListOrdered, LockKeyhole, MousePointerClick, Palette, Square, UnlockKeyhole } from 'lucide-react';
+import { groupAncestors, groupOrderLocked, type Command, type Component, type Project } from './domain';
 import { variantLabels } from './csv';
 import { groupSelection, nudgeCommand, pieceTree, type PieceTreeRow } from './pieceGroups';
 
@@ -16,7 +16,8 @@ type DropMode = 'above' | 'below' | 'inside';
  * Ctrl-click / Shift-click selection applies to all rows, and groups and pieces can be selected together.
  * Groups are renamed by double-clicking them. Dragging a row onto the top or bottom of another row places it above or
  * below that row, in the same group and in render order on the table (a group moves as one block); dropping on the
- * middle of a group puts it inside. Alt+Up/Down moves the focused row past its neighbour.
+ * middle of a group puts it inside. Alt+Up/Down moves the focused row past its neighbour. A row whose order is locked
+ * (its own lock or a group's around it) keeps its place: it can't be dragged, and the engine refuses to move it.
  */
 export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, dispatch, readOnly = false }: {
   project: Project; selected: string[];
@@ -106,6 +107,8 @@ export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, 
     onDragLeave={event => { if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDropTarget(undefined); }}>
     {rows.map(row => {
       const active = isActive(row);
+      // The project here has group locks applied, so a piece in an order-locked group is order-locked itself.
+      const orderLocked = row.kind === 'group' ? groupOrderLocked(p.groups ?? [], row.group.id) : !!row.item.orderLocked;
       const target = dropTarget?.key === row.key ? dropTarget.mode : undefined;
       const rowProps = {
         role: 'treeitem', 'aria-level': row.depth + 1, 'aria-selected': active,
@@ -114,7 +117,7 @@ export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, 
         style: { paddingLeft: 8 + row.depth * 14 },
         onDragOver: (event: DragEvent) => over(event, row), onDrop: (event: DragEvent) => drop(event, row),
       };
-      const dragProps = readOnly || row.kind === 'piece' && row.member ? {} : {
+      const dragProps = readOnly || orderLocked || row.kind === 'piece' && row.member ? {} : {
         draggable: true,
         onDragStart: (event: DragEvent) => { event.dataTransfer.setData(DRAG_TYPE, row.key); event.dataTransfer.effectAllowed = 'move'; setDragging(dragUnits(row)); },
         onDragEnd: () => { setDragging(undefined); setDropTarget(undefined); },
@@ -128,8 +131,8 @@ export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, 
           {renaming === row.group.id ? <GroupNameEditor name={name} onDone={next => {
             setRenaming(undefined);
             if (next && next !== name) void dispatch({ type: 'renameGroup', id: row.group.id, name: next });
-          }} /> : <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={`${name} · Double-click to rename`}
-            aria-label={`Group ${name}, ${row.count} piece${row.count === 1 ? '' : 's'}${row.group.locked ? ', locked' : ''}`} {...dragProps}
+          }} /> : <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={`${name} · Double-click to rename${orderLocked ? ' · Its order is locked' : ''}`}
+            aria-label={`Group ${name}, ${row.count} piece${row.count === 1 ? '' : 's'}${row.group.locked ? ', locked' : ''}${orderLocked ? ', order locked' : ''}`} {...dragProps}
             onClick={event => select(row, event)} onDoubleClick={() => { if (!readOnly) setRenaming(row.group.id); }}
             data-row-key={row.key} onKeyDown={event => { if (event.key === 'F2' && !readOnly) { event.preventDefault(); setRenaming(row.group.id); } else keyDown(event, row); }}>
             {row.expanded ? <FolderOpen size={14} /> : <Folder size={14} />}<span>{name}</span>
@@ -141,6 +144,13 @@ export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, 
             onClick={() => void dispatch({ type: 'lockGroups', ids: [row.group.id], locked: !row.group.locked })}>
             {row.group.locked ? <LockKeyhole size={13} /> : <UnlockKeyhole size={13} />}
           </button>
+          {/* Its order lock keeps it, its subgroups and its pieces in their places in this list (and the table order). */}
+          <button className={`group-lock group-order-lock${row.group.orderLocked ? ' is-locked' : ''}`} aria-pressed={!!row.group.orderLocked} disabled={readOnly}
+            aria-label={`${row.group.orderLocked ? 'Unlock order of' : 'Lock order of'} group ${name}`}
+            title={row.group.orderLocked ? 'Unlock order: the group and its pieces can be reordered and regrouped again' : 'Lock order: keep the group, its subgroups and its pieces in their places in this list'}
+            onClick={() => void dispatch({ type: 'lockGroups', ids: [row.group.id], locked: !row.group.orderLocked, order: true })}>
+            <ListOrdered size={13} />
+          </button>
         </div>;
       }
       const component = components.get(row.item.componentId);
@@ -151,11 +161,12 @@ export function PlaygroundPieces({ project: p, selected, groups = [], onSelect, 
           onClick={() => toggle(setExpandedStacks, row.key)}>
           {row.expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </button> : <span className="tree-disclosure-spacer" aria-hidden="true" />}
-        <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={name} {...dragProps}
-          aria-label={`${name}${row.count > 1 ? `, stack of ${row.count}` : ''}${row.item.locked ? ', locked' : ''}`} onClick={event => select(row, event)}
+        <button className={`layer-row ${active ? 'active' : ''}`} aria-pressed={active} title={`${name}${orderLocked ? ' · Its order is locked' : ''}`} {...dragProps}
+          aria-label={`${name}${row.count > 1 ? `, stack of ${row.count}` : ''}${row.item.locked ? ', locked' : ''}${orderLocked ? ', order locked' : ''}`} onClick={event => select(row, event)}
           data-row-key={row.key} onKeyDown={event => keyDown(event, row)}>
           {kindIcon(component)}<span>{name}</span>
           {row.count > 1 && <small className="playground-piece-count">{row.count}</small>}
+          {orderLocked && <ListOrdered size={11} className="playground-piece-lock" aria-hidden="true" />}
           {row.item.locked && <LockKeyhole size={11} className="playground-piece-lock" aria-hidden="true" />}
         </button>
       </div>;

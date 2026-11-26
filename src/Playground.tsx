@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal, flushSync } from 'react-dom';
-import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, Radar, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X, Folder, FolderOutput, BoxSelect } from 'lucide-react';
+import { ArrowDown, ArrowDownToLine, Ban, CirclePlay, ListOrdered, Radar, Pin, PinOff, ArrowUp, ArrowUpFromLine, ArrowRightLeft, BookOpen, BringToFront, ChevronLeft, ChevronRight, Copy, Dices, Eye, EyeOff, FlipHorizontal2, Focus, FolderPlus, Grid2X2, GripVertical, Hand, Layers, LockKeyhole, Maximize, Minus, MousePointer2, Plus, RotateCcw, RotateCw, Search, SendToBack, Settings2, Shapes, Shuffle, Trash2, Undo2, Ungroup, UnlockKeyhole, Users, X, Folder, FolderOutput, BoxSelect } from 'lucide-react';
 import { ComponentThumbnail, ComponentView, hasOpenFace } from './ComponentView';
-import { componentTags, fitsPersistentStack, handPermissions, stackFilterOf, stackJoinError, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
+import { componentTags, fitsPersistentStack, handPermissions, stackFilterOf, stackJoinError, hasPages, isAsset, nextSeatPlacement, stackMembers, uid, visibleBack, visibleStackMembers, withGroupLocks, groupOrderLocked, type Command, type PersistentStack, type Component, type Instance, type Player, type Project } from './domain';
 import { createGroupCommand, groupMembers, nudgeCommand, pieceTree, selectedGroups } from './pieceGroups';
 import { LIBRARY_DRAG_TYPE, readLibraryDrag } from './libraryDrag';
 import { ZoomPresets } from './ZoomPresets';
@@ -71,6 +71,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     return { ...locked, instances: locked.instances.filter(item => !item.hiddenFrom?.includes(actor)) };
   }, [source, showHidden, actor]);
   const ownLock = (id: string) => source.instances.find(item => item.id === id)?.locked ?? false;
+  const ownOrderLock = (id: string) => source.instances.find(item => item.id === id)?.orderLocked ?? false;
+  // Bring forward and Send backward can't move pieces whose order is locked (their own lock or their group's).
+  const orderHeld = p.instances.some(item => selected.includes(item.id) && item.orderLocked) && 'Its place in the order is locked. Unlock its order first.';
   const viewport = useRef<HTMLDivElement>(null);
   const handScroller = useRef<HTMLDivElement>(null);
   const [zoom, setZoom] = useState(.65);
@@ -1539,12 +1542,15 @@ export function Playground({ project: source, actor, owner, host = false, viewer
               <button {...available(drawReason, () => dispatch({ type: 'drawSelection', ids: selected, playerId: actor }))}><Layers size={17} /><span>Draw all</span></button>
             </> : <button {...available(drawReason, () => dispatch({ type: 'drawSelection', ids: selected, playerId: actor }))}><Hand size={17} /><span>Draw to hand{selected.length === 1 && <kbd>1</kbd>}</span></button>}
             </>}
-            <button {...available(onTable && 'Pieces in a hand aren\'t in the table\'s order.', () => dispatch({ type: 'zOrder', ids: selected, move: 'forward' }), 'Bring forward (Ctrl/Cmd+]; with Shift, to the front)')}><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
-            <button {...available(onTable && 'Pieces in a hand aren\'t in the table\'s order.', () => dispatch({ type: 'zOrder', ids: selected, move: 'backward' }), 'Send backward (Ctrl/Cmd+[; with Shift, to the back)')}><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
+            <button {...available(onTable && 'Pieces in a hand aren\'t in the table\'s order.' || orderHeld, () => dispatch({ type: 'zOrder', ids: selected, move: 'forward' }), 'Bring forward (Ctrl/Cmd+]; with Shift, to the front)')}><BringToFront size={17} /><span>Bring forward<kbd>Ctrl ]</kbd></span></button>
+            <button {...available(onTable && 'Pieces in a hand aren\'t in the table\'s order.' || orderHeld, () => dispatch({ type: 'zOrder', ids: selected, move: 'backward' }), 'Send backward (Ctrl/Cmd+[; with Shift, to the back)')}><SendToBack size={17} /><span>Send backward<kbd>Ctrl [</kbd></span></button>
             <button onClick={() => dispatch({ type: 'move', ids: selected, patch: { locked: !ownLock(piece.id) } })}>{ownLock(piece.id) ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{ownLock(piece.id) ? 'Unlock' : 'Lock'}<kbd>L</kbd></span></button>
+            <button title={ownOrderLock(piece.id) ? 'Unlock order: it can be brought forward, sent back and moved in the Pieces panel again' : 'Lock order: keep it in its place in the Pieces panel and the table order (it can still move on the table)'}
+              onClick={() => dispatch({ type: 'move', ids: selected, patch: { orderLocked: !ownOrderLock(piece.id) } })}><ListOrdered size={17} /><span>{ownOrderLock(piece.id) ? 'Unlock order' : 'Lock order'}</span></button>
             <button className="danger" onClick={() => { dispatch({ type: 'delete', ids: selected }); setSelected([]); }}><Trash2 size={17} /><span>Delete<kbd>Del</kbd></span></button>
           </div>
           {piece.locked && !ownLock(piece.id) && <p className="help-text">Held in place by its locked group. Unlock the group in the Pieces panel to move it.</p>}
+          {piece.orderLocked && !ownOrderLock(piece.id) && <p className="help-text">Kept in its place in the order by its group. Unlock the group’s order in the Pieces panel to reorder it.</p>}
           {tablePieces.length > 0 && p.players.length > 0 && <div className="field hidden-from" role="group" aria-label="Hidden from">
             <span>Hidden from<InfoTip text="These seats don't see the selected pieces on the table (with their whole stacks). Like hidden hands this is visual privacy: every player's browser still receives the whole table. Show hidden pieces from Visibility in the header." /></span>
             <div className="hidden-from-seats">{p.players.map(player => <button key={player.id} type="button" className={`hidden-seat${hiddenFrom.includes(player.id) ? ' hidden' : ''}`} aria-pressed={hiddenFrom.includes(player.id)}
@@ -1571,6 +1577,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           onSelectPieces={() => { const ids = [...new Set(pickedGroups.flatMap(group => groupMembers(p, group.id)))]; setPickedGroupIds([]); setSelected(ids); }}
           onRename={(id, name) => void dispatch({ type: 'renameGroup', id, name })}
           onLock={locked => void dispatch({ type: 'lockGroups', ids: pickedGroups.map(group => group.id), locked })}
+          onOrderLock={locked => void dispatch({ type: 'lockGroups', ids: pickedGroups.map(group => group.id), locked, order: true })}
           move={groupMove} dispatch={dispatch}
           onOut={group => void dispatch({ type: 'moveToGroup', parent: (p.groups ?? []).find(other => other.id === group.parent)?.parent ?? null, ids: [], groups: [group.id] })}
           onUngroup={ungroupSelected} />
@@ -1936,36 +1943,39 @@ function PieceIds({ ids, stack, notify }: { ids: string[]; stack?: string; notif
  * or down among its neighbours (up is towards the front) or out of its parent group, locks it, ungroups it, or selects
  * every piece in it.
  */
-function GroupInspector({ groups, project: p, viewer, available, onClose, onSelectPieces, onRename, onLock, move, dispatch, onOut, onUngroup }: {
+function GroupInspector({ groups, project: p, viewer, available, onClose, onSelectPieces, onRename, onLock, onOrderLock, move, dispatch, onOut, onUngroup }: {
   groups: NonNullable<Project['groups']>; project: Project; viewer: boolean;
   available: (reason: string | false | undefined, onClick: () => void, title?: string) => object;
-  onClose: () => void; onSelectPieces: () => void; onRename: (id: string, name: string) => void; onLock: (locked: boolean) => void;
+  onClose: () => void; onSelectPieces: () => void; onRename: (id: string, name: string) => void; onLock: (locked: boolean) => void; onOrderLock: (locked: boolean) => void;
   move: (id: string, direction: -1 | 1) => Command | undefined; dispatch: (command: Command) => Promise<boolean>;
   onOut: (group: NonNullable<Project['groups']>[number]) => void; onUngroup: () => void;
 }) {
   const group = groups.length === 1 ? groups[0] : undefined;
   const count = new Set(groups.flatMap(item => groupMembers(p, item.id))).size;
   const parent = group && (p.groups ?? []).find(other => other.id === group.parent);
-  const locked = groups.every(item => item.locked);
+  const locked = groups.every(item => item.locked), orderLocked = groups.every(item => item.orderLocked);
   const up = group && move(group.id, -1), down = group && move(group.id, 1);
   const readOnly = viewer && 'Take a seat to change groups. Viewers can only look.';
+  // Its own order lock, or one of a group around it, keeps it where it is in the Pieces panel.
+  const kept = group && groupOrderLocked(p.groups ?? [], group.id) && 'Its place in the order is locked. Unlock its order first.';
   return <div className="inspector-section selected-inspector group-inspector">
     <div className="section-title"><h3>{group ? 'Group selected' : `${groups.length} groups selected`}</h3><button className="icon-button" aria-label="Clear selection" onClick={onClose}><X size={15} /></button></div>
     <div className="selected-component"><span className="group-inspector-icon" aria-hidden="true"><Folder size={26} /></span><div>
       <strong>{group ? group.name : groups.map(item => item.name).join(', ')}</strong>
-      <small>{count} {count === 1 ? 'piece' : 'pieces'}{parent ? ` · in ${parent.name}` : ''}{locked ? ' · locked' : ''}</small></div></div>
+      <small>{count} {count === 1 ? 'piece' : 'pieces'}{parent ? ` · in ${parent.name}` : ''}{locked ? ' · locked' : ''}{orderLocked ? ' · order locked' : ''}</small></div></div>
     {group && <label className="field"><span>Group name</span><input key={group.id} aria-label="Selected group name" defaultValue={group.name} maxLength={100} disabled={viewer}
       onBlur={event => { const name = event.target.value.trim(); if (name && name !== group.name) onRename(group.id, name); else event.target.value = group.name; }}
       onKeyDown={event => { event.stopPropagation(); if (event.key === 'Enter') event.currentTarget.blur(); else if (event.key === 'Escape') { event.currentTarget.value = group.name; event.currentTarget.blur(); } }} /></label>}
     <div className="action-grid">
       <button {...available(!count && 'This group has no pieces on the table.', onSelectPieces, 'Select every piece in the group (and its subgroups)')}><BoxSelect size={17} /><span>Select pieces</span></button>
       {group && <>
-        <button {...available(readOnly || (!up && 'It is already at the top of its group.'), () => { if (up) void dispatch(up); }, 'Move up in the Pieces panel, in front of the row above')}><ArrowUp size={17} /><span>Move up<kbd>Alt ↑</kbd></span></button>
-        <button {...available(readOnly || (!down && 'It is already at the bottom of its group.'), () => { if (down) void dispatch(down); }, 'Move down in the Pieces panel, behind the row below')}><ArrowDown size={17} /><span>Move down<kbd>Alt ↓</kbd></span></button>
-        <button {...available(readOnly || (!parent && 'It is not inside another group.'), () => onOut(group), parent ? `Move it out of ${parent.name}` : undefined)}><FolderOutput size={17} /><span>Out of group</span></button>
+        <button {...available(readOnly || kept || (!up && 'It is already at the top of its group.'), () => { if (up) void dispatch(up); }, 'Move up in the Pieces panel, in front of the row above')}><ArrowUp size={17} /><span>Move up<kbd>Alt ↑</kbd></span></button>
+        <button {...available(readOnly || kept || (!down && 'It is already at the bottom of its group.'), () => { if (down) void dispatch(down); }, 'Move down in the Pieces panel, behind the row below')}><ArrowDown size={17} /><span>Move down<kbd>Alt ↓</kbd></span></button>
+        <button {...available(readOnly || kept || (!parent && 'It is not inside another group.'), () => onOut(group), parent ? `Move it out of ${parent.name}` : undefined)}><FolderOutput size={17} /><span>Out of group</span></button>
       </>}
       <button {...available(readOnly, () => onLock(!locked), locked ? 'Unlock: its pieces can move again (pieces locked on their own stay locked)' : 'Lock: hold all its pieces in place')}>{locked ? <UnlockKeyhole size={17} /> : <LockKeyhole size={17} />}<span>{locked ? 'Unlock' : 'Lock'}</span></button>
-      <button {...available(readOnly, onUngroup, 'Remove the group; its pieces stay where they are')}><Ungroup size={17} /><span>Ungroup<kbd>Shift G</kbd></span></button>
+      <button {...available(readOnly, () => onOrderLock(!orderLocked), orderLocked ? 'Unlock order: the group and its pieces can be reordered and regrouped again' : 'Lock order: keep the group, its subgroups and its pieces in their places in the Pieces panel')}><ListOrdered size={17} /><span>{orderLocked ? 'Unlock order' : 'Lock order'}</span></button>
+      <button {...available(readOnly || kept, onUngroup, 'Remove the group; its pieces stay where they are')}><Ungroup size={17} /><span>Ungroup<kbd>Shift G</kbd></span></button>
     </div>
   </div>;
 }

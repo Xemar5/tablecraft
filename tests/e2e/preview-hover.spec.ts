@@ -100,7 +100,7 @@ test('scaled previews have no empty horizontal overflow and locked pieces have n
   await page.keyboard.up('Control');
   await expect.poll(fit).toMatchObject({ inside: true, scrolls: false });
   await token.click();
-  await page.locator('.action-grid').getByRole('button', { name: /^Lock/ }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock(?! order)/ }).click();
   await token.hover();
   await expect(preview).toHaveCount(0);
   await token.focus();

@@ -7,7 +7,7 @@ test('locked pieces let box selections start over them and are only selectable w
   const tokenId = (await page.locator('.table-piece').filter({ has: page.locator('.component-token') }).first().getAttribute('data-piece-id'))!;
   const token = page.locator(`[data-piece-id="${tokenId}"]`);
   await token.click();
-  await page.locator('.action-grid').getByRole('button', { name: /^Lock/ }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock(?! order)/ }).click();
   await expect(token).toHaveClass(/locked/);
   const before = (await project()).instances.find(i => i.id === tokenId)!;
 

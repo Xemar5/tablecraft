@@ -62,7 +62,7 @@ test('the Actions menu undoes and redoes table actions, also with Ctrl+Z and Ctr
   const id = await token.getAttribute('data-piece-id');
   const piece = page.locator(`.table-piece[data-piece-id="${id}"]`);
   await piece.click();
-  await page.locator('.action-grid').getByRole('button', { name: /^Lock/ }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock(?! order)/ }).click();
   await expect(piece).toHaveClass(/locked/);
   await chooseHeader(page, 'Undo');
   await expect(piece).not.toHaveClass(/locked/);

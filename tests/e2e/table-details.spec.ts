@@ -89,7 +89,7 @@ test('a component can show its hover preview while locked', async ({ page }) => 
   const id = await page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first().getAttribute('data-piece-id');
   const token = page.locator(`.table-piece[data-piece-id="${id}"]`);
   await token.click();
-  await page.locator('.action-grid button', { hasText: 'Lock' }).click();
+  await page.locator('.action-grid').getByRole('button', { name: /^Lock(?! order)/ }).click();
   await page.keyboard.press('Escape');
   await page.mouse.move(5, 5);
   await token.hover();

@@ -26,7 +26,7 @@ const cardRows = [
 
 const guidePages = [
   { page: '1', title: 'Welcome to Wildwood', text: 'A small sample of what Tablecraft can do. Every piece here is an ordinary component: click a name in the library to open it in the designer.\n\nTurn pages with Shift+Q and Shift+E.' },
-  { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it.' },
+  { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it. The Guide and controls group has its order locked, so it keeps its place in the Pieces panel.' },
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
   { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer and choose Edit grids to change it.' },
@@ -299,7 +299,8 @@ export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.des
     { id: 'group-amber', name: 'Amber and die', parent: null },
     { id: 'group-path', name: 'Wanderer’s path', parent: null, locked: true },
     { id: 'group-wanderers', name: 'Wanderers', parent: null },
-    { id: 'group-guide', name: 'Guide and controls', parent: null },
+    // Its order is locked: it keeps its place in the Pieces panel (and the table order) while the game goes on.
+    { id: 'group-guide', name: 'Guide and controls', parent: null, orderLocked: true },
   ];
   const pathAt = { x: 1500, y: 440 };
   const instances: Instance[] = [
