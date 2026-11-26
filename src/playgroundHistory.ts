@@ -16,6 +16,11 @@ const entrySchema = z.object({
   /** Grid layers (null: the table had the grid from its settings). Entries from before grid layers have none, and undo keeps grids as they are. */
   grids: z.array(gridSchema).nullable().optional(),
   seat: seatPresentation.optional(),
+  /**
+   * Set (to the acting seat, '' for none) while the entry is still taking in that seat's commands as one undo step:
+   * taking a piece off a stack opens it, and the drop that ends the drag closes it (see applyPlaygroundCommand).
+   */
+  open: z.string().optional(),
 });
 type Entry = z.infer<typeof entrySchema>;
 export const playgroundHistorySchema = z.object({
@@ -54,10 +59,19 @@ export function applyPlaygroundCommand(
   // A script may keep some changes out of undo: undo then goes back to its base rather than to the table before.
   const base = undoBaseOf(next) ?? project;
   if ((base !== project || scriptCommands.has(command.type)) && sameTable(base, next)) return { project: next, history };
+  // Dragging a piece off a stack takes it off at once (extractMove) and drops it when the drag ends, so its entry stays
+  // open for the same seat: the raise as it's let go keeps it open, and the drop (moving, stacking, going into a hand)
+  // joins it and closes it. Undo then puts the piece straight back on its stack.
+  const last = history.entries.at(-1);
+  if (last?.open !== undefined && last.open === (actor ?? '')) {
+    const entries = command.type === 'front' ? history.entries : [...history.entries.slice(0, -1), (({ open: _, ...closed }) => closed)(last)];
+    return { project: next, history: { entries, notice: '' } };
+  }
   const player = command.type === 'player' ? project.players.find(player => player.id === command.player.id) : undefined;
   const entry = entrySchema.parse({
     instances: base.instances, settings: base.settings, ...(base.groups?.length ? { groups: base.groups } : {}), memory: base.memory ?? null, grids: base.grids ?? null,
     seat: player && { id: player.id, name: player.name, color: player.color, x: player.x, y: player.y, rotation: player.rotation },
+    ...(command.type === 'extractMove' ? { open: actor ?? '' } : {}),
   });
   return {
     project: next,

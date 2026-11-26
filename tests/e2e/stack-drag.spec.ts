@@ -112,3 +112,16 @@ test('components set their rotation step, and the selection badge stays upright 
   expect(badgeBox.y + badgeBox.height).toBeLessThan(pieceBox.y + pieceBox.height / 2);
   expect(badgeBox.width).toBeGreaterThan(badgeBox.height);
 });
+
+test('taking the top piece off a stack and dropping it is one undo step', async ({ page }) => {
+  await useDefaultDrag(page);
+  await page.goto('/');
+  await expect.poll(() => deckSize(page)).toBe(12);
+  const before = (await saved(page)).instances;
+  await drag(page, await middle(page), { x: -170, y: -40 });
+  await expect.poll(() => deckSize(page)).toBe(11);
+  // One undo puts the card straight back on the deck, exactly as it was.
+  await page.keyboard.press('Control+z');
+  await expect.poll(() => deckSize(page)).toBe(12);
+  expect((await saved(page)).instances).toEqual(before);
+});

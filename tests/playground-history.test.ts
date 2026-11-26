@@ -18,6 +18,28 @@ function table(): Project {
 }
 
 describe('shared Playground history', () => {
+  it('makes dragging a piece off a stack and dropping it one undo step', () => {
+    const before = table();
+    before.instances = before.instances.map(item => ({ ...item, stack: 'pile' }));
+    const run = (state: { project: Project; history: ReturnType<typeof emptyPlaygroundHistory> }, command: Command, actor = 'alice') =>
+      applyPlaygroundCommand(state.project, state.history, command, actor);
+    // The drag takes the top piece off, raises it as it's let go and moves it: one entry, closed by the move.
+    let state = run({ project: before, history: emptyPlaygroundHistory() }, { type: 'extractMove', id: 'c', x: 0, y: 0 });
+    state = run(state, { type: 'front', ids: ['c'] });
+    state = run(state, { type: 'transform', ids: ['c'], dx: 300, dy: 40 });
+    expect(state.history.entries).toHaveLength(1);
+    expect(state.history.entries[0].open).toBeUndefined();
+    // The next action is a step of its own.
+    state = run(state, { type: 'move', ids: ['a'], patch: { rotation: 90 } });
+    expect(state.history.entries).toHaveLength(2);
+    const once = undoPlayground(state.project, state.history), twice = undoPlayground(once.project, once.history);
+    expect(twice.project.instances).toEqual(before.instances);
+    // Another seat's action in between is its own step, and doesn't take in the drop.
+    let mixed = run({ project: before, history: emptyPlaygroundHistory() }, { type: 'extractMove', id: 'c', x: 0, y: 0 });
+    mixed = run(mixed, { type: 'move', ids: ['a'], patch: { rotation: 90 } }, 'bob');
+    mixed = run(mixed, { type: 'transform', ids: ['c'], dx: 300, dy: 40 });
+    expect(mixed.history.entries).toHaveLength(3);
+  });
   it('preserves per-hand permissions across tabletop undo without recording permission changes', () => {
     const before = table();
     const moved = applyPlaygroundCommand(before, emptyPlaygroundHistory(), { type: 'move', ids: ['a'], patch: { x: 999 } }, 'alice');
