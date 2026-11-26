@@ -43,22 +43,27 @@ export function PointsPanel({ grid, point, onSelectPoint, group, onSelectGroup, 
   // A group can't go into itself or a group inside it.
   const canDrop = (moving: Dragged | undefined, parent: string | null) => !!moving && !(moving.group && pointGroupAncestors(groups, parent).includes(moving.group));
 
-  /** Moves a point or group into `parent`, placed before or after `target` when that is a row of the same kind. */
+  /**
+   * Moves a point or group into `parent`, placed before or after `target` when that is a row of the same kind. Dropped
+   * on its own row, or anywhere that leaves it where it was, nothing changes (and no undo step is made).
+   */
   const move = (moving: Dragged, parent: string | null, target?: PointTreeRow, mode?: DropMode) => {
     const after = mode === 'below';
+    if (target && (target.kind === 'point' ? target.point.id === moving.point : target.group.id === moving.group)) return;
+    const save = (next: Grid) => { if (JSON.stringify([next.points, next.pointGroups]) !== JSON.stringify([grid.points, grid.pointGroups])) void onChange(next); };
     if (moving.point) {
       const item = points.find(entry => entry.id === moving.point);
       if (!item) return;
       const { group: _, ...rest } = item, placed: GridPoint = parent ? { ...rest, group: parent } : rest;
       const others = points.filter(entry => entry.id !== item.id);
       const at = target?.kind === 'point' && mode !== 'inside' ? others.findIndex(entry => entry.id === target.point.id) + (after ? 1 : 0) : others.length;
-      void onChange({ ...grid, points: [...others.slice(0, at), placed, ...others.slice(at)] });
+      save({ ...grid, points: [...others.slice(0, at), placed, ...others.slice(at)] });
     } else if (moving.group) {
       const item = groups.find(entry => entry.id === moving.group);
       if (!item) return;
       const others = groups.filter(entry => entry.id !== item.id);
       const at = target?.kind === 'group' && mode !== 'inside' ? others.findIndex(entry => entry.id === target.group.id) + (after ? 1 : 0) : others.length;
-      void onChange({ ...grid, pointGroups: [...others.slice(0, at), { ...item, parent }, ...others.slice(at)] });
+      save({ ...grid, pointGroups: [...others.slice(0, at), { ...item, parent }, ...others.slice(at)] });
     }
   };
   const over = (event: DragEvent, row?: PointTreeRow) => {
