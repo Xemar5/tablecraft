@@ -1810,7 +1810,6 @@ const TablePiece = memo(function TablePiece({ item, component: comp, components,
       title={badgeError ? `Can't stack: ${badgeError}` : `Stacked ${slot === 'bottom' ? 'at the bottom' : slot === 'top' ? 'on top' : 'in the middle'} (${badgeIndex + 1} of ${badgeTotal})`}>
       <b>{badgeIndex + 1}</b><StackSlotIcon slot={slot} blocked={!!badgeError} />
     </span>}
-    {selected && <><i className="selection-corner tl" /><i className="selection-corner tr" /><i className="selection-corner bl" /><i className="selection-corner br" /></>}
   </div>;
 });
 
