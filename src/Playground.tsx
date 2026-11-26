@@ -13,7 +13,7 @@ import { stackPlan, stackSlot } from './stackOrder';
 import { PiecePreview } from './PiecePreview';
 import { hoverPreviewSize, hoverPreviewWidth, previewOnLeft as placePreviewOnLeft } from './playgroundPreview';
 import { componentGridTags, projectGrids, snapTarget, type Grid } from './grids';
-import { gridColor, GridLayers, GridPointHandles } from './GridLayers';
+import { gridArea, gridColor, GridLayers, GridPointHandles } from './GridLayers';
 import { GridEditor } from './GridEditor';
 import { PointsPanel } from './GridPoints';
 import { pointGroupAncestors } from './grids';
@@ -53,7 +53,7 @@ const ROLL_MS = 650;
 const SHUFFLE_MS = 700;
 const DRAW_MS = 480;
 const MAX_ZOOM = 3;
-/** The table's size in table pixels (see .table-world in styles.css); grids are drawn across it. */
+/** The table world's box in table pixels (see .table-world in styles.css). The table itself is endless. */
 const TABLE_WIDTH = 4000, TABLE_HEIGHT = 2600;
 const VIEWER_NOTICE = 'You are watching as a viewer. Take a seat in Players to play.';
 const CLEARED = 'Undo history cleared because ';
@@ -473,10 +473,13 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   // When the view changes size, the camera shifts by half the change so the table's centre stays put. The shift must
   // land before the browser paints the resized view, or one frame shows the table jumping aside.
   const viewSize = useRef<{ width: number; height: number }>(undefined);
+  // The view's size as state, for the area grids are drawn across.
+  const [viewArea, setViewArea] = useState({ width: 1600, height: 1000 });
   const followView = useCallback((now: boolean) => {
     const element = viewport.current;
     if (!element) return;
     const next = { width: element.clientWidth, height: element.clientHeight };
+    if (next.width && next.height) setViewArea(value => value.width === next.width && value.height === next.height ? value : next);
     if (!fitted.current) { fit(); viewSize.current = next; return; }
     const previous = viewSize.current;
     viewSize.current = next;
@@ -484,6 +487,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
     const shift = () => setPan(value => ({ x: value.x + (next.width - previous.width) / 2, y: value.y + (next.height - previous.height) / 2 }));
     if (now) flushSync(shift); else shift();
   }, [fit]);
+  // Grids are drawn across the area around the view; it is a new object only when that area moves (see gridArea).
+  const { x: areaX, y: areaY, width: areaWidth, height: areaHeight } = gridArea(viewArea, pan, zoom, camera);
+  const shownGridArea = useMemo(() => ({ x: areaX, y: areaY, width: areaWidth, height: areaHeight }), [areaX, areaY, areaWidth, areaHeight]);
   useEffect(() => {
     fit();
     viewSize.current = viewport.current ? { width: viewport.current.clientWidth, height: viewport.current.clientHeight } : undefined;
@@ -1107,7 +1113,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         onPointerCancel={() => { gesture.current = null; gridGesture.current = null; setGridDraft(undefined); setPressed(undefined); setHandDrop(undefined); setPreview({}); setDropHint(undefined); marqueeGesture.current = null; setMarquee(undefined); }}>
         <div ref={world} className="table-world" style={{ '--table-zoom': zoom } as React.CSSProperties}>
           <div className="table-watermark" aria-hidden="true"><span><Layers size={34} strokeWidth={1.4} /></span><p>TABLECRAFT</p><small>MAKE SOMETHING WORTH PLAYING</small></div>
-          <GridLayers grids={shownGrids} width={TABLE_WIDTH} height={TABLE_HEIGHT} editing={tool === 'grid'} selected={editedGrid?.id} />
+          <GridLayers grids={shownGrids} area={shownGridArea} zoom={zoom} editing={tool === 'grid'} selected={editedGrid?.id} />
           {p.settings.hands && p.players.map(player => {
             const seatSpot = seatPosition?.id === player.id ? seatPosition : player;
             const playerHeld = p.instances.filter(i => i.holder === player.id).sort((a, b) => a.order - b.order);

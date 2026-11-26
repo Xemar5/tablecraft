@@ -4,6 +4,7 @@ import { gridPointPosition, legacyGrid, nearestGridPoint, pointTree, projectGrid
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { blankProject, template } from '../src/templates';
 import { gameProject } from '../src/gameProjects';
+import { gridArea, gridFade } from '../src/GridLayers';
 
 const square = (patch: Partial<Grid> = {}): Grid => ({ id: 'squares', name: 'Squares', shape: 'square', visible: true, snap: true, size: 50, offsetX: 10, offsetY: 20, ...patch });
 const hex = (patch: Partial<Grid> = {}): Grid => ({ id: 'hexes', name: 'Hexes', shape: 'hex', visible: true, snap: true, size: 100, offsetX: 0, offsetY: 0, ...patch });
@@ -146,5 +147,37 @@ describe('grids', () => {
     expect(state.project.grids?.[0].size).toBe(80);
     expect(undoPlayground(state.project, state.history).project.grids?.[0].size).toBe(100);
     expect(() => applyCommand(state.project, { type: 'grid', grid: points({ points: [{ id: 'x', x: 0, y: 0 }, { id: 'x', x: 1, y: 1 }] }) })).toThrow('duplicate point');
+  });
+});
+
+describe('drawing endless grids', () => {
+  const view = { width: 1200, height: 800 };
+  const covers = (area: ReturnType<typeof gridArea>, left: number, top: number, right: number, bottom: number) =>
+    area.x <= left && area.y <= top && area.x + area.width >= right && area.y + area.height >= bottom;
+
+  it('covers the view (rotated too) with a margin, anywhere on the table', () => {
+    const area = gridArea(view, { x: 0, y: 0 }, 1, 0);
+    expect(covers(area, -600, -400, 1800, 1200)).toBe(true);
+    // Far from the old 4000 × 2600 table, and zoomed out, the area still follows the view.
+    const far = gridArea(view, { x: 20000 * .25, y: 9000 * .25 }, .25, 0);
+    expect(covers(far, -20000, -9000, -20000 + 1200 / .25, -9000 + 800 / .25)).toBe(true);
+    const turned = gridArea(view, { x: 600, y: 400 }, 1, 45);
+    const reach = Math.hypot(600, 400);
+    expect(covers(turned, -reach, -reach, reach, reach)).toBe(true);
+  });
+
+  it('stays the same while the camera pans or zooms a little', () => {
+    const area = gridArea(view, { x: 0, y: 0 }, 1, 0);
+    expect(gridArea(view, { x: -100, y: 60 }, 1, 0)).toEqual(area);
+    expect(gridArea(view, { x: 0, y: 0 }, 1.05, 0)).toEqual(area);
+  });
+
+  it('fades square and hex grids out as their cells get small on screen', () => {
+    const squares = { shape: 'square', size: 25 } as const;
+    expect(gridFade(squares, 1)).toBe(1);
+    expect(gridFade(squares, .4)).toBe(.6);
+    expect(gridFade(squares, .15)).toBe(0);
+    expect(gridFade({ shape: 'square', size: 100, sizeY: 10 }, 1)).toBe(.6);
+    expect(gridFade({ shape: 'points', size: 5 }, .15)).toBe(1);
   });
 });

@@ -114,7 +114,7 @@ export function GridEditor({ grids, selected, onSelect, point, onSelectPoint, di
       <Toggle label="Turn snapped pieces" description="Pieces that snap to this grid take a fixed rotation" checked={selected.rotation !== undefined}
         onChange={on => update({ rotation: on ? 0 : undefined })} />
       {selected.rotation !== undefined && <NumberField deferred label="Rotation (°)" value={selected.rotation} min={-360} max={360} onChange={rotation => update({ rotation })} />}
-      <ColorField deferred alpha={false} label="Colour" value={selected.color || gridColor(selected, grids.indexOf(selected))} onChange={color => update({ color })} />
+      <ColorField deferred label="Colour" value={selected.color || gridColor(selected, grids.indexOf(selected))} onChange={color => update({ color })} />
       <TagFilterEditor label="Snaps pieces" filter={selected.filter ?? ANY_TAGS} suggestions={tags} disabled={disabled}
         hint="Which pieces snap to this grid, by their components' grid tags (Behavior tab). Components can also turn snapping off."
         anything="Every piece snaps here." untagged="Pieces without grid tags snap to every grid."

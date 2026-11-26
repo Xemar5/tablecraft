@@ -5,6 +5,38 @@ import './grids.css';
 export const GRID_COLORS = ['#7d9b60', '#b08c4f', '#5f8fae', '#a2679a', '#c07457'];
 export const gridColor = (grid: Grid, index: number) => grid.color || GRID_COLORS[index % GRID_COLORS.length];
 
+export type GridArea = { x: number; y: number; width: number; height: number };
+
+/**
+ * The part of the endless table that grids are drawn across: what the view shows (in table coordinates, with the
+ * camera's pan, zoom and rotation) plus half a view on every side, widened to whole steps of a power of two at least
+ * half the view's size. So it changes only once the camera has panned or zoomed about half a view away, and panning
+ * or zooming within it redraws nothing.
+ */
+export function gridArea(view: { width: number; height: number }, pan: { x: number; y: number }, zoom: number, camera: number): GridArea {
+  const angle = -camera * Math.PI / 180, cos = Math.cos(angle), sin = Math.sin(angle);
+  const xs: number[] = [], ys: number[] = [];
+  for (const [x, y] of [[0, 0], [view.width, 0], [0, view.height], [view.width, view.height]]) {
+    const dx = x - pan.x, dy = y - pan.y;
+    xs.push((dx * cos - dy * sin) / zoom); ys.push((dx * sin + dy * cos) / zoom);
+  }
+  const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
+  const step = 2 ** Math.ceil(Math.log2(Math.max(256, span / 2))), margin = span / 2;
+  const x = Math.floor((Math.min(...xs) - margin) / step) * step, y = Math.floor((Math.min(...ys) - margin) / step) * step;
+  return { x, y, width: Math.ceil((Math.max(...xs) + margin) / step) * step - x, height: Math.ceil((Math.max(...ys) + margin) / step) * step - y };
+}
+
+/**
+ * How strongly a square or hex grid shows at a zoom: fully once its cells are 14 screen pixels or more apart, fading
+ * out below that and gone under 5, where the lattice would only be a dense texture. Kept to tenths so zooming
+ * doesn't redraw the grids at every step.
+ */
+export function gridFade(grid: Pick<Grid, 'shape' | 'size' | 'sizeY'>, zoom: number) {
+  if (grid.shape === 'points') return 1;
+  const cell = Math.min(grid.size, grid.sizeY ?? grid.size) * zoom;
+  return Math.round(Math.max(0, Math.min(1, (cell - 5) / 9)) * 10) / 10;
+}
+
 const polygon = (corners: { x: number; y: number }[]) => `M${corners.map(at => `${at.x},${at.y}`).join('L')}Z`;
 
 /**
@@ -12,11 +44,16 @@ const polygon = (corners: { x: number; y: number }[]) => `M${corners.map(at => `
  * cell outlines, points grids as markers (with a tick for a forced rotation, and their labels). Line widths and
  * markers keep their screen size through `--table-zoom`. While the grid tool is on, hidden grids are drawn faintly
  * and the edited grid stands out.
+ *
+ * The table has no edge: square and hex grids fill `area` (see gridArea), which follows the camera. The SVG itself
+ * is a point at the table's origin that shows everything around it, so a new area only changes the fills' attributes.
+ * Grids whose cells are too small on screen at this zoom fade out (see gridFade); zooming redraws them only when a
+ * grid's fade changes.
  */
-export const GridLayers = memo(function GridLayers({ grids, width, height, editing, selected }: {
-  grids: Grid[]; width: number; height: number; editing?: boolean; selected?: string;
+export const GridLayers = memo(function GridLayers({ grids, area, zoom, editing, selected }: {
+  grids: Grid[]; area: GridArea; zoom: number; editing?: boolean; selected?: string;
 }) {
-  return <svg className={`grid-layers${editing ? ' editing' : ''}`} width={width} height={height} aria-hidden="true">
+  return <svg className={`grid-layers${editing ? ' editing' : ''}`} width={1} height={1} aria-hidden="true">
     <defs>{grids.map((grid, index) => grid.shape !== 'points' && <GridPattern key={grid.id} grid={grid} id={`grid-pattern-${index}`} color={gridColor(grid, index)} />)}</defs>
     {grids.map((grid, index) => {
       if (!grid.visible && !(editing && grid.id === selected)) return null;
@@ -24,10 +61,16 @@ export const GridLayers = memo(function GridLayers({ grids, width, height, editi
       if (grid.shape === 'points') return <g key={grid.id} className={`grid-points${state}`} style={{ color }}>
         {(grid.points ?? []).map(point => <PointMarker key={point.id} x={point.x} y={point.y} rotation={point.rotation ?? grid.rotation} label={point.label} />)}
       </g>;
-      return <rect key={grid.id} className={`grid-fill grid-fill-${grid.shape}${state}`} style={{ color }} x={0} y={0} width={width} height={height} fill={`url(#grid-pattern-${index})`} />;
+      // The grid being edited stays visible however small its cells are.
+      const fade = editing && grid.id === selected ? Math.max(.4, gridFade(grid, zoom)) : gridFade(grid, zoom);
+      if (!fade) return null;
+      return <g key={grid.id} opacity={fade}>
+        <rect className={`grid-fill grid-fill-${grid.shape}${state}`} style={{ color }} x={area.x} y={area.y} width={area.width} height={area.height} fill={`url(#grid-pattern-${index})`} />
+      </g>;
     })}
   </svg>;
-});
+}, (before, after) => before.grids === after.grids && before.area === after.area && before.editing === after.editing && before.selected === after.selected
+  && after.grids.every(grid => gridFade(grid, before.zoom) === gridFade(grid, after.zoom)));
 
 // A pattern's content takes its colour (currentColor) from the pattern, not from the shape it fills.
 function GridPattern({ grid, id, color }: { grid: Grid; id: string; color: string }) {
