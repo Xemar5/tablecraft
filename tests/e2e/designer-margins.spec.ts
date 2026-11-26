@@ -1,33 +1,49 @@
 import { expect, test } from '@playwright/test';
 
-test('hug and fill sizing ignore X/Y, inset layers by margins and use letter axis icons', async ({ page }) => {
+test('X/Y, sizes and margins enable by sizing and parent layout, like auto layout in design tools', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Component designer', exact: true }).click();
-  await page.locator('.layer-tree-row').nth(1).click();
-  const x = page.getByRole('spinbutton', { name: 'X', exact: true }), y = page.getByRole('spinbutton', { name: 'Y', exact: true });
-  await expect(x).toBeEnabled();
+  await page.getByRole('button', { name: 'Card name', exact: true }).click();
+  const field = (name: string) => page.getByRole('spinbutton', { name, exact: true });
+  const [x, y, width, height] = ['X', 'Y', 'Width', 'Height'].map(field);
   await expect(page.locator('.transform-grid .axis-glyph')).toHaveText(['X', 'Y']);
-  await expect(page.getByRole('spinbutton', { name: 'Margin left' })).toHaveCount(0);
+  for (const input of [x, y, width, height]) await expect(input).toBeEnabled();
+  await expect(field('Margin left')).toHaveCount(0);
   await expect(page.locator('.transform-box')).toBeVisible();
-
-  await page.getByLabel('Width sizing').selectOption('fill');
-  await expect(x).toBeDisabled();
-  await expect(y).toBeEnabled();
-  await page.getByRole('spinbutton', { name: 'Margin left' }).fill('20');
-  await page.getByRole('spinbutton', { name: 'Margin right' }).fill('30');
-  await page.getByRole('spinbutton', { name: 'Margin right' }).blur();
   // The selected layer is marked with a zoom-independent selection shadow.
   const layer = page.locator('.artboard .design-node[style*="box-shadow"]').first();
-  const metrics = await layer.evaluate(element => {
+  const box = () => layer.evaluate(element => {
     const node = element as HTMLElement, parent = node.offsetParent as HTMLElement;
-    return { left: node.offsetLeft, right: parent.clientWidth - node.offsetLeft - node.offsetWidth };
+    return { left: node.offsetLeft, top: node.offsetTop, right: parent.clientWidth - node.offsetLeft - node.offsetWidth, height: node.offsetHeight };
   });
-  expect(metrics).toEqual({ left: 20, right: 30 });
 
+  // Fill in an absolute parent: X and Width give way to the left and right margins.
+  await page.getByLabel('Width sizing').selectOption('fill');
+  await expect(x).toBeDisabled();
+  await expect(width).toBeDisabled();
+  await expect(y).toBeEnabled();
+  await expect(field('Margin top')).toBeDisabled();
+  await field('Margin left').fill('20');
+  await field('Margin right').fill('30');
+  await field('Margin right').blur();
+  await expect.poll(async () => { const { left, right } = await box(); return { left, right }; }).toEqual({ left: 20, right: 30 });
+  // The disabled Width shows the measured width.
+  await expect(width).toHaveValue(String((await layer.evaluate(element => (element as HTMLElement).offsetWidth))));
+
+  // Hug keeps its Y: only the height comes from the text.
+  const top = (await box()).top;
   await page.getByLabel('Height sizing').selectOption('hug');
-  await expect(y).toBeDisabled();
-  await page.getByRole('spinbutton', { name: 'Margin top' }).fill('12');
-  await page.getByRole('spinbutton', { name: 'Margin top' }).blur();
-  expect(await layer.evaluate(element => (element as HTMLElement).offsetTop)).toBe(12);
-  await page.screenshot({ path: `${process.env.TEMP}/zz-margins.png` });
+  await expect(y).toBeEnabled();
+  await expect(height).toBeDisabled();
+  expect((await box()).top).toBe(top);
+  const hugged = (await box()).height;
+  await expect(height).toHaveValue(String(hugged));
+  // Back to Fixed, the layer keeps the size it had.
+  await page.getByLabel('Height sizing').selectOption('fixed');
+  await expect(height).toBeEnabled();
+  await expect(height).toHaveValue(String(hugged));
+
+  // A shape has no contents to hug.
+  await page.getByRole('button', { name: 'Card border', exact: true }).click();
+  await expect(page.getByLabel('Width sizing').locator('option[value="hug"]')).toBeDisabled();
 });

@@ -18,16 +18,24 @@ describe('layer margins', () => {
     expect(() => nodeSchema.parse({ ...node, marginRight: -1 })).toThrow();
   });
 
-  it('ignores x/y on hug and fill axes in absolute parents and insets them by margins', () => {
+  it('places fixed and hug axes by x/y in absolute parents, and insets fill axes by their margins', () => {
     const fill = makeNode('text', { text: 'Filled', x: 40, y: 50, widthMode: 'fill', marginLeft: 10, marginRight: 20 });
     const hug = makeNode('text', { text: 'Hugged', x: 40, y: 50, heightMode: 'hug', marginTop: 7 });
     const fixed = makeNode('text', { text: 'Fixed', x: 40, y: 50, marginLeft: 99 });
     const markup = renderToStaticMarkup(<ComponentView component={{ ...starterTable().components[0], front: [fill, hug, fixed] }} />);
     expect(styleOf(markup, 'Filled')).toMatch(/left:10px;right:20px;top:50px/);
     expect(styleOf(markup, 'Filled')).not.toMatch(/(^|;)width:/);
-    expect(styleOf(markup, 'Hugged')).toMatch(/left:40px;top:7px/);
+    // Hug keeps its place: only its size comes from its contents, and margins don't move it.
+    expect(styleOf(markup, 'Hugged')).toMatch(/left:40px;top:50px/);
     expect(styleOf(markup, 'Hugged')).toContain('height:max-content');
     expect(styleOf(markup, 'Fixed')).toMatch(/left:40px;top:50px/);
+  });
+
+  it('renders a saved hug on a layer without contents to hug as fixed', () => {
+    const frame = makeNode('frame', { text: '', x: 30, y: 20, width: 90, height: 60, widthMode: 'hug', layout: 'absolute' });
+    const label = makeNode('text', { parent: frame.id, text: 'Inside' });
+    const markup = renderToStaticMarkup(<ComponentView component={{ ...starterTable().components[0], front: [frame, label] }} />);
+    expect(markup).toMatch(/left:30px;top:20px;[^"]*width:90px/);
   });
 
   it('applies margins as spacing between flow children', () => {

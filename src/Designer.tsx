@@ -20,6 +20,7 @@ import { parseCsvData, variantLabels } from './csv';
 import { PanelSeparator, type usePanelLayout } from './panelLayout';
 import { ZoomPresets } from './ZoomPresets';
 import { cssPx, uiScale } from './uiScale';
+import { canHug, ignoredBecause, layerAxisRules, sizingOf, type Axis } from './layoutRules';
 
 type Face = 'front' | 'back';
 type BooleanOperation = 'union' | 'subtract' | 'intersect' | 'exclude';
@@ -188,14 +189,12 @@ function nodeAngle(node: DesignNode, nodes: DesignNode[]) {
   return angle * Math.PI / 180;
 }
 
-function usesPosition(node: DesignNode, nodes: DesignNode[], axis: 'x' | 'y') {
-  if ((axis === 'x' ? node.widthMode ?? 'fixed' : node.heightMode ?? 'fixed') !== 'fixed') return false;
-  return !node.parent || nodes.find(parent => parent.id === node.parent)?.layout === 'absolute';
-}
+/** Whether X (or Y) places a layer: see src/layoutRules.ts. */
+const usesPosition = (node: DesignNode, nodes: DesignNode[], axis: Axis) => layerAxisRules(node, nodes, axis).position;
 
 // Centre and total angle of a visible, fixed-size layer whose ancestors all use absolute layout.
 function transformBox(node: DesignNode, nodes: DesignNode[]) {
-  if ((node.widthMode ?? 'fixed') !== 'fixed' || (node.heightMode ?? 'fixed') !== 'fixed') return undefined;
+  if (sizingOf(node, 'x') !== 'fixed' || sizingOf(node, 'y') !== 'fixed') return undefined;
   const byId = new Map(nodes.map(item => [item.id, item]));
   for (let current: DesignNode | undefined = node; current; current = current.parent ? byId.get(current.parent) : undefined) {
     if (current.visible === false) return undefined;
@@ -304,8 +303,32 @@ export function Designer({ component: incoming, components, functions = [], onCh
   const nodes = component[face];
   const selectedNodes = selected.map(id => nodes.find(item => item.id === id)).filter((item): item is DesignNode => !!item);
   const node = selectedNodes[0];
-  // X/Y only place layers with a fixed size on that axis inside an absolute parent; hug, fill and flow layouts use margins instead.
-  const positionsX = selectedNodes.some(item => usesPosition(item, nodes, 'x')), positionsY = selectedNodes.some(item => usesPosition(item, nodes, 'y'));
+  // Which of X/Y, Width/Height and the margins apply to the selection, per axis (src/layoutRules.ts): a field is
+  // enabled when it applies to any selected layer.
+  const xRules = selectedNodes.map(item => layerAxisRules(item, nodes, 'x')), yRules = selectedNodes.map(item => layerAxisRules(item, nodes, 'y'));
+  const positionsX = xRules.some(rules => rules.position), positionsY = yRules.some(rules => rules.position);
+  const sizesX = xRules.some(rules => rules.size), sizesY = yRules.some(rules => rules.size);
+  const marginsX = xRules.some(rules => rules.margins), marginsY = yRules.some(rules => rules.margins);
+  // A Hug or Fill layer's size comes from the layout, so the inspector shows its measured size (in design pixels; the
+  // artboard is scaled by a transform, which offsetWidth ignores), and switching it to Fixed keeps that size.
+  const [measured, setMeasured] = useState<{ id: string; width: number; height: number }>();
+  useLayoutEffect(() => {
+    if (!node || (sizesX && sizesY)) { if (measured) setMeasured(undefined); return; }
+    const element = artboard.current?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
+    const next = element ? { id: node.id, width: Math.round(element.offsetWidth * 100) / 100, height: Math.round(element.offsetHeight * 100) / 100 } : undefined;
+    if (next?.id !== measured?.id || next?.width !== measured?.width || next?.height !== measured?.height) setMeasured(next);
+  });
+  const shownSize = (axis: Axis) => {
+    const rules = axis === 'x' ? xRules[0] : yRules[0];
+    if (!node || rules?.size || measured?.id !== node.id) return axis === 'x' ? node?.width ?? 0 : node?.height ?? 0;
+    return axis === 'x' ? measured.width : measured.height;
+  };
+  const setSizing = (axis: Axis, mode: DesignNode['widthMode']) => {
+    const size = mode === 'fixed' && measured?.id === node?.id && !(axis === 'x' ? xRules[0]?.size : yRules[0]?.size)
+      ? { [axis === 'x' ? 'width' : 'height']: Math.max(1, axis === 'x' ? measured!.width : measured!.height) } : {};
+    updateNode({ [axis === 'x' ? 'widthMode' : 'heightMode']: mode, ...size });
+  };
+  const hugAllowed = selectedNodes.some(canHug);
   useEffect(() => {
     if (pointSelectionNode.current !== node?.id) { pointSelectionNode.current = node?.id; setSelectedPoint(-1); return; }
     if (node?.type === 'shape' && node.shapeKind === 'path' && node.points.length) setSelectedPoint(index => Math.min(index, node.points.length - 1));
@@ -1199,28 +1222,32 @@ export function Designer({ component: incoming, components, functions = [], onCh
               <button className="icon-button" title="Send backward (Ctrl/Cmd+[; with Shift, to the back)" aria-label="Send backward" onClick={() => orderLayers('backward')}><SendToBack size={14} /></button>
             </SectionTitle>
             <div className="field-grid transform-grid"><NumberField label="X" icon={<span className="axis-glyph">X</span>} value={node.x} onChange={x => updateNode({ x })}
-                disabled={!positionsX} title={positionsX ? undefined : 'Ignored: this layer is placed by its sizing mode or parent layout'} />
+                disabled={!positionsX} title={ignoredBecause(xRules[0], 'position', 'x')} />
               <NumberField label="Y" icon={<span className="axis-glyph">Y</span>} value={node.y} onChange={y => updateNode({ y })}
-                disabled={!positionsY} title={positionsY ? undefined : 'Ignored: this layer is placed by its sizing mode or parent layout'} />
-              <NumberField label="Width" icon={<MoveHorizontal size={14} />} value={node.width} min={1} max={4000} onChange={width => updateNode({ width })} />
-              <NumberField label="Height" icon={<MoveVertical size={14} />} value={node.height} min={1} max={4000} onChange={height => updateNode({ height })} />
+                disabled={!positionsY} title={ignoredBecause(yRules[0], 'position', 'y')} />
+              <NumberField label="Width" icon={<MoveHorizontal size={14} />} value={shownSize('x')} min={1} max={4000} onChange={width => updateNode({ width })}
+                disabled={!sizesX} title={ignoredBecause(xRules[0], 'size', 'x')} />
+              <NumberField label="Height" icon={<MoveVertical size={14} />} value={shownSize('y')} min={1} max={4000} onChange={height => updateNode({ height })}
+                disabled={!sizesY} title={ignoredBecause(yRules[0], 'size', 'y')} />
               <NumberField label="Rotation" icon={<RotateCw size={14} />} value={node.rotation} onChange={rotation => updateNode({ rotation })} />
               {selected.length === 1 && node.type === 'frame' && <NumberField label="Radius" value={node.radius} min={0} max={2000} onChange={radius => updateNode({ radius })} />}</div>
             <div className="field-grid sizing-grid">
-              <Field label="Width sizing" hint="Fixed uses the width above. Hug fits the contents; Fill stretches to the parent, inset by the margins."><select value={selectedNodes.every(item => (item.widthMode ?? 'fixed') === (node.widthMode ?? 'fixed')) ? node.widthMode ?? 'fixed' : 'mixed'}
-                onChange={event => { if (event.target.value !== 'mixed') updateNode({ widthMode: event.target.value as DesignNode['widthMode'] }); }}>
-                {selectedNodes.some(item => (item.widthMode ?? 'fixed') !== (node.widthMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
-                <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
-              <Field label="Height sizing"><select value={selectedNodes.every(item => (item.heightMode ?? 'fixed') === (node.heightMode ?? 'fixed')) ? node.heightMode ?? 'fixed' : 'mixed'}
-                onChange={event => { if (event.target.value !== 'mixed') updateNode({ heightMode: event.target.value as DesignNode['heightMode'] }); }}>
-                {selectedNodes.some(item => (item.heightMode ?? 'fixed') !== (node.heightMode ?? 'fixed')) && <option value="mixed" disabled>Mixed</option>}
-                <option value="fixed">Fixed</option><option value="hug">Hug contents</option><option value="fill">Fill parent</option></select></Field>
+              {(['x', 'y'] as const).map(axis => {
+                const key = axis === 'x' ? 'widthMode' : 'heightMode', current = sizingOf(node, axis);
+                const mixed = selectedNodes.some(item => sizingOf(item, axis) !== current);
+                return <Field key={axis} label={axis === 'x' ? 'Width sizing' : 'Height sizing'}
+                  hint={axis === 'x' ? 'Fixed: the width above. Hug contents: fits its text or stacked children (text and stack frames only). Fill parent: stretches to its parent; in an absolute parent X is replaced by the left and right margins.' : undefined}>
+                  <select value={mixed ? 'mixed' : current} onChange={event => { if (event.target.value !== 'mixed') setSizing(axis, event.target.value as DesignNode[typeof key]); }}>
+                    {mixed && <option value="mixed" disabled>Mixed</option>}
+                    <option value="fixed">Fixed</option>
+                    <option value="hug" disabled={!hugAllowed} title={hugAllowed ? undefined : 'Only text and stack frames have contents to hug'}>Hug contents</option>
+                    <option value="fill">Fill parent</option></select></Field>;
+              })}
             </div>
-            {(!positionsX || !positionsY) && <div className="padding-editor margin-editor"><span>Margins per edge</span><div className="field-grid">
-              <NumberField label="Margin top" value={node.marginTop ?? 0} min={0} max={2000} onChange={marginTop => updateNode({ marginTop })} />
-              <NumberField label="Margin right" value={node.marginRight ?? 0} min={0} max={2000} onChange={marginRight => updateNode({ marginRight })} />
-              <NumberField label="Margin bottom" value={node.marginBottom ?? 0} min={0} max={2000} onChange={marginBottom => updateNode({ marginBottom })} />
-              <NumberField label="Margin left" value={node.marginLeft ?? 0} min={0} max={2000} onChange={marginLeft => updateNode({ marginLeft })} />
+            {(marginsX || marginsY) && <div className="padding-editor margin-editor"><span>Margins per edge</span><div className="field-grid">
+              {([['top', 'marginTop', marginsY], ['right', 'marginRight', marginsX], ['bottom', 'marginBottom', marginsY], ['left', 'marginLeft', marginsX]] as const).map(([edge, key, applies]) =>
+                <NumberField key={key} label={`Margin ${edge}`} value={node[key] ?? 0} min={0} max={2000} onChange={value => updateNode({ [key]: value })}
+                  disabled={!applies} title={applies ? undefined : `Ignored: in an absolute parent, margins only inset a Fill parent axis (X/Y place it ${edge === 'top' || edge === 'bottom' ? 'vertically' : 'horizontally'})`} />)}
             </div></div>}
           </div>
           {selected.length === 1 && node.type === 'frame' && <div className="inspector-section design-section">

@@ -1,4 +1,5 @@
 import { memo, useEffect, useState, type CSSProperties, type MouseEvent, type PointerEvent } from 'react';
+import { sizingOf } from './layoutRules';
 import { assetFontFamily, assetUrl, bind, resolveFontFamily, resolveImage, type Component, type DesignNode } from './domain';
 import { useMemoryFields } from './memoryBindings';
 import { pathBounds, pathForCompound, pathForShape } from './vectorGeometry';
@@ -42,15 +43,16 @@ export const ComponentView = memo(function ComponentView({ component: c, compone
     if (node.visibilityField && (node.visibilityField.includes('{{') ? bind(node.visibilityField, contextData) : contextData[node.visibilityField]) !== node.visibilityValue) return null;
     const flow = !!parent && parent.layout !== 'absolute';
     const text = bind(node.text, contextData);
-    const widthMode = node.widthMode ?? 'fixed', heightMode = node.heightMode ?? 'fixed';
+    // Sizing and placement follow src/layoutRules.ts (Hug on a layer without contents to hug counts as Fixed).
+    const widthMode = sizingOf(node, 'x'), heightMode = sizingOf(node, 'y');
     const rowFlow = parent?.layout === 'row', columnFlow = parent?.layout === 'column';
     const fillsMainAxis = flow && ((rowFlow && widthMode === 'fill') || (columnFlow && heightMode === 'fill'));
     const marginTop = node.marginTop ?? 0, marginRight = node.marginRight ?? 0, marginBottom = node.marginBottom ?? 0, marginLeft = node.marginLeft ?? 0;
-    // Hug and fill axes ignore x/y: absolute children are inset from the parent's edges by their margins instead.
+    // In an absolute parent, X/Y place Fixed and Hug layers; Fill axes ignore them and are inset by their margins instead.
     const style: CSSProperties = {
       position: flow ? 'relative' : 'absolute',
-      left: flow ? undefined : widthMode === 'fixed' ? node.x : marginLeft, right: !flow && widthMode === 'fill' ? marginRight : undefined,
-      top: flow ? undefined : heightMode === 'fixed' ? node.y : marginTop, bottom: !flow && heightMode === 'fill' ? marginBottom : undefined,
+      left: flow ? undefined : widthMode === 'fill' ? marginLeft : node.x, right: !flow && widthMode === 'fill' ? marginRight : undefined,
+      top: flow ? undefined : heightMode === 'fill' ? marginTop : node.y, bottom: !flow && heightMode === 'fill' ? marginBottom : undefined,
       marginTop: flow ? marginTop : undefined, marginRight: flow ? marginRight : undefined, marginBottom: flow ? marginBottom : undefined, marginLeft: flow ? marginLeft : undefined,
       width: widthMode === 'hug' ? 'max-content' : widthMode === 'fill' ? flow && !rowFlow ? `calc(100% - ${marginLeft + marginRight}px)` : undefined : node.width,
       height: heightMode === 'hug' ? 'max-content' : heightMode === 'fill' ? flow && !columnFlow ? `calc(100% - ${marginTop + marginBottom}px)` : undefined : node.height,
