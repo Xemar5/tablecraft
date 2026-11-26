@@ -1,0 +1,23 @@
+/* Home's search box, list/grid switch and grid of project tiles (Home.tsx). */
+.home-toolbar { display: flex; align-items: center; gap: 12px; max-width: 1200px; margin: -8px auto 20px; }
+.home-search { flex: 1; max-width: 460px; display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 6px 0 12px; background: #fff; border: 1px solid var(--line); border-radius: 9px; color: #8a9a7c; cursor: text; }
+.home-search:focus-within { border-color: #b9cfa2; box-shadow: 0 0 0 3px #e6efdb; }
+.home-search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: none; background: transparent; font-size: 13px; color: var(--ink, #23301f); }
+.home-search input::-webkit-search-cancel-button { display: none; }
+.home-search .icon-button { width: 26px; height: 26px; color: #8a9a7c; }
+.home-views { margin-left: auto; }
+.home-views button { width: 32px; height: 32px; }
+
+.home-projects.home-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); align-items: stretch; }
+.home-grid .home-project { display: flex; flex-direction: column; padding: 16px; }
+.home-grid .home-project-heading { position: relative; flex: 1; flex-direction: column; align-items: stretch; gap: 12px; margin: 0; }
+.home-grid .home-project-heading h2 { padding-right: 30px; overflow-wrap: anywhere; }
+.home-grid .home-project-actions { flex-wrap: wrap; margin: auto 0 0; }
+.home-grid .home-project-grip { position: absolute; top: 88px; right: -6px; }
+.home-grid .home-project .home-project-description { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.home-project-previews { display: flex; align-items: center; justify-content: center; gap: 10px; height: 80px; border-radius: 8px; background: #f3f6ee; overflow: hidden; }
+.home-project-previews:empty::after { content: 'No components yet'; font-size: 11px; color: #9ca990; }
+/* Tiles take drops beside each other. */
+.home-grid .library-drop-before::before, .home-grid .library-drop-after::after { top: 0; bottom: 0; width: 3px; height: auto; }
+.home-grid .library-drop-before::before { left: -11px; right: auto; }
+.home-grid .library-drop-after::after { right: -11px; left: auto; }

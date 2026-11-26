@@ -76,6 +76,40 @@ test('the Wildwood sample shows its showcase: shared art, a scripted button with
   await expect(page.getByText(`reaches the ${stone.label}.`)).toBeVisible();
 });
 
+test('Home searches projects by name, description or component, and shows them as a list or a remembered grid', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New project', exact: true });
+  await dialog.getByRole('group', { name: 'Start from' }).getByRole('radio', { name: /^Chess/ }).check();
+  await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
+  await page.getByRole('link', { name: 'Tablecraft home', exact: true }).click();
+  const search = page.getByRole('searchbox', { name: 'Search projects' });
+  const titles = page.locator('.home-project h2');
+  await expect(titles).toHaveText(['Chess', 'Wildwood']);
+  // Component names match too: only Wildwood has wanderers.
+  await search.fill('wanderer');
+  await expect(titles).toHaveText(['Wildwood']);
+  await expect(page.getByRole('button', { name: 'Reorder project Wildwood', exact: true })).toHaveCount(0);
+  await search.fill('classic kings');
+  await expect(titles).toHaveText(['Chess']);
+  await search.fill('nothing like this');
+  await expect(page.getByText('No projects match “nothing like this”.')).toBeVisible();
+  await search.press('Escape');
+  await expect(search).toHaveValue('');
+  await expect(titles).toHaveCount(2);
+
+  const views = page.getByRole('radiogroup', { name: 'Project view' });
+  await expect(views.getByRole('radio', { name: 'List view' })).toBeChecked();
+  await views.getByRole('radio', { name: 'Grid view' }).click();
+  await expect(page.locator('.home-grid .home-project')).toHaveCount(2);
+  await expect(page.locator('.home-grid .home-project-previews').first().locator('.home-component-image')).not.toHaveCount(0);
+  // The loaded project reopens after a reload; Home comes back as a grid.
+  await page.reload();
+  await page.getByRole('link', { name: 'Tablecraft home', exact: true }).click();
+  await expect(views.getByRole('radio', { name: 'Grid view' })).toBeChecked();
+  await expect(page.locator('.home-grid .home-project')).toHaveCount(2);
+});
+
 test('fresh visits start at Home, open projects resume, and the logo returns Home', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('region', { name: 'Project home' })).toBeVisible();

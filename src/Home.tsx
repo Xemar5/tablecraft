@@ -1,15 +1,29 @@
 import { useState } from 'react';
-import { Download, FolderPlus, GripVertical, History as HistoryIcon, Link2, Pencil, Play, Plus, Trash2, Upload, Users, X } from 'lucide-react';
+import { Download, FolderPlus, GripVertical, History as HistoryIcon, LayoutGrid, LayoutList, Link2, Pencil, Play, Plus, Search, Trash2, Upload, Users, X } from 'lucide-react';
 import { ComponentThumbnail } from './ComponentView';
 import { type Project } from './domain';
 import { GAME_PROJECTS, type GameProjectId } from './gameProjects';
 import type { History } from './projectHistory';
 import './newProject.css';
+import './home.css';
 import { Field, Modal } from './ui';
+
+/** Where this browser remembers whether Home lists projects or shows them as a grid of tiles. */
+const HOME_VIEW_KEY = 'tablecraft.home-view';
+type HomeView = 'list' | 'grid';
+function storedView(): HomeView {
+  try { return localStorage.getItem(HOME_VIEW_KEY) === 'grid' ? 'grid' : 'list'; } catch { return 'list'; }
+}
+/** Whether a project matches a search: its name, description or one of its components' names contains the words. */
+export function projectMatches(project: Pick<Project, 'name' | 'description' | 'components'>, query: string) {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const text = [project.name, project.description, ...project.components.map(component => component.name)].join('\n').toLowerCase();
+  return words.every(word => text.includes(word));
+}
 
 /**
  * The workshop: the loaded project (continue or close it) apart from the projects that can be loaded. Loading another
- * project closes the loaded one.
+ * project closes the loaded one. A search box narrows the projects, and they show as a list or a grid of tiles.
  */
 export function Home({ projects, open, histories, onLoad, onContinue, onCloseProject, onHistory, onDelete, onReorder, onCreate, onUpdate, onImport, onExport, onExportAll, onJoin }: {
   projects: Project[]; open?: { id: string; context: string; dirty: boolean }; histories: Record<string, History>;
@@ -35,8 +49,15 @@ export function Home({ projects, open, histories, onLoad, onContinue, onClosePro
     if (!touched.description) setDescription(game?.description ?? '');
   };
   const [editing, setEditing] = useState<Project>();
+  const [query, setQuery] = useState('');
+  const [view, setView] = useState<HomeView>(storedView);
+  const chooseView = (next: HomeView) => { setView(next); try { localStorage.setItem(HOME_VIEW_KEY, next); } catch { /* the choice just isn't remembered */ } };
+  const searching = !!query.trim();
   const loaded = open && projects.find(project => project.id === open.id);
   const others = projects.filter(project => project !== loaded);
+  const shownLoaded = loaded && projectMatches(loaded, query) ? loaded : undefined;
+  const shownOthers = others.filter(project => projectMatches(project, query));
+  const grid = view === 'grid';
   const status = (id: string) => {
     const history = histories[id];
     const snapshots = history?.snapshots.length ?? 0, sessions = history?.sessions.length ?? 0;
@@ -56,8 +77,9 @@ export function Home({ projects, open, histories, onLoad, onContinue, onClosePro
       onDragOver={event => {
         if (!dragged || dragged === project.id || isOpen) return;
         event.preventDefault();
+        // Tiles in a grid drop beside each other, list rows above or below.
         const rect = event.currentTarget.getBoundingClientRect();
-        setDrop({ id: project.id, after: event.clientY > rect.top + rect.height / 2 });
+        setDrop({ id: project.id, after: grid ? event.clientX > rect.left + rect.width / 2 : event.clientY > rect.top + rect.height / 2 });
       }} onDragLeave={event => {
         if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) setDrop(undefined);
       }} onDrop={event => {
@@ -66,14 +88,20 @@ export function Home({ projects, open, histories, onLoad, onContinue, onClosePro
         setDragged(undefined); setDrop(undefined);
       }}>
       <div className="home-project-heading">
-        {!isOpen && <button className="icon-button" aria-label={`Reorder project ${project.name}`} title="Drag to reorder; Up/Down when focused" draggable
+        {grid && <div className="home-project-previews" aria-hidden="true">
+          {project.components.filter(component => component.kind !== 'texture' && component.kind !== 'font').slice(0, 4).map(component =>
+            <div key={component.id} className="home-component-image"><ComponentThumbnail component={component} components={project.components} width={56} /></div>)}
+        </div>}
+        {/* The order is the whole list's, so it can't be changed while a search hides some projects. */}
+        {!isOpen && !searching && <button className="icon-button home-project-grip" aria-label={`Reorder project ${project.name}`} title={grid ? 'Drag to reorder; arrow keys when focused' : 'Drag to reorder; Up/Down when focused'} draggable
           onDragStart={event => { event.dataTransfer.setData('text/plain', project.id); event.dataTransfer.effectAllowed = 'move'; setDragged(project.id); }}
           onDragEnd={() => { setDragged(undefined); setDrop(undefined); }}
           onKeyDown={event => {
-            if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+            const back = event.key === 'ArrowUp' || (grid && event.key === 'ArrowLeft'), forward = event.key === 'ArrowDown' || (grid && event.key === 'ArrowRight');
+            if (!back && !forward) return;
             event.preventDefault();
-            const target = others[index + (event.key === 'ArrowUp' ? -1 : 1)];
-            if (target) onReorder(project.id, target.id, event.key === 'ArrowDown');
+            const target = others[index + (back ? -1 : 1)];
+            if (target) onReorder(project.id, target.id, forward);
           }}><GripVertical size={18} /></button>}
         <div><h2>{project.name}</h2>{project.description && <p className="home-project-description">{project.description}</p>}
           <p className="home-project-status">{status(project.id)}{isOpen && open!.context !== 'Draft' && <span className="history-badge loaded">{open!.context}</span>}{isOpen && open!.dirty && <span className="home-unsaved">Unsaved changes</span>}</p>
@@ -87,19 +115,30 @@ export function Home({ projects, open, histories, onLoad, onContinue, onClosePro
           <button className="icon-button" aria-label={`Export project ${project.name}`} title="Export…" onClick={() => onExport(project)}><Download size={17} /></button>
           {!isOpen && <button className="icon-button" aria-label={`Delete project ${project.name}`} onClick={() => setDeleting(project)}><Trash2 size={17} /></button>}</div>
       </div>
-      <details><summary>Components ({project.components.length})</summary><ul className="home-components">
+      {!grid && <details><summary>Components ({project.components.length})</summary><ul className="home-components">
         {project.components.map(component => <li key={component.id}><div className="home-component-image"><ComponentThumbnail component={component} components={project.components} width={44} /></div>
           <span><strong>{component.name}</strong><small>{component.kind} · {Math.max(1, component.rows.length)} variants {component.source && <><Link2 size={11} /> Read-only link</>}</small></span></li>)}
-      </ul>{!project.components.length && <p>No components yet.</p>}</details>
+      </ul>{!project.components.length && <p>No components yet.</p>}</details>}
     </article>;
   };
+  const listClass = `home-projects${grid ? ' home-grid' : ''}`;
   return <section className="home-screen" aria-label="Project home">
     {heading}
-    {loaded && <section className="home-open" aria-label="Open project"><h2 className="home-section-title">Open project</h2><div className="home-projects">{card(loaded, -1)}</div></section>}
-    {loaded && <h2 className="home-section-title">Other projects</h2>}
+    {projects.length > 0 && <div className="home-toolbar">
+      <label className="home-search"><Search size={15} aria-hidden="true" />
+        <input type="search" aria-label="Search projects" placeholder="Search projects by name, description or component" value={query}
+          onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Escape' && query) { event.preventDefault(); setQuery(''); } }} />
+        {query && <button type="button" className="icon-button" aria-label="Clear search" title="Clear search" onClick={() => setQuery('')}><X size={14} /></button>}
+      </label>
+      <span className="library-views home-views" role="radiogroup" aria-label="Project view">{([['list', 'List view', LayoutList], ['grid', 'Grid view', LayoutGrid]] as const).map(([value, label, Icon]) =>
+        <button key={value} type="button" role="radio" aria-checked={view === value} aria-label={label} title={label} className={view === value ? 'active' : ''} onClick={() => chooseView(value)}><Icon size={16} /></button>)}</span>
+    </div>}
+    {shownLoaded && <section className="home-open" aria-label="Open project"><h2 className="home-section-title">Open project</h2><div className={listClass}>{card(shownLoaded, -1)}</div></section>}
+    {shownLoaded && (shownOthers.length > 0 || !searching) && <h2 className="home-section-title">Other projects</h2>}
     {!projects.length && <p className="empty-note">No projects yet. Create a project or import a Tablecraft export.</p>}
-    {loaded && !others.length && <p className="empty-note">No other projects. Create a project or import a Tablecraft export.</p>}
-    <div className="home-projects">{others.map((project, index) => card(project, index))}</div>
+    {searching && !shownLoaded && !shownOthers.length && <p className="empty-note">No projects match “{query.trim()}”.</p>}
+    {loaded && !others.length && !searching && <p className="empty-note">No other projects. Create a project or import a Tablecraft export.</p>}
+    <div className={listClass} aria-label={searching ? 'Matching projects' : undefined}>{shownOthers.map((project, index) => card(project, index))}</div>
     {deleting && <Modal title={`Delete ${deleting.name}?`} subtitle="This removes the project from this browser. Export it first to keep a backup. Other projects keep their last linked snapshots." onClose={() => setDeleting(undefined)}>
       <div className="modal-actions"><button className="button" onClick={() => setDeleting(undefined)}>Cancel</button><button className="button danger" onClick={() => { onDelete(deleting.id); setDeleting(undefined); }}>Delete project</button></div>
     </Modal>}
