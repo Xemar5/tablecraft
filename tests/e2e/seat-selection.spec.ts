@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Player } from '../../src/domain';
-import { chooseHeader } from './headerMenus';
+import { chooseHeader, toggleHeader } from './headerMenus';
 
 const seat = (page: Page, id: string) => page.evaluate(id => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0].players.find((p: Player) => p.id === id) as Player, id);
 
@@ -24,10 +24,15 @@ test('clicking a seat selects it and edits its settings in the inspector as sing
   await page.locator('[data-seat-id="player-2"]').click();
   for (const name of ["Shuffle Player 2's hand", "Reverse Player 2's hand"])
     await expect(otherActions.getByRole('button', { name, exact: true })).toBeDisabled();
-  await expect(page.locator('.seat-inspector .host-override-note')).toContainText('Hotseat override');
-  await expect(page.locator('.seat-inspector fieldset.seat-fields')).toHaveClass(/host-override/);
   const otherTake = otherActions.getByRole('button', { name: "Allow others to take from Player 2's hand", exact: true });
-  await expect(otherTake).toHaveClass(/host-override/);
+  // Another hotseat seat's settings are Player 2's own: only game master mode changes them, marked as overrides.
+  await expect(page.getByLabel('Player name', { exact: true })).toBeDisabled();
+  await expect(otherTake).toBeDisabled();
+  await toggleHeader(page, 'Game master mode');
+  await expect(page.locator('.gm-pill')).toBeVisible();
+  await expect(page.locator('.seat-inspector .gm-override-note')).toContainText('Game master override');
+  await expect(page.locator('.seat-inspector fieldset.seat-fields')).toHaveClass(/gm-override/);
+  await expect(otherTake).toHaveClass(/gm-override/);
   await otherTake.click();
   await expect.poll(async () => (await seat(page, 'player-2')).allowHandTake).toBe(true);
   expect((await seat(page, 'player-1')).allowHandTake).toBeUndefined();

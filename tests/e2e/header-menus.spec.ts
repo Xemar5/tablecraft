@@ -10,7 +10,7 @@ test('the header has one menu, with the panel and scripting toggles in its Visib
   const visibility = page.getByRole('menuitem', { name: 'Visibility', exact: true });
   await visibility.hover();
   await expect(visibility).toHaveAttribute('aria-expanded', 'true');
-  await expect(page.getByRole('menu', { name: 'Visibility' }).getByRole('menuitemcheckbox')).toHaveText(['Component library', 'Pieces panel', 'Hand panel', 'Table inspector', 'Hidden pieces']);
+  await expect(page.getByRole('menu', { name: 'Visibility' }).getByRole('menuitemcheckbox')).toHaveText(['Component library', 'Pieces panel', 'Hand panel', 'Table inspector']);
   // Items toggle without closing the menu; a click elsewhere closes it.
   await headerItem(page, 'Hand panel').click();
   await expect(headerItem(page, 'Hand panel')).toHaveAttribute('aria-checked', 'false');

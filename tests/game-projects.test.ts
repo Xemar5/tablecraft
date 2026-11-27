@@ -57,7 +57,8 @@ describe('game projects', () => {
     expect([named(checkers, 'Light checkers').length, named(checkers, 'Dark checkers').length]).toEqual([12, 12]);
     const wildwood = build('wildwood');
     expect(lockedGroups(wildwood)).toEqual(['Clearing', 'Wanderer’s path']);
-    expect([named(wildwood, 'Spirit cards').length, named(wildwood, 'Amber and die').length, named(wildwood, 'Wanderers').length]).toEqual([15, 14, 2]);
+    // (The spirit cards include one hidden from everyone, which game master mode shows.)
+    expect([named(wildwood, 'Spirit cards').length, named(wildwood, 'Amber and die').length, named(wildwood, 'Wanderers').length]).toEqual([16, 14, 2]);
     const go = build('go');
     const black = named(go, 'Black stones');
     expect(black.filter(item => item.locked).map(item => go.components.find(component => component.id === item.componentId)!.name)).toEqual(['Stone bowl']);

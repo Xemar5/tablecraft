@@ -249,6 +249,11 @@ export const playerSchema = z.object({
   x: num, y: num, rotation: num,
   allowHandInsert: z.boolean().optional(), allowHandTake: z.boolean().optional(),
   handFaceUp: z.boolean().optional(), tableHandHidden: z.boolean().optional(), tableHandUnlocked: z.boolean().optional(),
+  /**
+   * Marked by the room host: whoever plays this seat may use game master mode (seeing hidden pieces, and changing other
+   * seats and scripts as the host can). The host always may; offline, so does everyone at the screen.
+   */
+  gameMaster: z.boolean().optional(),
 });
 export type Player = z.infer<typeof playerSchema>;
 /** A Lua script. A project's scripts run in order, sharing their globals, in every browser and on the server. */
@@ -1578,7 +1583,7 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     }
     case 'handSettings': {
       const player = p.players.find(player => player.id === command.playerId);
-      // Seat owners change their own settings; servers additionally let the room host override other seats.
+      // Seat owners change their own settings; servers additionally let the room host and game masters override other seats.
       if (!player) throw new Error('Seat no longer exists.');
       Object.assign(player, command.patch);
       break;

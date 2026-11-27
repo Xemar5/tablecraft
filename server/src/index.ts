@@ -126,17 +126,22 @@ export const dispatch = db.reducer({ command: t.string(), actor: t.string() }, (
     if (!actor && !designCommands.has(command.type) && !(host && (seatCommands.has(command.type) || scriptCommands.has(command.type)))) {
       throw new Error('Take a seat to play. Viewers can only inspect the table.');
     }
+    // The host, and seats the host marks as game masters, may do what a seat normally can't: change scripts when players
+    // can't, and change or remove other players' seats (the UI's game master mode).
+    const gameMaster = host || !!actor?.gameMaster;
     // Scripts change for everyone, so the host decides who may edit them; updates come only from the server's timer.
-    if (scriptCommands.has(command.type) && !host && !project.settings.scriptEditing) throw new Error('Only the host can change scripts in this room.');
-    if (command.type === 'settings' && command.patch.scriptEditing !== undefined && !host) throw new Error('Only the host can choose who may edit scripts.');
+    if (scriptCommands.has(command.type) && !gameMaster && !project.settings.scriptEditing) throw new Error('Only the host or a game master can change scripts in this room.');
+    if (command.type === 'settings' && command.patch.scriptEditing !== undefined && !gameMaster) throw new Error('Only the host or a game master can choose who may edit scripts.');
     if (command.type === 'tick') throw new Error('In a live room, the server runs update(dt) by itself.');
-    // Seats belong to their occupant; empty seats are shared, and the room host may change or remove any seat but never reassign one.
+    // Seats belong to their occupant; empty seats are shared, and the room host and game masters may change or remove any
+    // seat but never reassign one. Only the host marks game masters.
     const manages = (playerId: string) => {
       const owner = project.players.find(p => p.id === playerId)?.owner;
-      return owner === identity || owner === '' || (host && owner !== undefined);
+      return owner === identity || owner === '' || (gameMaster && owner !== undefined);
     };
     if (command.type === 'player') {
       const target = project.players.find(p => p.id === command.player.id);
+      if (!!command.player.gameMaster !== !!target?.gameMaster && !host) throw new Error('Only the host can choose game masters.');
       if (target ? !manages(target.id) || command.player.owner !== target.owner : command.player.owner !== '') throw new Error('You can only edit your own seat or empty seats.');
     }
     if (command.type === 'removePlayer' && !manages(command.playerId)) throw new Error('You can only remove your own seat or empty seats.');

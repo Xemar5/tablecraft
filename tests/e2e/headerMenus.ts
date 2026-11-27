@@ -3,7 +3,7 @@ import { expect, type Page } from '@playwright/test';
 /** The submenu of the header's Actions menu each panel and scripting item is in (other items are in the menu itself). */
 const SUBMENU: Record<string, 'Visibility' | 'Scripting'> = {
   'Component library': 'Visibility', 'Pieces panel': 'Visibility', 'Layers panel': 'Visibility', 'Hand panel': 'Visibility',
-  'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', 'Hidden pieces': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
+  'Table inspector': 'Visibility', 'Designer inspector': 'Visibility', Scripts: 'Scripting', Memory: 'Scripting',
 };
 
 /** The header's menu button (every item is in its Actions menu, some in a submenu). */

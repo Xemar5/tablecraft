@@ -34,6 +34,14 @@ describe('Wildwood sample', () => {
     expect(layer('Wanderer’s guide', 'Page number')).toMatchObject({ pivotX: .5, pivotY: 1, widthMode: 'hug' });
   });
 
+  it('hides one spirit card from everyone, seats that join later too, for game master mode to show', () => {
+    const project = wildwoodProject();
+    const hidden = project.instances.filter(item => item.hidden);
+    expect(hidden).toHaveLength(1);
+    expect(hidden[0].hidePlayers).toBeUndefined();
+    expect(project.components.find(component => component.id === hidden[0].componentId)!.name).toBe('Spirit cards');
+  });
+
   it('keeps the guide and its controls in their place in the order', () => {
     const project = wildwoodProject();
     expect(project.groups!.find(group => group.id === 'group-guide')).toMatchObject({ orderLocked: true });

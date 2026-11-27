@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { Archive } from '../../src/domain';
+import { toggleHeader } from './headerMenus';
 
 const project = async (page: Page) => (await page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!)) as Archive).projects[0];
 
@@ -20,10 +21,15 @@ test('removing a seat spreads its hand where the seat was', async ({ page }) => 
   await page.locator('[data-seat-id="player-1"]').click();
   await page.getByRole('button', { name: 'Switch to this seat', exact: true }).click();
   await page.getByRole('button', { name: "I'm Player 1. Let's play.", exact: false }).click();
+  // Another hotseat seat is removed only in game master mode, as an override.
   await page.locator('[data-seat-id="player-2"]').click();
+  await expect(remove).toHaveCount(0);
+  await toggleHeader(page, 'Game master mode');
+  await expect(remove).toHaveClass(/gm-override/);
   await remove.click();
   const dialog = page.getByRole('dialog');
   await expect(dialog).toContainText('Remove Player 2?');
+  await expect(dialog).toContainText('Game master override');
   await expect(dialog).toContainText('Its 3 held pieces are spread on the table where the seat was.');
   const [modalBox, actionsBox] = [(await dialog.boundingBox())!, (await dialog.locator('.modal-actions .button').last().boundingBox())!];
   expect(modalBox.x + modalBox.width - (actionsBox.x + actionsBox.width)).toBeGreaterThanOrEqual(20);

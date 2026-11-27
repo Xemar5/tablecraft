@@ -1,7 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { pickSeat } from './liveSeat';
+import { headerItem, toggleHeader } from './headerMenus';
 
-test('the room host can change other seats with host-override marking while guests cannot', async ({ browser, storageState }) => {
+test('in game master mode the room host can change other seats, marked as overrides, while guests cannot until the host marks them', async ({ browser, storageState }) => {
   const first = await browser.newContext({ storageState }), second = await browser.newContext({ storageState });
   const host = await first.newPage(), guest = await second.newPage();
   try {
@@ -23,24 +24,37 @@ test('the room host can change other seats with host-override marking while gues
 
     await host.locator(`[data-seat-id="${guestId}"]`).click();
     const inspector = host.locator('.seat-inspector');
-    await expect(inspector.locator('.host-override-note')).toBeVisible();
-    await expect(inspector.locator('fieldset.seat-fields.host-override')).toBeVisible();
+    // Without game master mode, even the host can't change another player's seat.
+    await expect(host.getByLabel('Player name', { exact: true })).toBeDisabled();
+    await toggleHeader(host, 'Game master mode');
+    await expect(inspector.locator('.gm-override-note')).toBeVisible();
+    await expect(inspector.locator('fieldset.seat-fields.gm-override')).toBeVisible();
     // A claimed seat's name is its player's profile name, so even the host can't rename it.
     await expect(host.getByLabel('Player name', { exact: true })).toHaveAttribute('readonly', '');
-    await expect(inspector.getByRole('button', { name: 'Remove seat', exact: true })).toHaveClass(/host-override/);
+    await expect(inspector.getByRole('button', { name: 'Remove seat', exact: true })).toHaveClass(/gm-override/);
     const take = host.getByRole('toolbar', { name: `${guestName}'s hand actions`, exact: true }).getByRole('button', { name: `Allow others to take from ${guestName}'s hand`, exact: true });
     await expect(take).toBeEnabled();
-    await expect(take).toHaveClass(/host-override/);
+    await expect(take).toHaveClass(/gm-override/);
     const background = () => take.evaluate(button => getComputedStyle(button).backgroundColor);
     const off = await background();
     await take.click();
-    // Host-override toggles must still show their on/off state.
+    // Override toggles must still show their on/off state.
     await expect(take).toHaveAttribute('aria-pressed', 'true');
     expect(await background()).not.toBe(off);
     await expect(guest.getByRole('button', { name: 'Allow others to take from my hand', exact: true })).toHaveAttribute('aria-pressed', 'true');
 
     await host.getByLabel('Player name', { exact: true }).press('Backspace');
     await expect(host.getByLabel('Player name', { exact: true })).toHaveValue(guestName);
+
+    // The guest can't use game master mode until the host marks their seat.
+    await guest.getByRole('button', { name: 'Actions', exact: true }).click();
+    await expect(headerItem(guest, 'Game master mode')).toHaveAttribute('aria-disabled', 'true');
+    await guest.keyboard.press('Escape');
+    await inspector.getByRole('checkbox', { name: /^Game master/ }).check();
+    await guest.getByRole('button', { name: 'Actions', exact: true }).click();
+    await expect(headerItem(guest, 'Game master mode')).not.toHaveAttribute('aria-disabled', 'true');
+    await guest.keyboard.press('Escape');
+    await inspector.getByRole('checkbox', { name: /^Game master/ }).uncheck();
 
     // Online, any seated player may add and edit empty seats without an override.
     const seatIds = () => guest.locator('.seat-marker').evaluateAll(markers => markers.map(marker => marker.getAttribute('data-seat-id')!));
@@ -53,19 +67,19 @@ test('the room host can change other seats with host-override marking while gues
     const emptyId = (await seatIds()).find(id => !existing.includes(id))!;
     await expect(guest.locator(`[data-player-row="${emptyId}"]`)).toContainText('Empty seat');
     await guest.locator(`[data-seat-id="${emptyId}"]`).click();
-    await expect(guest.locator('.seat-inspector .host-override-note')).toHaveCount(0);
+    await expect(guest.locator('.seat-inspector .gm-override-note')).toHaveCount(0);
     await expect(guest.getByLabel('Player name', { exact: true })).toBeEnabled();
     await guest.keyboard.press('Escape');
 
     await guest.locator(`[data-seat-id="${hostId}"]`).click();
-    await expect(guest.locator('.seat-inspector .host-override-note')).toHaveCount(0);
+    await expect(guest.locator('.seat-inspector .gm-override-note')).toHaveCount(0);
     await expect(guest.getByLabel('Player name', { exact: true })).toBeDisabled();
     await expect(guest.locator('.seat-inspector').getByRole('button', { name: 'Remove seat', exact: true })).toHaveCount(0);
 
     // Removing an occupied seat makes its player a viewer, who can then take an empty seat.
     await inspector.getByRole('button', { name: 'Remove seat', exact: true }).click();
     const confirm = host.getByRole('dialog');
-    await expect(confirm).toContainText('Host override');
+    await expect(confirm).toContainText('Game master override');
     await confirm.getByRole('button', { name: 'Remove seat', exact: true }).click();
     await expect(guest.locator(`[data-seat-id="${guestId}"]`)).toHaveCount(0);
     await expect(guest.locator('.connection-badge')).toHaveText('Live · watching');

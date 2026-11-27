@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Armchair, FolderOpen, MessageSquare, ArrowRight, EyeOff, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
+import { Armchair, Crown, FolderOpen, MessageSquare, ArrowRight, FolderX, Menu, Redo2, BookOpen, Check, ChevronDown, ChevronRight, Circle, CopyPlus, Database, Dices, Eye, FileCode2, MousePointerClick, GripVertical, HelpCircle, Layers, LayoutGrid, Grid3x3, LayoutList, Leaf, LibraryBig, Link, LoaderCircle, Monitor, Moon, Move, Palette, PencilLine, PanelBottom, PanelLeft, PanelRight, Plus, Printer, Save, Search, Settings, Square, Sun, Table2, Type, Undo2, Upload, Users, Wifi, WifiOff, X, Image as ImageIcon } from 'lucide-react';
 import { applyCommand, archiveSchema, assetByName, bind, canStack, hasPages, isAsset, isPlaceable, makeInstance, nextSeatPlacement, projectSchema, uid, validateProject, withUniqueAssetNames, type Archive, type Command, type Component, type Player, type Project } from './domain';
 import type { LocalPopup } from './PopupLayer';
 import { applyPlaygroundCommand, emptyPlaygroundHistory, redoPlayground, undoPlayground, type PlaygroundHistory } from './playgroundHistory';
@@ -175,7 +175,8 @@ export default function App() {
   // The designer's inspector (right panel) is shown and hidden on its own, apart from the table inspector.
   const [designerInspectorVisible, setDesignerInspectorVisible] = useState(true);
   // Shows pieces hidden from your seat (faded, labelled) and labels every hidden piece; local to this browser.
-  const [showHidden, setShowHidden] = useState(false);
+  // Game master mode, as you've switched it (it only applies while you may use it; see gameMasterAllowed).
+  const [gameMasterMode, setGameMasterMode] = useState(false);
   const [layersVisible, setLayersVisible] = useState(true);
   const [handVisible, setHandVisible] = useState(true);
   const [actor, setActor] = useState(initialProject.players[0]?.id ?? '');
@@ -453,7 +454,12 @@ export default function App() {
   useLayoutEffect(() => memoryStore.set(project.memory), [memoryStore, project.memory]);
   const functions = useMemo(() => scriptFunctions(project.scripts), [project.scripts]);
   // Live rooms leave script editing to the host unless the host lets players edit them.
-  const scriptEditor = !session || session.host === session.identity || (!!project.settings.scriptEditing && !viewer);
+  // Game master mode: always open to the host (offline, to whoever is at the screen), and to seats the host marks as game
+  // masters in Players. It shows hidden pieces and lets you change what your seat normally can't, marked red.
+  const hosting = !session || session.host === session.identity;
+  const gameMasterAllowed = hosting || (!viewer && !!project.players.find(player => player.id === actor)?.gameMaster);
+  const gameMaster = gameMasterMode && gameMasterAllowed;
+  const scriptEditor = hosting || gameMaster || (!!project.settings.scriptEditing && !viewer);
   const seenLog = useRef<{ project: string; seq: number }>(undefined);
   useEffect(() => {
     const log = project.scriptLog ?? [], latest = log.at(-1)?.seq ?? 0, seen = seenLog.current;
@@ -942,13 +948,15 @@ export default function App() {
             hint: undoNotice || `Undo the latest playground action for everyone · ${undoCount} available` },
           { label: 'Redo', icon: <Redo2 size={16} />, onToggle: redo, shortcut: 'Ctrl Y', disabled: !redoCount || !!modal || !!curtain || viewer, divider: true,
             hint: `Redo the latest undone action for everyone · ${redoCount} available` },
+          { label: 'Game master mode', icon: <Crown size={16} />, checked: gameMaster, onToggle: () => setGameMasterMode(!gameMaster), disabled: !gameMasterAllowed, divider: true,
+            hint: gameMasterAllowed ? 'Show hidden pieces, and change what your seat normally can’t: other players’ seats and hand settings, and in a live room scripts. Those changes are marked red.'
+              : 'Only the host, and players the host marks as game masters in Players, can use game master mode' },
         ] : [],
         { label: 'Visibility', icon: <Eye size={16} />, hint: 'Show or hide panels', items: [
           { label: 'Component library', icon: <LibraryBig size={16} />, checked: libraryVisible, onToggle: () => setLibraryVisible(!libraryVisible) },
           { label: mode === 'playground' ? 'Pieces panel' : 'Layers panel', icon: <PanelLeft size={16} />, checked: layersVisible, onToggle: () => setLayersVisible(!layersVisible) },
           ...mode === 'playground' ? [{ label: 'Hand panel', icon: <PanelBottom size={16} />, checked: handVisible, onToggle: () => setHandVisible(!handVisible) },
-            { label: 'Table inspector', icon: <PanelRight size={16} />, checked: inspectorVisible, onToggle: () => setInspectorVisible(!inspectorVisible) },
-            { label: 'Hidden pieces', icon: <EyeOff size={16} />, checked: showHidden, onToggle: () => setShowHidden(!showHidden), hint: 'Show pieces hidden from your seat, and label every hidden piece' }]
+            { label: 'Table inspector', icon: <PanelRight size={16} />, checked: inspectorVisible, onToggle: () => setInspectorVisible(!inspectorVisible) }]
             : [{ label: 'Designer inspector', icon: <PanelRight size={16} />, checked: designerInspectorVisible, onToggle: () => setDesignerInspectorVisible(!designerInspectorVisible) }],
         ] },
         { label: 'Scripting', icon: <FileCode2 size={16} />, hint: 'Scripts and memory', divider: true, items: [
@@ -1072,7 +1080,7 @@ export default function App() {
         </div>
       </aside>
       {libraryVisible && <PanelSeparator label="Resize component library" controls="component-library-panel" value={panels.sizes.library} {...panels.limits.library} onResize={value => panels.resize('library', value)} />}
-      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} onEndTurn={endTurn} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} showHidden={showHidden} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} popupPreview={popupPreview} onClosePopupPreview={() => setPopupPreview(undefined)} /> :
+      <div className="workspace-content">{!home && (mode === 'playground' ? <Playground project={project} actor={actor} owner={session?.identity ?? 'local'} host={!!session?.host && session.host === session.identity} viewer={viewer} onWatch={session ? watch : undefined} onNewSeat={session ? newSeat : undefined} selected={selected} setSelected={setSelected} inspectorVisible={inspectorVisible} layersVisible={layersVisible} defaultSeat={{ name: settings.name.trim(), color: settings.color }} handVisible={handVisible} onShowInspector={() => setInspectorVisible(true)} dispatch={dispatch} onSpawn={spawn} onEdit={edit} onSwitch={switchPlayer} onEndTurn={endTurn} notify={notify} panel={playgroundTab} setPanel={setPlaygroundTab} panels={panels} libraryVisible={libraryVisible} stackDragTakesTop={settings.stackDragTakesTop} gameMaster={gameMaster} notice={undoToast} onDismissNotice={() => setUndoToast(undefined)} popupPreview={popupPreview} onClosePopupPreview={() => setPopupPreview(undefined)} /> :
         activeComponent?.source ? <LinkedComponent key={activeComponent.id} component={activeComponent} components={project.components} notify={notify}
           available={archive.projects.some(p => p.id === activeComponent.source?.projectId && p.components.some(c => c.id === activeComponent.source?.componentId))}
           onCopy={() => void copyLinked(activeComponent)} onRemove={() => setRemoveLink(activeComponent)} /> :

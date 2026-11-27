@@ -26,7 +26,7 @@ const cardRows = [
 
 const guidePages = [
   { page: '1', title: 'Welcome to Wildwood', text: 'A small sample of what Tablecraft can do. Every piece here is an ordinary component: click a name in the library to open it in the designer.\n\nTurn pages with Shift+Q and Shift+E.' },
-  { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it. The Guide and controls group has its order locked, so it keeps its place in the Pieces panel.\n\nLocks, order locks and hiding can be for everyone or some seats (Selection tab): each wanderer is locked for everyone but its own player, seats that join later included.' },
+  { page: '2', title: 'At the table', text: 'Double-click the spirit deck to draw, or hover it and press 1–9. Hover the deck or the die and press R to shuffle or roll.\n\nThe clearing is locked, so you can box-select over it. Hover it and press L to unlock it. The Guide and controls group has its order locked, so it keeps its place in the Pieces panel.\n\nLocks, order locks and hiding can be for everyone or some seats (Selection tab): each wanderer is locked for everyone but its own player, seats that join later included. One spirit card is hidden from everyone: turn on Game master mode in the Actions menu to see it.' },
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
   { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer: its Stepping stones grid sits above its layers in the Layers panel. Select it to list its stones and see how close a wanderer must come to snap to each.' },
@@ -456,6 +456,8 @@ export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.des
     // Each wanderer is locked for everyone but its own player, so seats that join later can't move it either.
     ...WANDERERS.map((_, row) => ({ ...makeInstance(walker.id, row, pathAt.x - 26 + row * 52, pathAt.y + PATH.height / 2 + 40), group: 'group-wanderers',
       locked: true, lockPlayers: [row ? 'player-2' : 'player-1'] })),
+    // Hidden from everyone (seats that join later too): only game master mode shows it.
+    { ...makeInstance(card.id, 5, 1050, 170), scale: 0.72, hidden: true, group: 'group-spirits' },
     { ...makeInstance(guide.id, 0, 330, 420), scale: 0.6, group: 'group-guide' },
     { ...makeInstance(button.id, 0, 330, 590), locked: true, group: 'group-guide' },
     { ...makeInstance(tally.id, 0, 330, 680), locked: true, group: 'group-guide' },

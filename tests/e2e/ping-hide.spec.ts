@@ -41,7 +41,8 @@ test('P pings the hovered piece, and pieces hidden from a seat come back labelle
   await expect(piece).toHaveClass(/hidden-from-you/);
   await page.mouse.click(view.x + 60, view.y + view.height - 40);
   await expect(piece).toHaveCount(0);
-  await toggleHeader(page, 'Hidden pieces');
+  // Game master mode shows hidden pieces.
+  await toggleHeader(page, 'Game master mode');
   await expect(piece).toHaveClass(/hidden-from-you/);
   await expect(piece.locator('.hidden-count')).toContainText('Hidden from you');
   // The Selection tab shows the seats it's hidden from, and shows it to everyone again.
