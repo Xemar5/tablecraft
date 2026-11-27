@@ -16,8 +16,10 @@ test('New project can start from a ready-to-play game, which fills in its name a
   await expect(dialog.getByRole('textbox', { name: 'Project name', exact: true })).toHaveValue('Tidewater Isles');
   await expect(dialog.getByRole('textbox', { name: 'Description', exact: true })).toHaveValue(/tidal archipelago/);
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click();
-  // Game projects open straight onto their table, without the component template picker.
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  // Game projects open straight onto their table, without the component template picker; Tidewater opens its Game
+  // setup popup for the host (popups are dialogs too).
+  await expect(page.locator('[role="dialog"]:not(.table-popup)')).toHaveCount(0);
+  await expect(page.locator('.table-popup[aria-label="Game setup"]')).toContainText('Start the setup rounds');
   await expect(page.locator('.library-panel')).toContainText('Island tile');
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Island tile/ })).toHaveCount(19);
   await expect(page.locator('.table-viewport').getByRole('button', { name: /^Tide marker/ })).toHaveCount(18);

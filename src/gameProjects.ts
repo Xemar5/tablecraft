@@ -1,7 +1,7 @@
 import { componentTags, makeInstance, makeNode, nextSeatPlacement, uid, type Component, type DesignNode, type Instance, type PersistentStack, type PieceGroup, type Player, type Project } from './domain';
 import { hexCorners, type Grid } from './grids';
 import { filterFromTags } from './tags';
-import { TIDEWATER_SCRIPT } from './tidewaterScript';
+import { TIDEWATER_ISLAND, TIDEWATER_SCRIPT } from './tidewaterScript';
 import { WILDWOOD, wildwoodProject } from './wildwood';
 
 /**
@@ -22,7 +22,7 @@ export const GAME_PROJECTS: readonly { id: GameProjectId; name: string; summary:
   { id: 'go', name: 'Go', summary: '2 players · 19×19 board and stone bowls',
     description: 'Place stones to surround territory. Shift-drag a stone off its bowl to play it.' },
   { id: 'tidewater', name: 'Tidewater Isles', summary: '3–4 players · hex islands, trading and building',
-    description: 'Settle a tidal archipelago: roll for resources, trade with your rivals and build huts, lighthouses and boardwalks. First to 10 points wins. Rules are in the book.' },
+    description: 'Settle a tidal archipelago: roll for resources, trade with your rivals and build huts, lighthouses and boardwalks. The host deals the island and sets the points to win; rules are in the book.' },
 ];
 
 type Row = Record<string, string>;
@@ -49,8 +49,7 @@ const round = (value: number) => Math.round(value * 100) / 100;
 const place = (item: Component, row: number, x: number, y: number, values: Partial<Instance> = {}): Instance =>
   ({ ...makeInstance(item.id, row, round(x), round(y)), ...values });
 /** A stack of pieces at one spot; the last row is on top. */
-function pile(item: Component, rows: number[], x: number, y: number, values: Partial<Instance> = {}): Instance[] {
-  const stack = uid('stack');
+function pile(item: Component, rows: number[], x: number, y: number, values: Partial<Instance> = {}, stack = uid('stack')): Instance[] {
   return rows.map((row, order) => ({ ...place(item, row, x, y, values), stack, order }));
 }
 function seats(profile: Profile, colors: string[]): Player[] {
@@ -321,12 +320,86 @@ const TIDE_CARDS = [
 ];
 const RULES = [
   { page: '1', title: 'Tidewater Isles', text: 'The tide has gone out on an unclaimed archipelago. Settle its islands, trade what the sea gives you and be the first to reach 10 points.\n\nTurn pages with Shift+Q and Shift+E.' },
-  { page: '2', title: 'Setting up', text: 'Lay out the island tiles, or stack them face down, shuffle and deal them out. Put a tide marker on every tile except the dunes, and the squall on the dunes.\n\nEach player takes the huts, lighthouses and boardwalks of one colour. In turn order, place a hut and a boardwalk beside it; then, in reverse order, a second pair. Take one resource for each tile touching your second hut.' },
+  { page: '2', title: 'Setting up', text: 'The host chooses the settings in Game setup: the beginner island or a shuffled one, the points to win and whether the dice roll by themselves. The squall starts on the dunes.\n\nEach player takes the huts, lighthouses and boardwalks of one colour. In turn order, place a hut on a corner and a boardwalk beside it; then, in reverse order, a second pair. Take one resource for each tile touching your second hut, and the game begins.' },
   { page: '3', title: 'Your turn', text: 'Roll both dice. Every hut on a corner of a tile showing that tide marker takes one of its resource; a lighthouse takes two.\n\nThen trade: with other players on any terms, with the supply at 4 for 1, or 3 for 1 and 2 for 1 at harbors you have built beside. Then build.' },
   { page: '4', title: 'Building', text: 'Boardwalk: reed and clay. Lay it on a tile edge joined to your own pieces.\n\nHut: reed, clay, salt and fish. Build on a corner joined to your boardwalks, with no other hut on a neighbouring corner.\n\nLighthouse: two fish and three stone. It replaces one of your huts.\n\nTide card: salt, fish and stone.' },
   { page: '5', title: 'The squall', text: 'A roll of 7 brings the squall. Anyone holding more than 7 cards discards half of them, rounded down. Move the squall to another tile; it produces nothing while the squall is there. Take a random card from a player with a hut or lighthouse beside it.' },
-  { page: '6', title: 'Winning', text: 'Huts are worth 1 point, lighthouses 2 and relics 1. The longest unbroken line of 5 or more boardwalks and the most harbor guards played (at least 3) are worth 2 points each, and pass to whoever beats them. Reach 10 points on your turn to win.' },
+  { page: '6', title: 'Winning', text: 'Huts are worth 1 point, lighthouses 2 and relics 1. The longest unbroken line of 5 or more boardwalks and the most harbor guards played (at least 3) are worth 2 points each, and pass to whoever beats them. Reach 10 points (or the goal the host chose) on your turn to win.' },
 ];
+
+/**
+ * Tidewater's popups, which its rules script shows on players' screens:
+ * - Game setup: the host's settings (beginner or shuffled island, points to win, how the dice roll), at the left of
+ *   the table view so the island stays in sight while it's dealt. Clicking a choice runs gameSetup with its layer's
+ *   name; the chosen options light up by memory conditions.
+ * - Notice: a note in the top-right corner (rolls, the squall, a piece placed out of turn) that closes by itself.
+ * - Status: the banner at the bottom (above the zoom controls) saying whose turn it is in the setup rounds.
+ * - Victory: over the blurred table once a colour's buildings reach the goal, closed for everyone at once.
+ */
+function tidewaterPopups() {
+  const ink = '#24414b', teal = '#2d6f86', paper = '#f4ecd8', muted = '#4e5b4f';
+  const text = (name: string, values: Partial<DesignNode>) => label(name, { color: ink, ...values });
+  /** A choice: an outlined pill, lit while `chosen` (a memory condition) holds; its label, named `name`, is what's clicked. */
+  const pill = (name: string, caption: string, x: number, y: number, width: number, chosen?: [string, string], height = 28) => [
+    ...(chosen ? [shape(`${name} chosen`, { x, y, width, height, fill: '#cfe3e6', radius: height / 2, ...when(...chosen) })] : []),
+    shape(`${name} edge`, { x, y, width, height, fill: 'transparent', stroke: teal, strokeWidth: 1.2, radius: height / 2 }),
+    text(name, { x, y, width, height, text: caption, fontSize: 11.5, fontWeight: 600 }),
+  ];
+  const row = (name: string, y: number) => text(name, { x: 24, y, width: 110, height: 28, text: name, fontSize: 12, fontWeight: 600, align: 'start' });
+  const setup = component('Game setup', 'popup', 360, 352, {
+    action: 'gameSetup',
+    popup: { anchor: 'left', margin: 24, fit: 'shrink', closable: false, dismiss: 'all' },
+    front: [
+      shape('Card', { x: 0, y: 0, width: 360, height: 352, fill: paper, stroke: '#c9bf9f', strokeWidth: 1, radius: 16 }),
+      text('Kicker', { x: 24, y: 20, width: 312, height: 12, text: 'GAME SETUP', fontSize: 8, letterSpacing: 1.6, color: teal, align: 'start' }),
+      text('Title', { x: 24, y: 34, width: 312, height: 30, text: 'Prepare the isles', font: 'Lora', fontSize: 21, align: 'start' }),
+      text('Intro', { x: 24, y: 68, width: 312, height: 40, text: 'Choose how to play. Then, in turn order and back again, each player places a hut and a boardwalk beside it.',
+        fontSize: 10.5, lineHeight: 1.4, color: muted, align: 'start', verticalAlign: 'start' }),
+      row('Island', 122), ...pill('Beginner island', 'Beginner', 150, 122, 90, ['memory.randomIsland', 'false']), ...pill('Random island', 'Shuffled', 246, 122, 90, ['memory.randomIsland', 'true']),
+      // Only for a shuffled island: deal it (again) now.
+      shape('Shuffle island edge', { x: 246, y: 156, width: 90, height: 22, fill: 'transparent', stroke: teal, strokeWidth: 1, radius: 11, ...when('memory.randomIsland', 'true') }),
+      text('Shuffle island', { x: 246, y: 156, width: 90, height: 22, text: 'Shuffle now', fontSize: 9.5, color: teal, ...when('memory.randomIsland', 'true') }),
+      row('Points to win', 196), ...pill('Fewer points', '−', 150, 196, 40),
+      text('Goal', { x: 196, y: 196, width: 44, height: 28, text: '{{memory.goal}}', font: 'Lora', fontSize: 18, fontWeight: 700 }),
+      ...pill('More points', '+', 246, 196, 40),
+      row('Dice', 240), ...pill('Automatic dice', 'Automatic', 150, 240, 90, ['memory.autoRoll', 'true']), ...pill('Dice button', 'With button', 246, 240, 90, ['memory.autoRoll', 'false']),
+      text('Dice hint', { x: 150, y: 272, width: 186, height: 12, text: 'Automatic dice roll as each turn starts.', fontSize: 8, color: muted, align: 'start' }),
+      shape('Start placing button', { x: 24, y: 294, width: 312, height: 38, fill: ink, radius: 10 }),
+      text('Start placing', { x: 24, y: 294, width: 312, height: 38, text: 'Start the setup rounds', fontSize: 13, fontWeight: 600, color: '#f2ead6' }),
+    ],
+  });
+  const notice = component('Notice', 'popup', 320, 92, {
+    rows: [{ title: 'Player 2 rolled 8 (3 + 5)', text: 'Player 2 takes 1 reed; Player 3 takes 2 fish.' }],
+    popup: { anchor: 'top-right', margin: 16, fit: 'shrink', duration: 6 },
+    front: [
+      shape('Card', { x: 0, y: 0, width: 320, height: 92, fill: paper, stroke: '#c9bf9f', strokeWidth: 1, radius: 12 }),
+      shape('Accent', { x: 0, y: 14, width: 4, height: 64, fill: teal, radius: 2 }),
+      text('Title', { x: 18, y: 12, width: 270, height: 20, text: '{{title}}', font: 'Lora', fontSize: 14, fontWeight: 700, align: 'start', autoFontSize: true, minFontSize: 9 }),
+      text('Text', { x: 18, y: 34, width: 290, height: 48, text: '{{text}}', fontSize: 10.5, lineHeight: 1.35, color: muted, align: 'start', verticalAlign: 'start', autoFontSize: true, minFontSize: 7 }),
+    ],
+  });
+  const banner = component('Status', 'popup', 460, 38, {
+    rows: [{ text: 'Player 2 is placing their first hut and boardwalk.' }],
+    popup: { anchor: 'bottom', margin: 12, y: -52, fit: 'shrink', closable: false },
+    front: [
+      shape('Pill', { x: 0, y: 0, width: 460, height: 38, fill: ink, radius: 19 }),
+      text('Text', { x: 18, y: 0, width: 424, height: 38, text: '{{text}}', fontSize: 12.5, fontWeight: 600, color: '#f2ead6', autoFontSize: true, minFontSize: 8 }),
+    ],
+  });
+  const victory = component('Victory', 'popup', 380, 220, {
+    rows: [{ name: 'Crimson', text: "Crimson's huts and lighthouses alone are worth 10 points, reaching the goal of 10." }],
+    popup: { anchor: 'center', margin: 60, fit: 'shrink', blur: true, dismiss: 'all' },
+    front: [
+      shape('Card', { x: 0, y: 0, width: 380, height: 220, fill: ink, stroke: '#d99a2b', strokeWidth: 2, radius: 18 }),
+      shape('Beam', { shapeKind: 'polygon', sides: 3, x: 150, y: 18, width: 80, height: 46, rotation: 180, fill: '#d99a2b40' }),
+      shape('Light', { shapeKind: 'ellipse', x: 178, y: 24, width: 24, height: 24, fill: '#f2cf4a' }),
+      text('Kicker', { x: 30, y: 70, width: 320, height: 12, text: 'VICTORY', fontSize: 9, letterSpacing: 2, color: '#d99a2b' }),
+      text('Title', { x: 30, y: 86, width: 320, height: 40, text: '{{name}} wins!', font: 'Lora', fontSize: 28, color: '#f2ead6', autoFontSize: true, minFontSize: 14 }),
+      text('Text', { x: 40, y: 134, width: 300, height: 60, text: '{{text}}', fontSize: 12, lineHeight: 1.4, color: '#cfe3e6', autoFontSize: true, minFontSize: 8 }),
+    ],
+  });
+  return { setup, notice, banner, victory };
+}
 
 export function tidewaterProject(name: string, description: string, profile: Profile): Project {
   const terrainRows = TERRAINS.map(({ terrain, name, resource }) => ({ name, terrain, resource }));
@@ -471,14 +544,14 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   const button = (name: string, text: string, action: string, color: string) => component(name, 'button', 140, 40, {
     color, action, front: [label('Label', { x: 0, y: 0, width: 140, height: 40, text, color: '#f2ead6', fontSize: 14, fontWeight: 600 })],
   });
-  const startButton = button('Start game', 'Start game', 'startGame', '#24414b');
+  const setupButton = button('Game setup button', 'Game setup', 'openSetup', '#24414b');
   const rollButton = button('Roll dice', 'Roll dice', 'rollDice', '#2d6f86');
   const scoreboard = component('Scoreboard', 'card', 160, 112, {
     color: '#f4ecd8', previewWhenLocked: true,
     front: [
       label('Last roll title', { x: 0, y: 6, width: 160, height: 10, text: 'LAST ROLL', fontSize: 7, letterSpacing: 1.5, color: '#2d6f86' }),
       label('Last roll', { x: 0, y: 16, width: 160, height: 26, text: '{{memory.lastRoll}}', font: 'Lora', fontSize: 22, fontWeight: 700, color: '#24414b' }),
-      label('Round', { x: 0, y: 42, width: 160, height: 11, text: 'Round {{memory.round}} · building points', fontSize: 6.5, color: '#6d6450' }),
+      label('Round', { x: 0, y: 42, width: 160, height: 11, text: 'Round {{memory.round}} · first to {{memory.goal}} points', fontSize: 6.5, color: '#6d6450' }),
       ...PLAYER_COLORS.flatMap(({ color, name, fill, edge }, index) => [
         shape(`${name} dot`, { shapeKind: 'ellipse', x: 34, y: 60 + index * 12, width: 8, height: 8, fill, stroke: edge, strokeWidth: 1 }),
         label(`${name} name`, { x: 48, y: 57 + index * 12, width: 60, height: 14, text: name, fontSize: 8, align: 'start', color: '#33403a' }),
@@ -487,11 +560,11 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     ],
   });
 
-  // A balanced island: rows of 3, 4, 5, 4 and 3 tiles, with no 6 and 8 markers next to each other.
-  const layout = [
-    ['stone', 'reed', 'fish'], ['clay', 'salt', 'fish', 'reed'], ['salt', 'stone', 'dunes', 'reed', 'clay'], ['reed', 'fish', 'clay', 'salt'], ['fish', 'salt', 'stone'],
-  ];
-  const markers = [[10, 2, 9], [12, 6, 4, 10], [9, 11, 0, 3, 8], [8, 3, 4, 5], [5, 6, 11]];
+  const { setup, notice, banner, victory } = tidewaterPopups();
+
+  // The beginner island (see TIDEWATER_ISLAND): rows of 3, 4, 5, 4 and 3 tiles, with no 6 and 8 markers next to each
+  // other. The host can deal a shuffled one in Game setup.
+  const { terrains: layout, markers } = TIDEWATER_ISLAND;
   // The island is laid out in locked groups: the sea, tiles, tide markers and harbors stay put while huts, boardwalks
   // and the squall are placed on them (tiles, markers and harbors still show their hover preview). Unlock a group in the Pieces panel to rearrange it, for example to deal a
   // random island. The whole island has its order locked, so moving the squall doesn't raise it over the huts and
@@ -510,7 +583,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // Nine harbors spread around the 30 coastal edges, 3, 3 and 4 edges apart, each pier flush against its edge
   // (the edge's middle is 48.5 from the tile centre) and turned so it points out to sea.
   const coast = coastEdges();
-  [0, 1, 0, 2, 3, 0, 4, 0, 5].forEach((row, index) => {
+  TIDEWATER_ISLAND.harbors.forEach((row, index) => {
     const { cell, angle, normal } = coast[1 + Math.floor(index / 3) * 10 + [0, 3, 6][index % 3]];
     const reach = 48.5 + HARBOR.height / 2 - HARBOR.shore;
     harborPieces.push(place(harbor, row, CENTER.x + cell.x + normal.x * reach, CENTER.y + cell.y + normal.y * reach, { rotation: (270 - angle + 360) % 360 }));
@@ -532,7 +605,7 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   ]));
   // The buttons and scoreboard stay put (buttons still press while locked) and keep their place in the order.
   instances.push(...into(add('Controls', null, false, true), [
-    place(startButton, 0, 520, 105, { locked: true }), place(scoreboard, 0, 520, 190, { locked: true }), place(rollButton, 0, 520, 665, { locked: true }),
+    place(setupButton, 0, 520, 105, { locked: true }), place(scoreboard, 0, 520, 190, { locked: true }), place(rollButton, 0, 520, 665, { locked: true }),
   ]));
 
   const players = seats(profile, PLAYER_COLORS.map(item => item.fill));
@@ -541,11 +614,13 @@ export function tidewaterProject(name: string, description: string, profile: Pro
     const reach = Math.abs(ux) > Math.abs(uy) ? 150 : 105, baseX = seat.x + ux * reach, baseY = seat.y + uy * reach;
     const at = (offset: number) => ({ x: baseX - uy * offset, y: baseY + ux * offset });
     const spot = [at(-72), at(-24), at(24)], costSpot = at(110);
+    // The piles have ids the rules script knows (hut-crimson, ...): it sends pieces placed wrongly in the setup rounds back.
+    const color = PLAYER_COLORS[index].color;
     instances.push(...into(add(`${PLAYER_COLORS[index].name} pieces`), [
-      ...pile(hut, Array<number>(5).fill(index), spot[0].x, spot[0].y, { rotation: seat.rotation }),
-      ...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }),
+      ...pile(hut, Array<number>(5).fill(index), spot[0].x, spot[0].y, { rotation: seat.rotation }, `hut-${color}`),
+      ...pile(lighthouse, Array<number>(4).fill(index), spot[1].x, spot[1].y, { rotation: seat.rotation }, `lighthouse-${color}`),
       // Across the seat, turned to the nearest tile-edge angle.
-      ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: (30 + 60 * Math.floor((seat.rotation + 60) / 60) + 360) % 360 }),
+      ...pile(boardwalk, Array<number>(15).fill(index), spot[2].x, spot[2].y, { rotation: (30 + 60 * Math.floor((seat.rotation + 60) / 60) + 360) % 360 }, `boardwalk-${color}`),
       // The building costs card is a reference, so it is locked in front of its player, its order too (it still shows
       // its preview).
       place(costs, 0, costSpot.x, costSpot.y, { rotation: seat.rotation, locked: true, orderLocked: true }),
@@ -555,18 +630,24 @@ export function tidewaterProject(name: string, description: string, profile: Pro
   // table hands stay clear of the pieces laid out in front of them.
   for (const seat of players) if (Math.abs(seat.rotation) % 180 === 0) seat.y += Math.sign(seat.y - CENTER.y) * 60;
   // Roll dice starts hidden from every seat: the rules script shows it once the game starts, if the dice don't roll by
-  // themselves, and hides Start game then.
+  // themselves, and hides Game setup once the setup rounds start.
   for (const item of instances) if (item.componentId === rollButton.id) item.hiddenFrom = players.map(seat => seat.id);
   // Only tiles, buildings, boardwalks, tide markers and the squall snap; everything else moves freely.
-  const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book, startButton, rollButton, scoreboard]
+  const components = [sea, tile, marker, squall, harbor, hut, lighthouse, boardwalk, resource, tideCard, award, costs, die, book, setupButton, rollButton, scoreboard]
     .map(item => item.gridTags ? item : { ...item, snapToGrid: false });
-  // The rules script rolls and hands out resources; its memory starts here, since onLoad only runs when scripts are saved.
+  // The rules script runs the setup and the game; its memory starts here, since onLoad only runs when scripts are saved.
+  // The game starts in its setup phase, with the first seat as host.
   const memory = {
-    colors: PLAYER_COLORS.map(item => item.color), checkSetup: true, autoRoll: true, started: false, round: 0, lastRoll: '–',
-    points: Object.fromEntries(PLAYER_COLORS.map(item => [item.color, 0])), placed: {},
+    colors: PLAYER_COLORS.map(item => item.color), phase: 'setup', host: players[0].id, randomIsland: true, shuffled: false, goal: 10,
+    autoRoll: true, round: 0, lastRoll: '–', points: Object.fromEntries(PLAYER_COLORS.map(item => [item.color, 0])),
   };
-  return { ...project(name, description, components, instances, players, groups, true), grids: islandGrids(),
-    scripts: [{ id: 'tidewater-rules', name: 'Tidewater rules', source: TIDEWATER_SCRIPT }], memory };
+  // The host sees Game setup as soon as the table opens; everyone else sees whom they are waiting for.
+  const popups = [
+    { id: uid('popup'), componentId: setup.id, row: 0, to: [players[0].id] },
+    { id: uid('popup'), componentId: banner.id, row: 0, data: { text: `Waiting for ${players[0].name} to choose the settings and deal the island.` }, to: players.slice(1).map(seat => seat.id) },
+  ];
+  return { ...project(name, description, [...components, setup, notice, banner, victory], instances, players, groups, true), grids: islandGrids(),
+    scripts: [{ id: 'tidewater-rules', name: 'Tidewater rules', source: TIDEWATER_SCRIPT }], memory, popups };
 }
 
 export function gameProject(id: GameProjectId, name: string, description: string, profile: Profile): Project {

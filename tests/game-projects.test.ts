@@ -261,7 +261,6 @@ describe('game projects', () => {
   });
 
   describe("Tidewater's rules script", () => {
-    const announcements = (p: Project) => (p.scriptLog ?? []).filter(line => line.level === 'announce').map(line => line.text);
     const errors = (p: Project) => (p.scriptLog ?? []).filter(line => line.level === 'error').map(line => line.text);
     const hand = (p: Project, seat: number) => p.instances.filter(item => item.holder === p.players[seat].id)
       .map(item => p.components.find(c => c.id === item.componentId)!.rows[item.row].terrain).sort();
@@ -269,154 +268,245 @@ describe('game projects', () => {
     const terrainOf = (p: Project, item: Instance) => componentNamed(p, 'Island tile').rows[item.row].terrain;
     /** Tiles around a corner point that produce a resource. */
     const tilesAt = (p: Project, at: { x: number; y: number }) => piecesOf(p, 'Island tile').filter(tile => near(tile, at, 56, 1) && terrainOf(p, tile) !== 'dunes');
+    const markerOn = (p: Project, tile: Instance) => piecesOf(p, 'Tide marker').filter(item => Math.hypot(item.x - tile.x, item.y - tile.y) < 45);
     const numberOn = (p: Project, tile: Instance) => {
-      const marker = piecesOf(p, 'Tide marker').find(item => Math.hypot(item.x - tile.x, item.y - tile.y) < 45);
+      const [marker] = markerOn(p, tile);
       return marker ? Number(componentNamed(p, 'Tide marker').rows[marker.row].number) : undefined;
     };
     const call = (name: string, seed: number): Parameters<typeof applyCommand>[1] => ({ type: 'call', name, args: [], seed });
-    /** Moves the top piece of a colour's pile of a component to a point. */
-    const placeFrom = (p: Project, component: string, color: string, at: { x: number; y: number }) => {
-      const top = piecesOf(p, component).filter(item => item.stack && p.components.find(c => c.id === item.componentId)!.rows[item.row].color === color)
-        .sort((a, b) => b.order - a.order)[0];
-      return { p: applyCommand(p, { type: 'extractMove', id: top.id, x: at.x, y: at.y }), id: top.id };
+    /** The popups of a popup component, and who each is for. */
+    const popupsOf = (p: Project, name: string) => (p.popups ?? []).filter(popup => popup.componentId === componentNamed(p, name).id);
+    /** The latest note in the corner for a seat. */
+    const notice = (p: Project, seat = p.players[0].id) => popupsOf(p, 'Notice').filter(popup => (!popup.to || popup.to.includes(seat)) && !popup.closed?.includes(seat)).at(-1)?.data;
+    /** Clicks a layer of the open Game setup popup, as the host. */
+    const choose = (p: Project, layer: string, seed = 1) =>
+      applyCommand(p, { type: 'call', name: 'gameSetup', popup: popupsOf(p, 'Game setup')[0].id, args: [layer, [layer]], seed }, p.players[0].id);
+    const colorOf = (p: Project, item: Instance) => p.components.find(c => c.id === item.componentId)!.rows[item.row].color;
+    /** Moves the top piece of a colour's pile of a component to a point, as a seat. */
+    const placeFrom = (p: Project, component: string, color: string, at: { x: number; y: number }, seat: string) => {
+      const top = piecesOf(p, component).filter(item => item.stack === `${component.toLowerCase()}-${color}`).sort((a, b) => b.order - a.order)[0];
+      return { p: applyCommand(p, { type: 'extractMove', id: top.id, x: at.x, y: at.y }, seat), id: top.id };
     };
+    const corners = (p: Project) => p.grids!.find(grid => grid.id === 'grid-corners')!.points!;
     /** The edge points of the island beside a corner. */
     const edgesBeside = (p: Project, at: { x: number; y: number }) =>
       p.grids!.find(grid => grid.id === 'grid-edges')!.points!.filter(point => Math.abs(Math.hypot(point.x - at.x, point.y - at.y) - 28) < 1);
-    // Crimson (seat 1) builds two huts on corners of the island, the second on a corner between three producing tiles.
-    // The other seats haven't set up, so these games skip Start game's setup check.
-    const setup = () => {
-      let p = build('tidewater');
-      p = { ...p, memory: { ...p.memory, autoRoll: false, checkSetup: false } };
-      const corners = p.grids!.find(grid => grid.id === 'grid-corners')!.points!;
-      const inland = corners.filter(point => tilesAt(p, point).length === 3);
-      const [first, second] = [inland[0], inland.find(point => Math.hypot(point.x - inland[0].x, point.y - inland[0].y) > 150)!];
-      const huts = piecesOf(p, 'Hut').filter(item => p.components.find(c => c.id === item.componentId)!.rows[item.row].color === 'crimson')
-        .sort((a, b) => b.order - a.order);
-      const seat = p.players[0].id;
-      p = applyCommand(p, { type: 'extractMove', id: huts[0].id, x: first.x, y: first.y }, seat);
-      p = applyCommand(p, { type: 'extractMove', id: huts[1].id, x: second.x, y: second.y }, seat);
-      return { p, seat, huts: [huts[0], huts[1]], first, second };
+    /** A comparable picture of the island: each tile's terrain and number, and the harbors' rows, by position. */
+    const islandOf = (p: Project) => ({
+      tiles: piecesOf(p, 'Island tile').map(tile => `${tile.x},${tile.y} ${terrainOf(p, tile)} ${numberOn(p, tile) ?? '-'}`).sort(),
+      harbors: piecesOf(p, 'Harbor').map(item => `${item.x},${item.y} ${item.row}`).sort(),
+    });
+    const COLORS = ['crimson', 'azure', 'ivory', 'amber'];
+    /**
+     * Corners for every colour's two huts, all far enough apart that no two share a tile: the first round's, and the
+     * second round's (those touching the most producing tiles).
+     */
+    const hutSpots = (p: Project) => {
+      const chosen: { x: number; y: number }[] = [];
+      for (const corner of corners(p)) if (chosen.length < 8 && chosen.every(other => Math.hypot(other.x - corner.x, other.y - corner.y) > 113)) chosen.push(corner);
+      expect(chosen).toHaveLength(8);
+      chosen.sort((a, b) => tilesAt(p, b).length - tilesAt(p, a).length);
+      return { first: chosen.slice(4), second: chosen.slice(0, 4) };
+    };
+    /** Places a seat's hut on a corner and a boardwalk beside it. */
+    const placePair = (p: Project, index: number, corner: { x: number; y: number }) => {
+      const seat = p.players[index].id;
+      p = placeFrom(p, 'Hut', COLORS[index], corner, seat).p;
+      return placeFrom(p, 'Boardwalk', COLORS[index], edgesBeside(p, corner)[0], seat).p;
+    };
+    /** The beginner island, dice on the button (unless `auto`), through the setup rounds into the game. */
+    const playing = (auto = false) => {
+      let p = choose(choose(build('tidewater'), 'Beginner island'), auto ? 'Automatic dice' : 'Dice button');
+      p = choose(p, 'Start placing');
+      const spots = hutSpots(p);
+      for (const index of [0, 1, 2, 3]) p = placePair(p, index, spots.first[index]);
+      for (const index of [3, 2, 1, 0]) p = placePair(p, index, spots.second[index]);
+      return { p, spots };
     };
 
-    it('is valid Lua with the buttons and events it promises, and starts with its memory', () => {
+    it('is valid Lua with the buttons, popups and events it promises, and starts in its setup phase', () => {
       expect(checkScriptSyntax(TIDEWATER_SCRIPT)).toBeUndefined();
       const game = build('tidewater');
-      // The buttons' functions, and the events it handles.
-      expect(scriptFunctions(game.scripts)).toEqual(expect.arrayContaining(['startGame', 'rollDice']));
-      for (const event of ['onTurnStart', 'onSnap', 'onMove']) expect(TIDEWATER_SCRIPT).toMatch(new RegExp(`^function ${event}\\(`, 'm'));
-      expect(game.memory).toMatchObject({ colors: ['crimson', 'azure', 'ivory', 'amber'], checkSetup: true, autoRoll: true, started: false, round: 0 });
-      expect(componentNamed(game, 'Start game')).toMatchObject({ kind: 'button', action: 'startGame' });
+      expect(scriptFunctions(game.scripts)).toEqual(expect.arrayContaining(['openSetup', 'gameSetup', 'rollDice']));
+      for (const event of ['onTurnStart', 'onSnap', 'onMove', 'onMemoryChanged']) expect(TIDEWATER_SCRIPT).toMatch(new RegExp(`^function ${event}\\(`, 'm'));
+      expect(game.memory).toMatchObject({ colors: COLORS, phase: 'setup', host: game.players[0].id, randomIsland: true, goal: 10, autoRoll: true, round: 0 });
+      expect(componentNamed(game, 'Game setup button')).toMatchObject({ kind: 'button', action: 'openSetup' });
       expect(componentNamed(game, 'Roll dice')).toMatchObject({ kind: 'button', action: 'rollDice' });
+      expect(game.components.filter(item => item.kind === 'popup').map(item => item.name)).toEqual(['Game setup', 'Notice', 'Status', 'Victory']);
+      expect(componentNamed(game, 'Game setup')).toMatchObject({ action: 'gameSetup' });
+      // The host sees Game setup as soon as the table opens; the others see whom they're waiting for.
+      expect(popupsOf(game, 'Game setup').map(popup => popup.to)).toEqual([[game.players[0].id]]);
+      expect(popupsOf(game, 'Status')).toMatchObject([{ to: game.players.slice(1).map(seat => seat.id), data: { text: `Waiting for ${game.players[0].name} to choose the settings and deal the island.` } }]);
     });
 
-    it('starts only once every seat has set up its huts and boardwalks, pointing out what is wrong', () => {
-      let p = build('tidewater');
-      p = { ...p, memory: { ...p.memory, autoRoll: false } };
-      const seat = p.players[0].id, names = p.players.map(player => player.name);
-      const start = (project: Project) => applyCommand(project, call('startGame', 3), seat);
-      const refused = start(p);
-      expect(errors(refused)).toEqual([]);
-      expect(refused.memory!.started).toBe(false);
-      expect(announcements(refused).at(-1)).toBe(`Not ready to start: ${names.map(name => `${name} has 0 huts on the island instead of 2, 0 boardwalks on the island instead of 2`).join('; ')}.`);
-      // Every colour places two huts on corners well apart, each with a boardwalk beside it.
-      const corners = p.grids!.find(grid => grid.id === 'grid-corners')!.points!, chosen: { x: number; y: number }[] = [];
-      for (const corner of corners) if (chosen.length < 8 && chosen.every(other => Math.hypot(other.x - corner.x, other.y - corner.y) > 120)) chosen.push(corner);
-      const walks: Record<string, string[]> = {};
-      ['crimson', 'azure', 'ivory', 'amber'].forEach((color, index) => {
-        for (const corner of chosen.slice(index * 2, index * 2 + 2)) {
-          p = placeFrom(p, 'Hut', color, corner).p;
-          const placed = placeFrom(p, 'Boardwalk', color, edgesBeside(p, corner)[0]);
-          p = placed.p; (walks[color] ??= []).push(placed.id);
-        }
-      });
-      expect(errors(p)).toEqual([]);
-      const ready = start(p);
-      expect(errors(ready)).toEqual([]);
-      expect(ready.memory!.started).toBe(true);
-      expect(announcements(ready).some(text => text.startsWith('Not ready'))).toBe(false);
-      // Azure's boardwalk moved away from its huts, and an ivory hut beside a crimson one, are pointed out (pinged).
-      const far = p.grids!.find(grid => grid.id === 'grid-edges')!.points!.find(point => chosen.every(corner => Math.hypot(point.x - corner.x, point.y - corner.y) > 90))!;
-      let broken = applyCommand(p, { type: 'move', ids: [walks.azure[0]], patch: { x: far.x, y: far.y } });
-      const crowding = corners.find(corner => Math.abs(Math.hypot(corner.x - chosen[0].x, corner.y - chosen[0].y) - 56) < 1)!;
-      const ivoryHut = piecesOf(broken, 'Hut').find(item => Math.hypot(item.x - chosen[4].x, item.y - chosen[4].y) < 1)!;
-      broken = applyCommand(broken, { type: 'move', ids: [ivoryHut.id], patch: { x: crowding.x, y: crowding.y } });
-      const blocked = start(broken);
-      expect(errors(blocked)).toEqual([]);
-      expect(blocked.memory!.started).toBe(false);
-      const text = announcements(blocked).at(-1)!;
-      expect(text).toContain(`${names[1]} has 1 hut without a boardwalk beside it, 1 boardwalk away from their huts`);
-      expect(text).toContain(`${names[2]} has 1 hut without a boardwalk beside it, 1 boardwalk away from their huts`);
-      expect(text).toContain(`huts of ${names[0]} and ${names[2]} stand on neighbouring corners`);
-      expect(blocked.instances.find(item => item.id === walks.azure[0])!.pings).toBe(1);
-      // With checkSetup off, it starts anyway.
-      expect(start({ ...broken, memory: { ...broken.memory, checkSetup: false } }).memory!.started).toBe(true);
-    });
-
-    it('records the huts placed before the game, keeps building points, and deals starting resources for the second hut', () => {
-      const { p, seat, huts, second } = setup();
-      expect(errors(p)).toEqual([]);
-      expect(p.memory).toMatchObject({ placed: { crimson: huts.map(item => item.id) }, points: { crimson: 2, azure: 0 } });
-      const started = applyCommand(p, call('startGame', 3), seat);
+    it('lets the host deal a shuffled island, deal it again or go back to the beginner island, and choose the goal and dice', () => {
+      const game = build('tidewater'), beginner = islandOf(game);
+      const red = (p: Project, tile: Instance) => [6, 8].includes(numberOn(p, tile) ?? 0);
+      const shuffled = [3, 4].map(seed => choose(game, 'Random island', seed));
+      for (const p of shuffled) {
+        expect(errors(p)).toEqual([]);
+        const island = islandOf(p);
+        expect(island).not.toEqual(beginner);
+        // The same tiles, numbers and harbors in other places.
+        const parts = (list: string[], at: number) => list.map(line => line.split(' ')[at]).sort();
+        for (const at of [1, 2]) expect(parts(island.tiles, at)).toEqual(parts(beginner.tiles, at));
+        expect(parts(island.harbors, 1)).toEqual(parts(beginner.harbors, 1));
+        // A marker on every tile but the dunes, which has the squall in its slot; no 6 or 8 beside another.
+        const tiles = piecesOf(p, 'Island tile');
+        for (const tile of tiles) expect(markerOn(p, tile)).toHaveLength(terrainOf(p, tile) === 'dunes' ? 0 : 1);
+        const dunes = tiles.find(tile => terrainOf(p, tile) === 'dunes')!, squall = piecesOf(p, 'Squall')[0];
+        expect([squall.x, squall.y]).toEqual([dunes.x, dunes.y + 23]);
+        for (const a of tiles) for (const b of tiles) if (a !== b && red(p, a) && red(p, b)) expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThan(100);
+        // The tide markers' group is locked again.
+        expect(p.groups!.find(group => group.name === 'Tide markers')!.locked).toBe(true);
+        expect(p.memory).toMatchObject({ randomIsland: true, shuffled: true });
+      }
+      expect(islandOf(shuffled[0])).not.toEqual(islandOf(shuffled[1]));
+      expect(islandOf(choose(shuffled[0], 'Shuffle island', 9))).not.toEqual(islandOf(shuffled[0]));
+      const back = choose(shuffled[0], 'Beginner island');
+      expect(errors(back)).toEqual([]);
+      expect(islandOf(back)).toEqual(beginner);
+      expect(back.memory).toMatchObject({ randomIsland: false, shuffled: false });
+      // The goal goes from 5 to 15; the dice roll by themselves or with the button.
+      let p = game;
+      for (let n = 0; n < 7; n++) p = choose(p, 'Fewer points');
+      expect(p.memory!.goal).toBe(5);
+      p = choose(choose(p, 'More points'), 'Dice button');
+      expect(p.memory).toMatchObject({ goal: 6, autoRoll: false });
+      // Starting with a random island that was never shuffled shuffles it first.
+      const started = choose(game, 'Start placing');
       expect(errors(started)).toEqual([]);
-      expect(started.memory).toMatchObject({ started: true, round: 1 });
-      // One resource for each tile touching the second hut.
-      expect(hand(started, 0)).toEqual(tilesAt(p, second).map(tile => terrainOf(p, tile)).sort());
-      expect(announcements(started).at(-1)).toMatch(/^The game begins\. Starting resources: .* takes /);
+      expect(islandOf(started)).not.toEqual(beginner);
+      expect(popupsOf(started, 'Game setup')).toEqual([]);
+    });
+
+    it('runs the setup rounds in turn order and back, sending back what is placed out of turn or in the wrong place', () => {
+      let p = choose(choose(build('tidewater'), 'Beginner island'), 'Dice button');
+      p = choose(p, 'Start placing');
+      const ids = p.players.map(seat => seat.id), names = p.players.map(seat => seat.name);
+      expect(errors(p)).toEqual([]);
+      expect(p.memory).toMatchObject({ phase: 'placing', step: 1, order: [...ids, ...[...ids].reverse()] });
+      expect(p.settings.turn).toBe(0);
+      expect(popupsOf(p, 'Status').map(popup => [popup.to, popup.data!.text])).toEqual([
+        [ids.slice(1), `${names[0]} is placing their first hut and boardwalk.`],
+        [[ids[0]], 'Your turn: place your first hut on a corner of the island, then a boardwalk beside it.'],
+      ]);
+      const spots = hutSpots(p);
+      const backInPile = (project: Project, id: string, pile: string) => expect(project.instances.find(item => item.id === id)!.stack).toBe(pile);
+      // Azure places out of turn: the hut goes back to its pile, with a note for Azure only.
+      const early = placeFrom(p, 'Hut', 'azure', spots.first[1], ids[1]);
+      expect(errors(early.p)).toEqual([]);
+      backInPile(early.p, early.id, 'hut-azure');
+      expect(notice(early.p, ids[1])).toEqual({ title: 'Not there', text: `It's ${names[0]}'s turn to place a hut and a boardwalk.` });
+      expect(notice(early.p, ids[0])!.title).toBe('The setup rounds');
+      // A boardwalk before the hut, then one away from the new hut, go back too.
+      const walkFirst = placeFrom(p, 'Boardwalk', 'crimson', edgesBeside(p, spots.first[0])[0], ids[0]);
+      backInPile(walkFirst.p, walkFirst.id, 'boardwalk-crimson');
+      expect(notice(walkFirst.p)!.text).toBe('Place your hut first, then the boardwalk beside it.');
+      p = placeFrom(p, 'Hut', 'crimson', spots.first[0], ids[0]).p;
+      expect(p.memory!.stepHut).toBeDefined();
+      const away = placeFrom(p, 'Boardwalk', 'crimson', edgesBeside(p, spots.first[1])[0], ids[0]);
+      backInPile(away.p, away.id, 'boardwalk-crimson');
+      expect(notice(away.p)!.text).toBe('The boardwalk goes on an edge beside the hut you just placed.');
+      // The pair is placed: it's locked, and Azure is next.
+      p = placeFrom(p, 'Boardwalk', 'crimson', edgesBeside(p, spots.first[0])[0], ids[0]).p;
+      expect(errors(p)).toEqual([]);
+      expect(p.memory).toMatchObject({ step: 2 });
+      expect(p.settings.turn).toBe(1);
+      expect(p.instances.filter(item => p.memory!.placedPieces && (p.memory!.placedPieces as string[]).includes(item.id)).map(item => item.locked)).toEqual([true, true]);
+      // Azure's hut on a corner next to Crimson's goes back.
+      const crowding = corners(p).find(corner => near(corner, spots.first[0], 56, 1))!;
+      const close = placeFrom(p, 'Hut', 'azure', crowding, ids[1]);
+      backInPile(close.p, close.id, 'hut-azure');
+      expect(notice(close.p, ids[1])!.text).toBe('Too close: no hut may stand on a corner next to another hut.');
+      // Ending the turn doesn't skip a placement: the turn goes back to Azure.
+      const skipped = applyCommand(p, { type: 'endTurn' }, ids[1]);
+      expect(errors(skipped)).toEqual([]);
+      expect(skipped.settings.turn).toBe(1);
+      // Lighthouses wait for the game.
+      const tower = placeFrom(p, 'Lighthouse', 'azure', spots.first[1], ids[1]);
+      backInPile(tower.p, tower.id, 'lighthouse-azure');
+    });
+
+    it('begins the game after the last placement, with starting resources for the second huts', () => {
+      const { p, spots } = playing();
+      expect(errors(p)).toEqual([]);
+      expect(p.memory).toMatchObject({ phase: 'playing', round: 1, points: { crimson: 2, azure: 2, ivory: 2, amber: 2 } });
+      expect(p.settings.turn).toBe(0);
+      // The placed pieces are free to move again, and the banner is gone.
+      expect(p.instances.filter(item => (p.memory!.placedPieces as string[]).includes(item.id)).every(item => !item.locked)).toBe(true);
+      expect(popupsOf(p, 'Status')).toEqual([]);
+      // One resource for each tile touching each seat's second hut.
+      for (const index of [0, 1, 2, 3]) expect(hand(p, index)).toEqual(tilesAt(p, spots.second[index]).map(tile => terrainOf(p, tile)).sort());
+      expect(notice(p)).toMatchObject({ title: 'The game begins' });
+      expect(notice(p)!.text).toMatch(new RegExp(`^Starting resources: ${p.players[0].name} takes .*\\. First to 10 points wins\\.$`));
     });
 
     it('hands out resources for the huts beside the tiles showing the roll, and warns about the squall on a 7', () => {
-      const { p, seat, first, second } = setup();
-      const started = applyCommand(p, call('startGame', 3), seat);
-      const before = hand(started, 0).length;
+      const { p: started, spots } = playing();
+      const seat = started.players[0].id, before = hand(started, 0).length;
       const rolls = new Map<number, Project>();
       for (let seed = 1; seed < 400 && rolls.size < 11; seed++) {
         const rolled = applyCommand(started, call('rollDice', seed), seat);
         const total = rolled.memory!.lastRoll as number;
         if (!rolls.has(total)) rolls.set(total, rolled);
       }
-      // Every roll from 2 to 12 came up.
       expect([...rolls.keys()].sort((a, b) => a - b)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
       for (const [total, rolled] of rolls) {
         expect(errors(rolled), String(total)).toEqual([]);
-        const expected = total === 7 ? 0 : [first, second].flatMap(at => tilesAt(started, at)).filter(tile => numberOn(started, tile) === total).length;
+        const expected = total === 7 ? 0 : [spots.first[0], spots.second[0]].flatMap(at => tilesAt(started, at)).filter(tile => numberOn(started, tile) === total).length;
         expect(hand(rolled, 0).length - before, `roll ${total}`).toBe(expected);
-        expect(announcements(rolled).at(-1)).toMatch(new RegExp(`rolled ${total} `));
+        expect(notice(rolled, started.players[2].id)!.title).toMatch(new RegExp(`^${started.players[0].name} rolled ${total} \\(\\d \\+ \\d\\)`));
+        // Only the latest note stays open.
+        expect(popupsOf(rolled, 'Notice')).toHaveLength(1);
       }
-      expect(announcements(rolls.get(7)!).at(-1)).toMatch(/The squall! Move it to another tile/);
+      expect(notice(rolls.get(7)!)).toMatchObject({ title: expect.stringMatching(/: the squall!$/), text: expect.stringMatching(/^Move the squall to another tile/) });
     });
 
-    it('shows only the buttons that apply: Start game before the game, Roll dice after it while the dice don\'t roll by themselves', () => {
+    it("shows only the buttons that apply: Game setup before the setup rounds, Roll dice in the game while the dice don't roll by themselves", () => {
       const hiddenFrom = (p: Project, name: string) => piecesOf(p, name)[0].hiddenFrom ?? [];
       const everyone = (p: Project) => p.players.map(player => player.id);
       const game = build('tidewater');
-      expect([hiddenFrom(game, 'Start game'), hiddenFrom(game, 'Roll dice')]).toEqual([[], everyone(game)]);
-      const { p, seat } = setup();
-      // With autoRoll off, starting hides Start game and shows Roll dice.
-      const manual = applyCommand(p, call('startGame', 3), seat);
-      expect(errors(manual)).toEqual([]);
-      expect([hiddenFrom(manual, 'Start game'), hiddenFrom(manual, 'Roll dice')]).toEqual([everyone(manual), []]);
+      expect([hiddenFrom(game, 'Game setup button'), hiddenFrom(game, 'Roll dice')]).toEqual([[], everyone(game)]);
+      const placing = choose(game, 'Start placing');
+      expect([hiddenFrom(placing, 'Game setup button'), hiddenFrom(placing, 'Roll dice')]).toEqual([everyone(game), everyone(game)]);
+      const manual = playing().p;
+      expect([hiddenFrom(manual, 'Game setup button'), hiddenFrom(manual, 'Roll dice')]).toEqual([everyone(manual), []]);
       // Turning autoRoll on in memory hides Roll dice again; with it on from the start, Roll dice never shows.
-      const auto = applyCommand(manual, { type: 'memory', changes: [{ path: ['autoRoll'], value: true }] }, seat);
+      const auto = applyCommand(manual, { type: 'memory', changes: [{ path: ['autoRoll'], value: true }] }, manual.players[0].id);
       expect(errors(auto)).toEqual([]);
       expect(hiddenFrom(auto, 'Roll dice')).toEqual(everyone(auto));
-      const automatic = applyCommand({ ...p, memory: { ...p.memory, autoRoll: true } }, call('startGame', 3), seat);
-      expect([hiddenFrom(automatic, 'Start game'), hiddenFrom(automatic, 'Roll dice')]).toEqual([everyone(automatic), everyone(automatic)]);
+      const automatic = playing(true).p;
+      expect(hiddenFrom(automatic, 'Roll dice')).toEqual(everyone(automatic));
+      // Game setup (the button) opens the popup again for whoever presses it, who becomes the host.
+      const closed = { ...game, popups: [] };
+      const reopened = applyCommand(closed, { type: 'call', name: 'openSetup', piece: piecesOf(game, 'Game setup button')[0].id, args: [], seed: 1 }, game.players[1].id);
+      expect(errors(reopened)).toEqual([]);
+      expect(popupsOf(reopened, 'Game setup').map(popup => popup.to)).toEqual([[game.players[1].id]]);
+      expect(reopened.memory!.host).toBe(game.players[1].id);
     });
 
-    it('rolls by itself when a turn starts once the game is on, and names the players beside the squall', () => {
-      const { p, seat, second } = setup();
-      const started = applyCommand({ ...p, memory: { ...p.memory, autoRoll: true } }, call('startGame', 3), seat);
-      // Starting rolls for the current player straight away.
-      expect(announcements(started).at(-1)).toMatch(/rolled \d+ \(\d \+ \d\)/);
-      const next = applyCommand(started, { type: 'endTurn' }, seat);
+    it('rolls by itself when a turn starts once the game is on, names the players beside the squall, and declares the winner', () => {
+      const { p: started, spots } = playing(true);
+      // Beginning rolls for the first player straight away.
+      expect(notice(started)!.text).toMatch(new RegExp(`${started.players[0].name} rolled \\d+ \\(\\d \\+ \\d\\)`));
+      const next = applyCommand(started, { type: 'endTurn' }, started.players[0].id);
       expect(errors(next)).toEqual([]);
-      expect(announcements(next).at(-1)).toMatch(new RegExp(`^${next.players[1].name} rolled \\d+`));
-      // Moving the squall onto a tile beside crimson's hut names crimson.
-      const squall = piecesOf(next, 'Squall')[0], target = tilesAt(next, second).find(tile => Math.hypot(tile.x - squall.x, tile.y - squall.y) > 60)!;
+      expect(notice(next)!.title).toMatch(new RegExp(`^${next.players[1].name} rolled \\d+`));
+      // Moving the squall onto a tile beside Crimson's second hut names Crimson.
+      // (Huts stand well apart, so no other colour's hut touches that tile.)
+      const squall = piecesOf(next, 'Squall')[0], target = tilesAt(next, spots.second[0]).find(tile => Math.hypot(tile.x - squall.x, tile.y - squall.y) > 60)!;
       const slot = next.grids!.find(grid => grid.id === 'grid-slots')!.points!.find(point => Math.hypot(point.x - target.x, point.y - target.y) < 45)!;
       const moved = applyCommand(next, { type: 'move', ids: [squall.id], patch: { x: slot.x, y: slot.y } }, next.players[1].id);
-      expect(announcements(moved).at(-1)).toMatch(new RegExp(`^The squall settles on the .*\\. Take a random card from ${next.players[0].name}\\.$`));
+      expect(notice(moved)).toEqual({ title: `The squall settles on the ${componentNamed(next, 'Island tile').rows[target.row].name}`, text: `${next.players[1].name} takes a random card from ${next.players[0].name}.` });
+      // With the goal at 3, a third crimson hut wins the game.
+      const lowered = applyCommand(next, { type: 'memory', changes: [{ path: ['goal'], value: 3 }] }, next.players[0].id);
+      const free = corners(lowered).find(corner => [...spots.first, ...spots.second].every(at => Math.hypot(at.x - corner.x, at.y - corner.y) > 100))!;
+      const won = placeFrom(lowered, 'Hut', 'crimson', free, next.players[0].id).p;
+      expect(errors(won)).toEqual([]);
+      expect(won.memory!.winner).toBe('crimson');
+      expect(popupsOf(won, 'Victory')).toMatchObject([{ data: { name: next.players[0].name } }]);
+      expect(colorOf(won, won.instances.find(item => item.x === free.x && item.y === free.y)!)).toBe('crimson');
     });
   });
 
