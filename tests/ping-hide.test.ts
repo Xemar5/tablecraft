@@ -19,17 +19,17 @@ describe('pinging and hiding pieces', () => {
     const p = starterTable();
     const deck = p.instances.filter(i => i.stack === 'starter-deck');
     let next = applyCommand(p, { type: 'hideFrom', ids: [deck[0].id], players: ['player-2'] });
-    expect(next.instances.filter(i => i.stack === 'starter-deck').every(i => i.hiddenFrom?.[0] === 'player-2')).toBe(true);
+    expect(next.instances.filter(i => i.stack === 'starter-deck').every(i => i.hidePlayers?.[0] === 'player-2')).toBe(true);
     // A card drawn into a hand isn't hidden any more; one dropped onto the hidden stack is hidden like it.
     next = applyCommand(next, { type: 'draw', id: deck[0].id, playerId: 'player-1' }, 'player-1');
     const drawn = next.instances.find(i => i.holder === 'player-1')!;
-    expect(drawn.hiddenFrom).toBeUndefined();
+    expect(drawn.hidePlayers).toBeUndefined();
     const top = next.instances.find(i => i.stack === 'starter-deck')!;
     next = applyCommand(next, { type: 'dropFromHand', id: drawn.id, targetId: top.id, stackId: 'again' }, 'player-1');
-    expect(next.instances.find(i => i.id === drawn.id)!.hiddenFrom).toEqual(['player-2']);
+    expect(next.instances.find(i => i.id === drawn.id)!.hidePlayers).toEqual(['player-2']);
     expect(() => applyCommand(next, { type: 'hideFrom', ids: [top.id], players: ['nobody'] })).toThrow('no longer exists');
     next = applyCommand(next, { type: 'removePlayer', playerId: 'player-2' });
-    expect(next.instances.some(i => i.hiddenFrom)).toBe(false);
+    expect(next.instances.some(i => i.hidePlayers || i.hidden)).toBe(false);
   });
 
   it('let scripts ping and hide pieces, and read who they are hidden from', () => {
@@ -37,7 +37,7 @@ describe('pinging and hiding pieces', () => {
     const p = applyCommand(starterTable(), { type: 'script', script: { id: 's', name: 'Rules', source } });
     const next = applyCommand(p, call('go'), 'player-1');
     const token = next.instances.find(i => next.components.find(c => c.id === i.componentId)?.kind === 'token')!;
-    expect(token).toMatchObject({ pings: 1, pingedBy: 'player-1', hiddenFrom: ['player-2'] });
+    expect(token).toMatchObject({ pings: 1, pingedBy: 'player-1', hidePlayers: ['player-2'] });
     expect(next.memory).toEqual({ hidden: 'player-2' });
   });
 
@@ -54,7 +54,7 @@ describe('pinging and hiding pieces', () => {
     const hidden = applyCommand(p, call('hide'), 'player-1');
     const shown = applyCommand(hidden, call('show'), 'player-1');
     expect(errors(shown)).toEqual([]);
-    expect(token(shown).hiddenFrom).toBeUndefined();
+    expect(token(shown).hidePlayers).toBeUndefined();
     // An empty list of pieces does nothing.
     const moved = applyCommand(p, call('nothing'), 'player-1');
     expect([errors(moved), moved.instances]).toEqual([[], p.instances]);

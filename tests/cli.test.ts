@@ -130,6 +130,17 @@ describe('agent CLI', () => {
     expect(run('lock', '--file', file, '--pieces', stone.id, '--order')).toMatchObject({ order: true });
     expect((instances() as (Row & { orderLocked?: boolean })[]).filter(item => item.stack === stone.stack).every(item => item.orderLocked && !item.locked)).toBe(true);
     expect(run('group', 'lock', '--file', file, '--group', black.id, '--order').groups.find((group: { id: string }) => group.id === black.id)).toMatchObject({ orderLocked: true });
+    // --except and --only choose seats, as the Selection tab does; --hide hides pieces (their whole stacks) instead.
+    type Seated = Row & { lockPlayers?: string[]; hidden?: boolean; hidePlayers?: string[] };
+    const seats = (run('list', '--file', file, '--what', 'players') as { id: string; name: string }[]);
+    run('lock', '--file', file, '--pieces', stone.id, '--except', seats[0].name);
+    expect((instances() as Seated[]).find(item => item.id === stone.id)).toMatchObject({ locked: true, lockPlayers: [seats[0].id] });
+    expect(run('lock', '--file', file, '--pieces', stone.id, '--hide', '--only', seats[1].id).hidden).toHaveLength(181);
+    expect((instances() as Seated[]).filter(item => item.stack === stone.stack).every(item => !item.hidden && item.hidePlayers?.[0] === seats[1].id)).toBe(true);
+    expect(run('unlock', '--file', file, '--pieces', stone.id, '--hide').shown).toHaveLength(181);
+    expect(run('group', 'lock', '--file', file, '--group', black.id, '--hide', '--except', seats[1].id).groups.find((group: { id: string }) => group.id === black.id))
+      .toMatchObject({ hidden: true, hidePlayers: [seats[1].id] });
+    expect(fail('lock', '--file', file, '--pieces', stone.id, '--only', 'nobody')).toMatch(/no seat nobody/);
     expect(run('validate', '--file', file).valid).toBe(true);
     const island = join(dir, 'tidewater.json');
     expect(run('new', '--out', island, '--template', 'tidewater', '--name', 'Isles').project).toMatchObject({ name: 'Isles' });

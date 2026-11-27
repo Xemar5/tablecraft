@@ -31,10 +31,13 @@ test('P pings the hovered piece, and pieces hidden from a seat come back labelle
   await expect(piece).toBeInViewport();
   await page.keyboard.press('Escape');
 
-  // Hide the token from your own seat: it leaves the table until hidden pieces are shown.
+  // Hide the token from your own seat: it stays, faded, while it's selected, and leaves the table once it isn't, until
+  // hidden pieces are shown.
   await piece.click();
   const seats = page.getByRole('group', { name: 'Hidden from', exact: true });
   await seats.getByRole('button', { name: /Player 1/ }).click();
+  await expect(piece).toHaveClass(/hidden-from-you/);
+  await page.mouse.click(view.x + 60, view.y + view.height - 40);
   await expect(piece).toHaveCount(0);
   await toggleHeader(page, 'Hidden pieces');
   await expect(piece).toHaveClass(/hidden-from-you/);
@@ -44,5 +47,5 @@ test('P pings the hovered piece, and pieces hidden from a seat come back labelle
   await expect(seats.getByRole('button', { name: /Player 1/ })).toHaveAttribute('aria-pressed', 'true');
   await seats.getByRole('button', { name: /Player 1/ }).click();
   await expect(piece.locator('.hidden-count')).toHaveCount(0);
-  await expect.poll(async () => (await savedWorkspace(page)).projects[0].instances.find(i => i.id === id)?.hiddenFrom).toBeUndefined();
+  await expect.poll(async () => (await savedWorkspace(page)).projects[0].instances.find(i => i.id === id)?.hidePlayers).toBeUndefined();
 });

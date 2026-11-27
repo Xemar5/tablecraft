@@ -281,6 +281,18 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hidden-seat { display: inline-flex; align-items: center; gap: 6px; padding: 3px 9px 3px 3px; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: inherit; font-size: 11px; cursor: pointer; }
 .hidden-seat .mini-avatar { width: 18px; height: 18px; font-size: 9px; }
 .hidden-seat.hidden { background: #efe9f5; border-color: #cdbfdc; color: #5b4a6e; text-decoration: line-through; text-decoration-color: #a593b8; }
+/* Hiding, locks and order locks (AccessControls.tsx): an Everyone switch, and chips showing which seats each covers now. */
+.access-controls { display: grid; gap: 10px; margin: 12px 0; }
+.access-row { margin: 0; }
+.access-row > span { display: flex; align-items: center; gap: 4px; }
+.access-seats { display: flex; flex-wrap: wrap; gap: 5px; }
+.access-everyone { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; color: #5f6f55; font-size: 11px; font-weight: 600; cursor: pointer; }
+.access-everyone.on { background: #e5eedb; border-color: #9fb889; color: #2f4f3a; }
+.access-lock .access-seat.hidden, .access-orderLock .access-seat.hidden { text-decoration: none; background: #f6efe2; border-color: #dcc59c; color: #6b5126; }
+.access-seats [aria-disabled="true"] { opacity: .55; cursor: default; }
+.access-summary { display: block; margin-top: 4px; color: #8a9a7c; font-size: 10px; }
+/* A group locked for some seats only keeps its lock button shown, fainter. */
+.group-lock.is-locked.partly { opacity: .6; }
 /* Ping pins (PingPins.tsx): a fixed-size pin with the pinging player's avatar and name above what was pinged, or at
    the table's edge pointing towards it. The pin's origin is the point it marks. */
 .ping-pins { position: absolute; inset: 0; z-index: 140; pointer-events: none; overflow: hidden; }

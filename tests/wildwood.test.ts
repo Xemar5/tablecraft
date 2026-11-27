@@ -103,7 +103,9 @@ describe('Wildwood sample', () => {
     const board = project.instances.find(item => item.componentId === byName('Wanderer’s path').id)!;
     const walker = project.instances.filter(item => item.componentId === byName('Wanderer').id).find(item => item.row === 1)!;
     const heart = placedPointPosition(placedGrids(project).find(grid => grid.host === board.id)!, 'stone-5')!;
-    const arrived = applyCommand(project, { type: 'transform', ids: [walker.id], dx: heart.x - walker.x, dy: heart.y - walker.y, snap: true }, 'player-1');
+    // (The ember wanderer is Player 2's: it's locked for everyone else.)
+    expect(() => applyCommand(project, { type: 'transform', ids: [walker.id], dx: 1, dy: 0 }, 'player-1')).toThrow(/[Uu]nlock/);
+    const arrived = applyCommand(project, { type: 'transform', ids: [walker.id], dx: heart.x - walker.x, dy: heart.y - walker.y, snap: true }, 'player-2');
     expect(arrived.popups?.at(-1)).toMatchObject({ componentId: byName('Heart of the wood').id, row: 1 });
     expect(byName('Heart of the wood').rows[1]).toMatchObject({ color: 'ember', wanderer: 'Ember wanderer' });
     // The Quick rules button opens the panel for whoever pressed it, and closes it on the next press.

@@ -4,6 +4,7 @@ import { runCommand } from './scripting';
 import { componentGridSchema, gridSchema, placedGrids, placedPointPosition, projectGrids, snapTarget, validateGrids } from './grids';
 import { commonTags, describeFilter, filterFromTags, matchesTags, normalizeTags, sameFilter, tagFilterSchema, tagSchema, type TagFilter } from './tags';
 import { withPivot } from './layerGeometry';
+import { ACCESS_KINDS, appliesTo, applyScope, covers, groupCovers, NO_ONE, scopeActive, scopeOf } from './access';
 import { closePopups, POPUP_LIMIT, popupSchema, popupSettings, popupSettingsSchema, type Popup } from './popups';
 
 const id = z.string().min(1).max(100);
@@ -193,10 +194,15 @@ export const instanceSchema = z.object({
   rotation: num, scale: num.min(0.1).max(5), flipped: z.boolean(),
   holder: id.nullable(), stack: id.nullable(), order: num, locked: z.boolean(),
   /**
-   * Keeps the piece in its place in the hierarchy (the Pieces panel): it isn't brought forward, sent back, raised when
-   * clicked, dragged to another place or moved into or out of a group. It can still move on the table; see `locked`.
+   * Locks, order locks and hiding (see src/access.ts): each is a switch for everyone (`locked`, `orderLocked`, `hidden`)
+   * and a list of seats (`lockPlayers`, `orderLockPlayers`, `hidePlayers`): the seats it covers with the switch off, or
+   * the seats it leaves out with it on (so seats that join later are covered). A lock holds the piece in place on the
+   * table; an order lock keeps its place in the hierarchy (the Pieces panel): it isn't brought forward, sent back, raised
+   * when clicked, dragged to another place or moved into or out of a group, though it can still move on the table.
    */
+  lockPlayers: z.array(id).max(100).optional(),
   orderLocked: z.boolean().optional(),
+  orderLockPlayers: z.array(id).max(100).optional(),
   stackReversed: z.boolean().optional(),
   rolls: z.number().int().min(0).optional(),
   /** Counts shuffles of the stack this piece is in, so every player sees the shuffle animate. */
@@ -206,7 +212,10 @@ export const instanceSchema = z.object({
   pingedBy: id.optional(),
   /** The seats the last ping was for (everyone when absent). */
   pingedFor: z.array(id).max(100).optional(),
-  /** Seats this table piece is hidden from (visual privacy only, like hidden hands). Stacks share it. */
+  /** Hidden on the table from the seats it covers (visual privacy only, like hidden hands). Stacks share it. */
+  hidden: z.boolean().optional(),
+  hidePlayers: z.array(id).max(100).optional(),
+  /** Older saves: the seats it was hidden from, read as `hidePlayers` (see scopeOf) and turned into it on the next change. */
   hiddenFrom: z.array(id).max(100).optional(),
   /** The Pieces panel group this table piece belongs to. Stacks share one group; held pieces have none. */
   group: id.optional(),
@@ -226,10 +235,13 @@ export const persistentStackSchema = z.object({
 });
 export type PersistentStack = z.infer<typeof persistentStackSchema>;
 /**
- * A Pieces-panel group. `locked` holds its pieces in place on the table; `orderLocked` keeps it, its subgroups and its
- * pieces in their places in the hierarchy (see Instance.orderLocked).
+ * A Pieces-panel group. Its lock holds its pieces in place on the table, its order lock keeps it, its subgroups and its
+ * pieces in their places in the hierarchy, and hiding it hides its pieces, each for everyone or some seats as on pieces
+ * (see Instance.lockPlayers and src/access.ts).
  */
-export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(), locked: z.boolean().optional(), orderLocked: z.boolean().optional() });
+export const pieceGroupSchema = z.object({ id, name: z.string().trim().min(1).max(100), parent: id.nullable(),
+  locked: z.boolean().optional(), lockPlayers: z.array(id).max(100).optional(), orderLocked: z.boolean().optional(), orderLockPlayers: z.array(id).max(100).optional(),
+  hidden: z.boolean().optional(), hidePlayers: z.array(id).max(100).optional() });
 export type PieceGroup = z.infer<typeof pieceGroupSchema>;
 export type Instance = z.infer<typeof instanceSchema>;
 export const playerSchema = z.object({
@@ -329,8 +341,12 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('createGroup'), id, name: pieceGroupSchema.shape.name, parent: id.nullable().default(null),
     ids: z.array(id).max(10000).default([]), groups: z.array(id).max(2000).default([]) }),
   z.object({ type: z.literal('renameGroup'), id, name: pieceGroupSchema.shape.name }),
-  /** Locks or unlocks groups: their pieces' places on the table, or with `order` their places in the hierarchy. */
-  z.object({ type: z.literal('lockGroups'), ids: z.array(id).min(1).max(2000), locked: z.boolean(), order: z.boolean().optional() }),
+  /**
+   * Locks or unlocks groups: their pieces' places on the table, with `order` their places in the hierarchy, or with `hide`
+   * whether their pieces show. `locked` is the switch for everyone and `players` the seat list (see src/access.ts).
+   */
+  z.object({ type: z.literal('lockGroups'), ids: z.array(id).min(1).max(2000), locked: z.boolean(), order: z.boolean().optional(), hide: z.boolean().optional(),
+    players: z.array(id).max(100).optional() }),
   /** Makes the stack of `ids` persistent, stacking the pieces first (as `stackId`) when they aren't one stack yet. */
   z.object({ type: z.literal('persistStack'), ids: z.array(id).min(1).max(10000), stackId: id }),
   /** Makes a persistent stack ordinary again (an empty one disappears; a single piece is no longer a stack). */
@@ -356,7 +372,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('dropManyFromHand'), ids: z.array(id).min(1), targetId: id, stackId: id }),
   z.object({ type: z.literal('transferToHand'), ids: z.array(id).min(1), playerId: id, faceUp: z.boolean().optional(), index: z.number().int().min(0).optional() }),
   z.object({ type: z.literal('playVisibleHand'), id, x: num, y: num, targetId: id.optional(), stackId: id.optional(), snap: z.boolean().optional() }),
-  z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true, orderLocked: true }).partial() }),
+  z.object({ type: z.literal('move'), ids: z.array(id), patch: instanceSchema.pick({ x: true, y: true, rotation: true, scale: true, flipped: true, locked: true, lockPlayers: true, orderLocked: true, orderLockPlayers: true }).partial() }),
   z.object({ type: z.literal('transform'), ids: z.array(id).min(1), dx: num.optional(), dy: num.optional(),
     positions: z.array(z.object({ id, x: num, y: num })).min(1).max(10000).optional(),
     rotation: num.optional(), scaleFactor: num.positive().optional(), flip: z.boolean().optional(),
@@ -408,7 +424,10 @@ export const commandSchema = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('closePopup'), ids: z.array(id).min(1).max(POPUP_LIMIT), players: z.array(id).max(100).optional() }),
   /** Hides table pieces (with their whole stacks) from these seats; an empty list shows them to everyone. */
+  /** Hides table pieces (with their stacks) from these seats only (older form of `hide` with `hidden` off). */
   z.object({ type: z.literal('hideFrom'), ids: z.array(id).min(1).max(10000), players: z.array(id).max(100) }),
+  /** Hides table pieces (with their stacks): from everyone but `players` (`hidden`), or from `players` only. */
+  z.object({ type: z.literal('hide'), ids: z.array(id).min(1).max(10000), hidden: z.boolean(), players: z.array(id).max(100) }),
   /** Adds a grid layer, or replaces the one with its id in place. */
   z.object({ type: z.literal('grid'), grid: gridSchema }),
   z.object({ type: z.literal('removeGrid'), id }),
@@ -755,29 +774,27 @@ export function groupAncestors(groups: PieceGroup[], id: string | null | undefin
 }
 
 /**
- * The project as play sees it: pieces in a locked group (or in a group inside one) count as locked, and pieces in an
- * order-locked one as order-locked, while their own flags stay as they are in the saved project. Returns `p` itself
- * when no group is locked either way.
+ * The project as a seat plays it: each piece's `locked`, `orderLocked` and `hidden` say whether its own settings or
+ * those of the groups around it cover that seat (with no seat, only settings for everyone do), and the seat lists are
+ * left out. The saved project keeps the settings themselves. Returns `p` itself when there's nothing to resolve.
  */
-export function withGroupLocks(p: Project): Project {
+export function withGroupLocks(p: Project, seat?: string): Project {
   const groups = p.groups ?? [];
-  const locked = new Set(groups.filter(group => group.locked).map(group => group.id)), ordered = new Set(groups.filter(group => group.orderLocked).map(group => group.id));
-  if (!locked.size && !ordered.size) return p;
+  const set = (holder: Instance | PieceGroup) => ACCESS_KINDS.some(kind => scopeActive(scopeOf(holder, kind)));
+  if (!groups.some(set) && !p.instances.some(set)) return p;
   let changed = false;
   const instances = p.instances.map(item => {
-    if (!item.group) return item;
-    const around = groupAncestors(groups, item.group);
-    const lock = !item.locked && around.some(id => locked.has(id)), order = !item.orderLocked && around.some(id => ordered.has(id));
-    if (!lock && !order) return item;
+    const locked = covers(item, groups, 'lock', seat), orderLocked = covers(item, groups, 'orderLock', seat), hidden = covers(item, groups, 'hide', seat);
+    if (item.locked === locked && !!item.orderLocked === orderLocked && !!item.hidden === hidden && !item.lockPlayers && !item.orderLockPlayers && !item.hidePlayers && !item.hiddenFrom) return item;
     changed = true;
-    return { ...item, ...lock ? { locked: true } : {}, ...order ? { orderLocked: true } : {} };
+    const { lockPlayers: _lock, orderLockPlayers: _order, hidePlayers: _hide, hiddenFrom: _from, orderLocked: _ordered, hidden: _hidden, ...rest } = item;
+    return { ...rest, locked, ...orderLocked ? { orderLocked } : {}, ...hidden ? { hidden } : {} };
   });
   return changed ? { ...p, instances } : p;
 }
 
-/** Whether a group keeps its place in the hierarchy: its own order lock, or one of a group around it. */
-export const groupOrderLocked = (groups: PieceGroup[], id: string | null | undefined) =>
-  groupAncestors(groups, id).some(key => groups.find(group => group.id === key)?.orderLocked);
+/** Whether a group keeps its place in the hierarchy for a seat: its own order lock, or that of a group around it. */
+export const groupOrderLocked = (groups: PieceGroup[], id: string | null | undefined, seat?: string) => groupCovers(groups, id, 'orderLock', seat);
 
 /** Rotations land on tenths of a degree, so steps such as 3 × 0.1 or 360 / 7 don't leave floating-point leftovers. */
 export const snapAngle = (degrees: number) => { const snapped = Math.round(degrees * 10) / 10; return snapped === 0 ? 0 : snapped; };
@@ -897,14 +914,17 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     if (i.holder && i.holder !== actor) throw new Error("Switch to this player's seat to edit their hand.");
   };
   // A piece is held in place by its own lock or by a locked group around it.
-  const lockedByGroup = (i: Instance) => !!i.group && groupAncestors(p.groups ?? [], i.group).some(id => p.groups?.find(group => group.id === id)?.locked);
-  const isLocked = (i: Instance) => i.locked || lockedByGroup(i);
+  // Locks cover the acting seat by the piece's own settings or a group's (see src/access.ts); actions without a seat
+  // (scripts) are held only by locks for everyone.
+  const lockedByGroup = (i: Instance) => groupCovers(p.groups ?? [], i.group, 'lock', actor);
+  const ownLocked = (i: Instance) => appliesTo(scopeOf(i, 'lock'), actor);
+  const isLocked = (i: Instance) => covers(i, p.groups ?? [], 'lock', actor);
   // A piece keeps its place in the hierarchy (table order and group) by its own order lock or an order-locked group.
-  const isOrderLocked = (i: Instance) => !!i.orderLocked || groupOrderLocked(p.groups ?? [], i.group);
+  const isOrderLocked = (i: Instance) => covers(i, p.groups ?? [], 'orderLock', actor);
   const ORDER_LOCKED = 'Its place in the order is locked. Unlock its order first.';
   /** Refuses to move pieces or groups (with everything in them as one block) to another place in the hierarchy. */
   const keepOrder = (pieces: Instance[], groups: PieceGroup[] = []) => {
-    if (pieces.some(isOrderLocked) || groups.some(group => groupOrderLocked(p.groups ?? [], group.id))) throw new Error(ORDER_LOCKED);
+    if (pieces.some(isOrderLocked) || groups.some(group => groupOrderLocked(p.groups ?? [], group.id, actor))) throw new Error(ORDER_LOCKED);
   };
   const component = (i: Instance) => {
     const c = p.components.find(c => c.id === i.componentId);
@@ -1254,8 +1274,9 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       break;
     }
     case 'lockGroups': {
-      const key = command.order ? 'orderLocked' : 'locked';
-      for (const group of existingGroups(command.ids)) { if (command.locked) group[key] = true; else delete group[key]; }
+      if (command.players?.some(player => !p.players.some(seat => seat.id === player))) throw new Error('That seat no longer exists.');
+      const kind = command.hide ? 'hide' : command.order ? 'orderLock' : 'lock';
+      for (const group of existingGroups(command.ids)) applyScope(group, kind, { all: command.locked, players: command.players ?? [] });
       break;
     }
     case 'ungroup':
@@ -1366,12 +1387,14 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       for (const key of command.ids) {
         const item = get(key);
         editable(item);
-        // Its order lock is separate from its place on the table, so it changes even while the piece is held in place.
-        const locksOnly = Object.keys(command.patch).every(key => key === 'orderLocked');
-        if (item.locked && command.patch.locked !== false && !locksOnly) throw new Error('Unlock this component first.');
+        // Its locks are separate from its place on the table, so they change even while the piece is held in place.
+        const lockKeys = new Set(['locked', 'lockPlayers', 'orderLocked', 'orderLockPlayers']);
+        const locksOnly = Object.keys(command.patch).every(key => lockKeys.has(key));
+        if (ownLocked(item) && command.patch.locked !== false && !locksOnly) throw new Error('Unlock this component first.');
         // A piece in a locked group can only change its own locks.
-        if (lockedByGroup(item) && Object.keys(command.patch).some(key => key !== 'locked' && key !== 'orderLocked')) throw new Error('Unlock its group first.');
+        if (lockedByGroup(item) && !locksOnly) throw new Error('Unlock its group first.');
         if (command.patch.flipped !== undefined && !component(item).flippable) throw new Error('This component is not flippable.');
+        if ([...command.patch.lockPlayers ?? [], ...command.patch.orderLockPlayers ?? []].some(player => !p.players.some(seat => seat.id === player))) throw new Error('That seat no longer exists.');
         Object.assign(item, command.patch);
         if (command.patch.rotation !== undefined) item.rotation = snapAngle(item.rotation);
       }
@@ -1662,13 +1685,14 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
       p.popups = open.length ? open : undefined;
       break;
     }
-    case 'hideFrom': {
+    case 'hideFrom': case 'hide': {
       if (command.players.some(player => !p.players.some(seat => seat.id === player))) throw new Error('That seat no longer exists.');
       const items = new Set(command.ids.map(get).flatMap(item => {
         if (item.holder) throw new Error('Only table pieces can be hidden.');
         return stackMembers(p, item);
       }));
-      items.forEach(item => { if (command.players.length) item.hiddenFrom = [...new Set(command.players)]; else delete item.hiddenFrom; });
+      const scope = { all: command.type === 'hide' && command.hidden, players: command.players };
+      items.forEach(item => applyScope(item, 'hide', scope));
       break;
     }
     case 'grid': {
@@ -1721,14 +1745,24 @@ export function applyTableCommand(source: Project, raw: Command, actor?: string)
     }
   });
   normalizeStackFilters(p);
-  // Held pieces are never hidden on the table, removed seats leave hidden lists, and a stack is hidden as its bottom piece is.
+  // Held pieces are never hidden on the table, and a stack is hidden as its bottom piece is (older saves' hiddenFrom
+  // lists become hidePlayers). Removed seats leave every seat list, of pieces and groups.
   const seats = new Set(p.players.map(player => player.id));
+  const known = (players: string[]) => players.filter(player => seats.has(player));
   const stackBottoms = new Map<string, Instance>();
   for (const item of p.instances) if (item.stack && (!stackBottoms.has(item.stack) || item.order < stackBottoms.get(item.stack)!.order)) stackBottoms.set(item.stack, item);
-  const hiddenOf = new Map(p.instances.map(item => [item, (item.stack ? stackBottoms.get(item.stack)! : item).hiddenFrom]));
+  const hideOf = new Map(p.instances.map(item => [item, scopeOf(item.stack ? stackBottoms.get(item.stack)! : item, 'hide')]));
   for (const item of p.instances) {
-    const kept = item.holder ? [] : (hiddenOf.get(item) ?? []).filter(player => seats.has(player));
-    if (kept.length) item.hiddenFrom = kept; else delete item.hiddenFrom;
+    const hide = hideOf.get(item)!;
+    applyScope(item, 'hide', item.holder ? NO_ONE : { all: hide.all, players: known(hide.players) });
+    for (const kind of ['lock', 'orderLock'] as const) {
+      const scope = scopeOf(item, kind);
+      applyScope(item, kind, { all: scope.all, players: known(scope.players) }, kind === 'lock');
+    }
+  }
+  for (const group of p.groups ?? []) for (const kind of ACCESS_KINDS) {
+    const scope = scopeOf(group, kind);
+    applyScope(group, kind, { all: scope.all, players: known(scope.players) });
   }
   normalizeGroups(p);
   syncPersistentStacks(p);

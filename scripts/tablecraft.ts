@@ -13,6 +13,7 @@ import { GAME_PROJECTS, gameProject, type GameProjectId } from '../src/gameProje
 import { applyPlaygroundCommand, emptyPlaygroundHistory, undoPlayground } from '../src/playgroundHistory';
 import { live } from './live';
 import { refreshProjectLinks } from '../src/projectLinks';
+import { scopeOf, type Scope } from '../src/access';
 
 const help = `Tablecraft CLI — JSON output on stdout; errors on stderr, nonzero exit.
 Usage: npm --silent run cli -- <command> [options]
@@ -29,8 +30,8 @@ Usage: npm --silent run cli -- <command> [options]
   group rename --file FILE --group GROUP_ID --name NAME
   group ungroup --file FILE --group GROUP_IDS
   group move --file FILE [--pieces IDS] [--groups IDS] --parent GROUP_ID|root
-  group lock|unlock --file FILE --group GROUP_IDS
-  lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--actor PLAYER_ID]
+  group lock|unlock --file FILE --group GROUP_IDS [--order | --hide] [--only SEATS | --except SEATS]
+  lock|unlock --file FILE [--pieces IDS] [--groups IDS] [--order | --hide] [--only SEATS | --except SEATS] [--actor PLAYER_ID]
   grid [list] --file FILE [--show on|off] [--snap on|off] [--size N] [--offset-x N] [--offset-y N]
   grid add --file FILE --shape square|hex|points [grid options]
   grid set --file FILE --grid GRID_ID [grid options]
@@ -55,7 +56,9 @@ Groups organise table pieces in the Pieces panel; IDS are comma-separated, piece
 bring their whole stack, and empty groups are removed. group lock/unlock lock the
 groups themselves: their pieces (and subgroups) stay put while each piece keeps its
 own lock. lock/unlock act on pieces (with their whole stacks) and every piece in the given groups; locked pieces stay
-put and can be dragged and box-selected over. grid prints the table's grid layers (the first one
+put and can be dragged and box-selected over. --order locks places in the order instead, and --hide hides pieces from
+seats (lock) or shows them again (unlock). lock covers everyone (seats that join later too), or with --except SEATS
+everyone but those seats, or with --only SEATS just those; unlock clears it for everyone. grid prints the table's grid layers (the first one
 wins where several take a piece); without a subcommand its options change the first grid. Grid
 options: --name, --show on|off, --snap on|off, --size N (square cell width, hex distance
 between cells), --size-y N (square cell height), --offset-x/--offset-y N, --orientation
@@ -81,7 +84,7 @@ function parseArgs(args: string[]) {
     if (!arg.startsWith('--')) { positionals.push(arg); continue; }
     const key = arg.slice(2);
     if (!key || key in options) throw new Error(`Invalid or repeated option ${arg}.`);
-    if (['force', 'help', 'json', 'remove', 'order'].includes(key)) options[key] = true;
+    if (['force', 'help', 'json', 'remove', 'order', 'hide'].includes(key)) options[key] = true;
     else {
       if (!args[i + 1] || args[i + 1].startsWith('--')) throw new Error(`Option ${arg} requires a value.`);
       options[key] = args[++i];
@@ -89,6 +92,18 @@ function parseArgs(args: string[]) {
   }
   return { positionals, options };
 }
+/** Who lock covers: everyone, everyone but --except SEATS, or only --only SEATS (seat ids or names). */
+function lockScope(o: Options, project: Project): Scope {
+  if (typeof o.only === 'string' && typeof o.except === 'string') throw new Error('Choose --only or --except, not both.');
+  const list = typeof o.only === 'string' ? o.only : typeof o.except === 'string' ? o.except : '';
+  const players = list.split(',').map(value => value.trim()).filter(Boolean).map(name => {
+    const seat = project.players.find(player => player.id === name) ?? project.players.find(player => player.name === name);
+    if (!seat) throw new Error(`There is no seat ${name}.`);
+    return seat.id;
+  });
+  return { all: typeof o.only !== 'string', players };
+}
+
 function option(o: Options, name: string, fallback?: string): string {
   const value = o[name] ?? fallback;
   if (typeof value !== 'string' || !value) throw new Error(`--${name} is required.`);
@@ -171,8 +186,8 @@ async function main(args: string[]) {
       list: [...common, 'what'], inspect: [...common, 'component'], validate: [...common],
       apply: [...common, 'commands', 'actor'], spawn: [...common, 'component', 'count', 'row', 'x', 'y', 'actor'],
       export: [...common, 'out', 'component', 'force'],
-      group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id', 'order'],
-      lock: [...common, 'pieces', 'groups', 'actor', 'order'], unlock: [...common, 'pieces', 'groups', 'actor', 'order'],
+      group: [...common, 'name', 'pieces', 'groups', 'parent', 'group', 'id', 'order', 'hide', 'only', 'except'],
+      lock: [...common, 'pieces', 'groups', 'actor', 'order', 'hide', 'only', 'except'], unlock: [...common, 'pieces', 'groups', 'actor', 'order', 'hide'],
       grid: [...common, 'show', 'snap', 'size', 'size-y', 'offset-x', 'offset-y', 'shape', 'name', 'orientation', 'rotation', 'radius', 'tags', 'grid', 'x', 'y', 'label', 'id'],
       script: [...common, 'name', 'source'], call: [...common, 'function', 'piece', 'args', 'actor'], memory: [...common, 'path', 'set', 'remove'],
     };
@@ -225,7 +240,10 @@ async function main(args: string[]) {
           parent: typeof o.parent === 'string' ? option(o, 'parent') : null, ids: list('pieces'), groups: list('groups') }
         : sub === 'rename' ? { type: 'renameGroup', id: option(o, 'group'), name: option(o, 'name') }
         : sub === 'ungroup' ? { type: 'ungroup', ids: list('group') }
-        : sub === 'lock' || sub === 'unlock' ? { type: 'lockGroups', ids: list('group'), locked: sub === 'lock', ...o.order ? { order: true } : {} }
+        : sub === 'lock' || sub === 'unlock' ? (() => {
+          const scope = sub === 'lock' ? lockScope(o, project) : { all: false, players: [] };
+          return { type: 'lockGroups' as const, ids: list('group'), locked: scope.all, players: scope.players, ...o.order ? { order: true } : o.hide ? { hide: true } : {} };
+        })()
         : { type: 'moveToGroup', parent: option(o, 'parent') === 'root' ? null : option(o, 'parent'), ids: list('pieces'), groups: list('groups') };
       ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), command));
       changed = true; result = { command, groups: project.groups ?? [] };
@@ -237,11 +255,17 @@ async function main(args: string[]) {
       const chosen = new Set([...pieces, ...groups.flatMap(group => groupMembers(project, group))]);
       for (const id of pieces) if (!project.instances.some(item => item.id === id)) throw new Error(`Piece ${id} does not exist.`);
       const stacks = new Set(project.instances.filter(item => chosen.has(item.id) && item.stack).map(item => item.stack));
-      const lock = cmd === 'lock', key = o.order ? 'orderLocked' : 'locked';
-      // Pieces already in the requested state are left as they are. --order locks their place in the order instead.
-      const ids = project.instances.filter(item => (chosen.has(item.id) || (item.stack && stacks.has(item.stack))) && (item[key] ?? false) !== lock).map(item => item.id);
-      if (ids.length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), { type: 'move', ids, patch: { [key]: lock } }, o.actor as string | undefined));
-      changed = ids.length > 0; result = { [lock ? 'locked' : 'unlocked']: ids, ...o.order ? { order: true } : {} };
+      const lock = cmd === 'lock', kind = o.order ? 'orderLock' : o.hide ? 'hide' : 'lock';
+      if (o.order && o.hide) throw new Error('Choose --order or --hide, not both.');
+      const scope = lock ? lockScope(o, project) : { all: false, players: [] };
+      // Pieces already set so are left as they are (held pieces can't be hidden). --order locks their place in the order
+      // instead, and --hide hides them.
+      const same = (item: typeof project.instances[number]) => JSON.stringify(scopeOf(item, kind)) === JSON.stringify(scope);
+      const ids = project.instances.filter(item => (chosen.has(item.id) || (item.stack && stacks.has(item.stack))) && !same(item) && !(kind === 'hide' && item.holder)).map(item => item.id);
+      const command: Command = kind === 'hide' ? { type: 'hide', ids, hidden: scope.all, players: scope.players }
+        : { type: 'move', ids, patch: kind === 'orderLock' ? { orderLocked: scope.all, orderLockPlayers: scope.players } : { locked: scope.all, lockPlayers: scope.players } };
+      if (ids.length) ({ project } = applyPlaygroundCommand(project, emptyPlaygroundHistory(), command, o.actor as string | undefined));
+      changed = ids.length > 0; result = { [lock ? kind === 'hide' ? 'hidden' : 'locked' : kind === 'hide' ? 'shown' : 'unlocked']: ids, ...o.order ? { order: true } : {}, ...o.hide ? { hide: true } : {} };
     } else if (cmd === 'grid') {
       if (sub && !['list', 'add', 'set', 'remove', 'point'].includes(sub)) throw new Error('Choose grid list, add, set, remove or point.');
       const toggle = (name: string) => {

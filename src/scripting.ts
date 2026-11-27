@@ -21,6 +21,7 @@ import {
 import { nearestPlacedPoint, placedGrids, placedPointPosition, snapOf, type PlacedGrid } from './grids';
 import { filterTags } from './tags';
 import { popupSettingsSchema, type Popup } from './popups';
+import { scopeOf, seatsCovered, type AccessKind } from './access';
 
 type Apply = (project: Project, command: Command, actor?: string) => Project;
 type LogLine = Omit<ScriptLogEntry, 'seq'>;
@@ -72,10 +73,12 @@ export const SCRIPT_API = [
   { name: 'game.flip', args: '(pieces)', doc: 'Turns pieces (or whole stacks) over.' },
   { name: 'game.setFaceUp', args: '(pieces, faceUp)', doc: 'Shows the front (true) or the back (false).' },
   { name: 'game.setScale', args: '(pieces, scale)', doc: 'Sizes pieces (0.1 to 5).' },
-  { name: 'game.lock', args: '(pieces, locked?)', doc: 'Locks pieces in place (or unlocks them with false). Scripts follow locks too: unlock pieces to move them.' },
-  { name: 'game.unlock', args: '(pieces)', doc: 'Unlocks pieces.' },
-  { name: 'game.lockOrder', args: '(pieces, locked?)', doc: 'Keeps pieces in their places in the table order and their groups (or lets them go with false); they can still move on the table.' },
-  { name: 'game.lockGroup', args: '(group, locked?, order?)', doc: 'Locks a Pieces-panel group (by name or id), holding its pieces and subgroups in place, or unlocks it with false; with order true, it locks or unlocks the group’s place in the order instead.' },
+  { name: 'game.lock', args: '(pieces, locked?, players?)', doc: 'Locks pieces in place for everyone (or with false for no one), and players are the exceptions: with locked, seats that may still move them (seats that join later are locked out); with false, the only seats they’re locked for. Scripts follow locks for everyone: unlock pieces to move them.' },
+  { name: 'game.unlock', args: '(pieces)', doc: 'Unlocks pieces for everyone.' },
+  { name: 'game.lockOrder', args: '(pieces, locked?, players?)', doc: 'Keeps pieces in their places in the table order and their groups (or lets them go with false), with players as for game.lock; they can still move on the table.' },
+  { name: 'game.hide', args: '(pieces, hidden?, players?)', doc: 'Hides table pieces (with their stacks) from everyone (or with false from no one), with players as the exceptions: with hidden, seats that still see them (seats that join later don’t); with false, the only seats they’re hidden from.' },
+  { name: 'game.lockGroup', args: '(group, locked?, order?, players?)', doc: 'Locks a Pieces-panel group (by name or id), holding its pieces and subgroups in place, or unlocks it with false; with order true, it locks or unlocks the group’s place in the order instead. players are the exceptions, as for game.lock.' },
+  { name: 'game.hideGroup', args: '(group, hidden?, players?)', doc: 'Hides a Pieces-panel group’s pieces (by name or id) from everyone, or with false from no one, with players as the exceptions, as for game.hide.' },
   { name: 'game.setRow', args: '(pieces, row)', doc: 'Shows variant, page or face number row (from 1).' },
   { name: 'game.roll', args: '(dice)', doc: 'Rolls dice and returns them; piece.row is the face rolled.' },
   { name: 'game.stack', args: '(pieces)', doc: 'Stacks pieces (the first at the bottom) and returns the stack id.' },
@@ -95,7 +98,7 @@ export const SCRIPT_API = [
   { name: 'game.spawn', args: '(component, options?)', doc: 'Adds a piece and returns its id. options: { x, y, row, rotation, scale, faceUp, locked, count } (count returns a list of ids).' },
   { name: 'game.delete', args: '(pieces)', doc: 'Removes pieces.' },
   { name: 'game.ping', args: '(pieces, players?)', doc: 'Highlights pieces for every player (or only these seats), like pressing P (not an undo step).' },
-  { name: 'game.hideFrom', args: '(pieces, players)', doc: 'Hides table pieces (with their stacks) from these seats; an empty list {} shows them to everyone. piece.hiddenFrom lists the seat ids.' },
+  { name: 'game.hideFrom', args: '(pieces, players)', doc: 'Hides table pieces (with their stacks) from these seats only, the same as game.hide(pieces, false, players); an empty list {} shows them to everyone. piece.hiddenFrom lists the seats they are hidden from, and piece.hide their setting { everyone, players }.' },
   { name: 'game.toFront', args: '(pieces)', doc: 'Raises pieces above the others.' },
   { name: 'game.toBack', args: '(pieces)', doc: 'Lowers pieces below the others (boards stay underneath).' },
   { name: 'game.endTurn', args: '()', doc: 'Passes the turn to the next seat.' },
@@ -466,9 +469,17 @@ function pieceInfo(project: Project, item: Instance): PieceInfo {
     id: item.id, componentId: item.componentId, component: component?.name, kind: component?.kind,
     row: item.row + 1, data: component?.rows[item.row] ?? {},
     x: item.x, y: item.y, rotation: item.rotation, scale: item.scale,
-    faceUp: !visibleBack(item), locked: item.locked, orderLocked: !!item.orderLocked, holder: item.holder ?? undefined, stack: item.stack ?? undefined, hiddenFrom: item.hiddenFrom ?? [],
+    faceUp: !visibleBack(item), locked: item.locked, orderLocked: !!item.orderLocked, holder: item.holder ?? undefined, stack: item.stack ?? undefined,
+    // Its own settings, each { everyone, players }, and the seats it's hidden from now.
+    lock: accessInfo(item, 'lock'), orderLock: accessInfo(item, 'orderLock'), hide: accessInfo(item, 'hide'),
+    hiddenFrom: seatsCovered(scopeOf(item, 'hide'), project.players.map(player => player.id)),
     group: item.group, snap: snapInfo(project, item),
   };
+}
+/** A lock, order lock or hiding as scripts see it: switched on for everyone or not, and its seat list. */
+function accessInfo(holder: Parameters<typeof scopeOf>[0], kind: AccessKind): MemoryValue {
+  const scope = scopeOf(holder, kind);
+  return { everyone: scope.all, players: [...scope.players] };
 }
 /**
  * The grids on a table (see placedGrids), placed once per table state. A script reads many pieces' snaps (every piece
@@ -610,6 +621,13 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
   };
   /** Seats from a seat or a list of them (ids, names, seat numbers or player tables); undefined (everyone) when absent. */
   const seats = (value: MemoryValue | undefined, name = 'players') => value === undefined ? undefined : [...new Set(asList(value).map(entry => player(entry, name).id))];
+  /** A Pieces-panel group by id or name. */
+  const groupArg = (value: MemoryValue | undefined) => {
+    const key = text(value, 'group'), groups = state.live.groups ?? [];
+    const group = groups.find(item => item.id === key) ?? groups.find(item => item.name === key);
+    if (!group) throw new ScriptError(`There is no group ${key}.`);
+    return group;
+  };
   const component = (value: MemoryValue | undefined) => {
     const key = text(value, 'component');
     const found = state.live.components.find(c => c.id === key) ?? state.live.components.find(c => c.name === key);
@@ -750,25 +768,33 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       return 0;
     },
     lock: L => {
-      const items = pieces(arg(L, 1, 'pieces'));
-      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { locked: arg(L, 2, 'locked') !== false } });
+      const items = pieces(arg(L, 1, 'pieces')), players = seats(arg(L, 3, 'players')) ?? [];
+      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { locked: arg(L, 2, 'locked') !== false, lockPlayers: players } });
       return 0;
     },
     unlock: L => {
       const items = pieces(arg(L, 1, 'pieces'));
-      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { locked: false } });
+      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { locked: false, lockPlayers: [] } });
       return 0;
     },
     lockOrder: L => {
-      const items = pieces(arg(L, 1, 'pieces'));
-      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { orderLocked: arg(L, 2, 'locked') !== false } });
+      const items = pieces(arg(L, 1, 'pieces')), players = seats(arg(L, 3, 'players')) ?? [];
+      if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { orderLocked: arg(L, 2, 'locked') !== false, orderLockPlayers: players } });
+      return 0;
+    },
+    hide: L => {
+      const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder), players = seats(arg(L, 3, 'players')) ?? [];
+      if (items.length) act({ type: 'hide', ids: items.map(i => i.id), hidden: arg(L, 2, 'hidden') !== false, players });
       return 0;
     },
     lockGroup: L => {
-      const key = text(arg(L, 1, 'group'), 'group'), groups = state.live.groups ?? [];
-      const group = groups.find(item => item.id === key) ?? groups.find(item => item.name === key);
-      if (!group) throw new ScriptError(`There is no group ${key}.`);
-      act({ type: 'lockGroups', ids: [group.id], locked: arg(L, 2, 'locked') !== false, ...arg(L, 3, 'order') === true ? { order: true } : {} });
+      const group = groupArg(arg(L, 1, 'group'));
+      act({ type: 'lockGroups', ids: [group.id], locked: arg(L, 2, 'locked') !== false, ...arg(L, 3, 'order') === true ? { order: true } : {}, players: seats(arg(L, 4, 'players')) ?? [] });
+      return 0;
+    },
+    hideGroup: L => {
+      const group = groupArg(arg(L, 1, 'group'));
+      act({ type: 'lockGroups', ids: [group.id], locked: arg(L, 2, 'hidden') !== false, hide: true, players: seats(arg(L, 3, 'players')) ?? [] });
       return 0;
     },
     setRow: L => {
@@ -889,9 +915,8 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       return 0;
     },
     hideFrom: L => {
-      const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder), list = arg(L, 2, 'players') ?? [];
-      const seats = asList(list).map(value => player(value).id);
-      if (items.length) act({ type: 'hideFrom', ids: items.map(i => i.id), players: seats });
+      const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder), players = seats(arg(L, 2, 'players')) ?? [];
+      if (items.length) act({ type: 'hide', ids: items.map(i => i.id), hidden: false, players });
       return 0;
     },
     toFront: L => { const items = pieces(arg(L, 1, 'pieces')).filter(i => !i.holder); if (items.length) act({ type: 'zOrder', ids: items.map(i => i.id), move: 'front' }); return 0; },

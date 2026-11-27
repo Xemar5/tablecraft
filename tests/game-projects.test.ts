@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { scopeOf, seatsCovered } from '../src/access';
 import { applyCommand, projectSchema, validateProject, withGroupLocks, type Instance, type Project } from '../src/domain';
 import { GAME_PROJECTS, gameProject } from '../src/gameProjects';
 import { hasOpenFace } from '../src/ComponentView';
@@ -464,7 +465,8 @@ describe('game projects', () => {
     });
 
     it("shows only the buttons that apply: Game setup before the setup rounds, Roll dice in the game while the dice don't roll by themselves", () => {
-      const hiddenFrom = (p: Project, name: string) => piecesOf(p, name)[0].hiddenFrom ?? [];
+      // The seats a piece is hidden from now (hidden from everyone, or from some seats).
+      const hiddenFrom = (p: Project, name: string) => seatsCovered(scopeOf(piecesOf(p, name)[0], 'hide'), p.players.map(player => player.id));
       const everyone = (p: Project) => p.players.map(player => player.id);
       const game = build('tidewater');
       expect([hiddenFrom(game, 'Game setup button'), hiddenFrom(game, 'Roll dice')]).toEqual([[], everyone(game)]);
