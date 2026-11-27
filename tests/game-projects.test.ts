@@ -6,7 +6,7 @@ import { hasOpenFace } from '../src/ComponentView';
 import { snapToGrid } from '../src/playgroundPreview';
 import { snapOf, snapTarget } from '../src/grids';
 import { checkScriptSyntax, scriptFunctions } from '../src/scripting';
-import { TIDEWATER_SCRIPT } from '../src/tidewaterScript';
+import { TIDEWATER_SCRIPT, TIDEWATER_SEATS } from '../src/tidewaterScript';
 import { groupMembers } from '../src/pieceGroups';
 
 const profile = { name: 'Tester', color: '#b7cc91' };
@@ -93,9 +93,9 @@ describe('game projects', () => {
     expect(new Set(go.instances.filter(instance => instance.stack).map(instance => instance.stack)).size).toBe(2);
   });
 
-  it('lays out Tidewater Isles for four players', () => {
+  it('lays out Tidewater Isles for up to four players, with only the host seated at first', () => {
     const game = build('tidewater');
-    expect(game.players).toHaveLength(4);
+    expect(game.players).toMatchObject([{ name: 'Tester', x: 980, y: 1060, rotation: 0 }]);
     const tiles = game.components.find(component => component.name === 'Island tile')!;
     const terrains = game.instances.filter(instance => instance.componentId === tiles.id).map(instance => tiles.rows[instance.row].terrain);
     expect([...terrains].sort()).toEqual(['clay', 'clay', 'clay', 'dunes', 'fish', 'fish', 'fish', 'fish', 'reed', 'reed', 'reed', 'reed', 'salt', 'salt', 'salt', 'salt', 'stone', 'stone', 'stone']);
@@ -106,11 +106,11 @@ describe('game projects', () => {
     expect(count(game, 'Tide card')).toBe(25);
     expect([count(game, 'Hut'), count(game, 'Lighthouse'), count(game, 'Boardwalk'), count(game, 'Harbor'), count(game, 'Squall')]).toEqual([20, 16, 60, 9, 1]);
     expect(game.components.find(component => component.name === 'Tidewater rules')!.rows.length).toBeGreaterThan(3);
-    // The top and bottom seats sit further out, so the cards fanned above their table hands (up to about 95 px
-    // towards the table) stay clear of the pieces in front of them.
-    expect(game.players.map(seat => [seat.x, seat.y])).toEqual([[980, 1060], [980, 40], [220, 550], [1740, 550]]);
-    for (const [index, seat] of game.players.slice(0, 2).entries()) {
-      const group = (game.groups ?? []).find(item => item.name === `${['Crimson', 'Azure'][index]} pieces`)!;
+    // Seats go clockwise from the bottom: bottom, left, top, right. The top and bottom seats sit further out, so the
+    // cards fanned above their table hands (up to about 95 px towards the table) stay clear of the pieces in front of them.
+    expect(TIDEWATER_SEATS.map(seat => [seat.color, seat.x, seat.y, seat.rotation])).toEqual([['crimson', 980, 1060, 0], ['azure', 220, 550, 90], ['ivory', 980, 40, 180], ['amber', 1740, 550, -90]]);
+    for (const seat of [TIDEWATER_SEATS[0], TIDEWATER_SEATS[2]]) {
+      const group = (game.groups ?? []).find(item => item.name === `${seat.name} pieces`)!;
       const pieces = game.instances.filter(item => item.group === group.id);
       // Huts, lighthouses, boardwalks and the costs card reach at most 44 px from their centres towards the seat.
       expect(Math.min(...pieces.map(item => Math.abs(item.y - seat.y))) - 44).toBeGreaterThan(115);
@@ -331,14 +331,15 @@ describe('game projects', () => {
       const game = build('tidewater');
       expect(scriptFunctions(game.scripts)).toEqual(expect.arrayContaining(['openSetup', 'gameSetup', 'rollDice']));
       for (const event of ['onTurnStart', 'onSnap', 'onMove', 'onMemoryChanged']) expect(TIDEWATER_SCRIPT).toMatch(new RegExp(`^function ${event}\\(`, 'm'));
-      expect(game.memory).toMatchObject({ colors: COLORS, phase: 'setup', host: game.players[0].id, randomIsland: true, goal: 10, autoRoll: true, round: 0 });
+      expect(game.memory).toMatchObject({ colors: COLORS, playerCount: 4, inPlay: { crimson: true, amber: true }, phase: 'setup', host: game.players[0].id, randomIsland: true, goal: 10, autoRoll: true, round: 0 });
       expect(componentNamed(game, 'Game setup button')).toMatchObject({ kind: 'button', action: 'openSetup' });
       expect(componentNamed(game, 'Roll dice')).toMatchObject({ kind: 'button', action: 'rollDice' });
       expect(game.components.filter(item => item.kind === 'popup').map(item => item.name)).toEqual(['Game setup', 'Notice', 'Status', 'Victory']);
       expect(componentNamed(game, 'Game setup')).toMatchObject({ action: 'gameSetup' });
-      // The host sees Game setup as soon as the table opens; the others see whom they're waiting for.
+      // The host sees Game setup as soon as the table opens; everyone else sees whom they're waiting for.
       expect(popupsOf(game, 'Game setup').map(popup => popup.to)).toEqual([[game.players[0].id]]);
-      expect(popupsOf(game, 'Status')).toMatchObject([{ to: game.players.slice(1).map(seat => seat.id), data: { text: `Waiting for ${game.players[0].name} to choose the settings and deal the island.` } }]);
+      expect(popupsOf(game, 'Status')).toMatchObject([{ closed: [game.players[0].id], data: { text: `Waiting for ${game.players[0].name} to choose the settings and deal the island.` } }]);
+      expect(popupsOf(game, 'Status')[0].to).toBeUndefined();
     });
 
     it('lets the host deal a shuffled island, deal it again or go back to the beginner island, and choose the goal and dice', () => {
@@ -387,12 +388,23 @@ describe('game projects', () => {
       p = choose(p, 'Start placing');
       const ids = p.players.map(seat => seat.id), names = p.players.map(seat => seat.name);
       expect(errors(p)).toEqual([]);
+      // The other seats are added clockwise (left, top, right), empty for players to take.
+      expect(p.players.map(seat => [seat.name, seat.x, seat.y, seat.rotation, seat.owner])).toEqual([
+        ['Tester', 980, 1060, 0, 'local'], ['Player 2', 220, 550, 90, ''], ['Player 3', 980, 40, 180, ''], ['Player 4', 1740, 550, -90, ''],
+      ]);
       expect(p.memory).toMatchObject({ phase: 'placing', step: 1, order: [...ids, ...[...ids].reverse()] });
       expect(p.settings.turn).toBe(0);
-      expect(popupsOf(p, 'Status').map(popup => [popup.to, popup.data!.text])).toEqual([
-        [ids.slice(1), `${names[0]} is placing their first hut and boardwalk.`],
-        [[ids[0]], 'Your turn: place your first hut on a corner of the island, then a boardwalk beside it.'],
+      expect(popupsOf(p, 'Status').map(popup => [popup.to, popup.closed, popup.data!.text])).toEqual([
+        [undefined, [ids[0]], `${names[0]} is placing their first hut and boardwalk.`],
+        [[ids[0]], undefined, 'Your turn: place your first hut on a corner of the island, then a boardwalk beside it.'],
       ]);
+      // Each colour's pieces are locked, and order-locked, for the other seats only (so the script can still move them).
+      const group = (project: Project, name: string) => project.groups!.find(item => item.name === name)!;
+      expect(group(p, 'Azure pieces')).toMatchObject({ lockPlayers: [ids[0], ids[2], ids[3]], orderLockPlayers: [ids[0], ids[2], ids[3]] });
+      expect(group(p, 'Azure pieces').locked).toBeUndefined();
+      expect(() => placeFrom(p, 'Hut', 'crimson', hutSpots(p).first[0], ids[1])).toThrow();
+      // The dice and the squall are locked for every seat while the setup rounds last.
+      for (const name of ['Die', 'Squall']) expect(piecesOf(p, name).every(item => item.lockPlayers?.length === 4 && !item.locked), name).toBe(true);
       const spots = hutSpots(p);
       const backInPile = (project: Project, id: string, pile: string) => expect(project.instances.find(item => item.id === id)!.stack).toBe(pile);
       // Azure places out of turn: the hut goes back to its pile, with a note for Azure only.
@@ -404,6 +416,7 @@ describe('game projects', () => {
       // A boardwalk before the hut, then one away from the new hut, go back too.
       const walkFirst = placeFrom(p, 'Boardwalk', 'crimson', edgesBeside(p, spots.first[0])[0], ids[0]);
       backInPile(walkFirst.p, walkFirst.id, 'boardwalk-crimson');
+      // (Crimson's pieces stay Crimson's.)
       expect(notice(walkFirst.p)!.text).toBe('Place your hut first, then the boardwalk beside it.');
       p = placeFrom(p, 'Hut', 'crimson', spots.first[0], ids[0]).p;
       expect(p.memory!.stepHut).toBeDefined();
@@ -428,6 +441,39 @@ describe('game projects', () => {
       // Lighthouses wait for the game.
       const tower = placeFrom(p, 'Lighthouse', 'azure', spots.first[1], ids[1]);
       backInPile(tower.p, tower.id, 'lighthouse-azure');
+    });
+
+    it('plays with three players: the fourth colour is hidden, its seat never added and its scoreboard row gone', () => {
+      let p = choose(choose(build('tidewater'), 'Three players'), 'Beginner island');
+      expect(errors(p)).toEqual([]);
+      expect(p.memory).toMatchObject({ playerCount: 3, colors: COLORS.slice(0, 3), inPlay: { crimson: true, azure: true, ivory: true, amber: false } });
+      const amber = p.groups!.find(group => group.name === 'Amber pieces')!;
+      expect(amber.hidden).toBe(true);
+      // Four players again shows it; three hides it once more.
+      expect(choose(p, 'Four players').groups!.find(group => group.name === 'Amber pieces')!.hidden).toBeUndefined();
+      p = choose(p, 'Start placing');
+      expect(p.players.map(seat => seat.rotation)).toEqual([0, 90, 180]);
+      expect(p.memory!.order).toEqual([...p.players, ...[...p.players].reverse()].map(seat => seat.id));
+      expect(p.groups!.find(group => group.name === 'Amber pieces')).toMatchObject({ hidden: true, locked: true });
+      const spots = hutSpots(p);
+      for (const index of [0, 1, 2]) p = placePair(p, index, spots.first[index]);
+      for (const index of [2, 1, 0]) p = placePair(p, index, spots.second[index]);
+      expect(errors(p)).toEqual([]);
+      expect(p.memory).toMatchObject({ phase: 'playing', points: { crimson: 2, azure: 2, ivory: 2 } });
+      expect(p.memory!.points).not.toHaveProperty('amber');
+    });
+
+    it('locks the dice and the squall for every seat but the one whose turn it is', () => {
+      const { p } = playing();
+      const ids = p.players.map(seat => seat.id);
+      for (const name of ['Die', 'Squall']) expect(piecesOf(p, name).every(item => JSON.stringify(item.lockPlayers) === JSON.stringify(ids.slice(1))), name).toBe(true);
+      const next = applyCommand(p, { type: 'endTurn' }, ids[0]);
+      expect(piecesOf(next, 'Squall')[0].lockPlayers).toEqual([ids[0], ids[2], ids[3]]);
+      // Only the seat whose turn it is can move the squall; the script still rolls the dice.
+      const squall = piecesOf(next, 'Squall')[0];
+      expect(() => applyCommand(next, { type: 'move', ids: [squall.id], patch: { x: squall.x + 10 } }, ids[0])).toThrow();
+      expect(applyCommand(next, { type: 'move', ids: [squall.id], patch: { x: squall.x + 10 } }, ids[1]).instances.find(item => item.id === squall.id)!.x).toBe(squall.x + 10);
+      expect(errors(applyCommand(next, call('rollDice', 5), ids[1]))).toEqual([]);
     });
 
     it('begins the game after the last placement, with starting resources for the second huts', () => {
@@ -470,23 +516,29 @@ describe('game projects', () => {
       const hiddenFrom = (p: Project, name: string) => seatsCovered(scopeOf(piecesOf(p, name)[0], 'hide'), p.players.map(player => player.id));
       const everyone = (p: Project) => p.players.map(player => player.id);
       const game = build('tidewater');
-      expect([hiddenFrom(game, 'Game setup button'), hiddenFrom(game, 'Roll dice')]).toEqual([[], everyone(game)]);
+      // Game setup shows to the host alone (seats added later don't see it), Roll dice to no one yet.
+      expect(piecesOf(game, 'Game setup button')[0]).toMatchObject({ hidden: true, hidePlayers: [game.players[0].id] });
+      expect(piecesOf(game, 'Roll dice')[0]).toMatchObject({ hidden: true });
+      expect(piecesOf(game, 'Roll dice')[0].hidePlayers).toBeUndefined();
       const placing = choose(game, 'Start placing');
-      expect([hiddenFrom(placing, 'Game setup button'), hiddenFrom(placing, 'Roll dice')]).toEqual([everyone(game), everyone(game)]);
+      expect([hiddenFrom(placing, 'Game setup button'), hiddenFrom(placing, 'Roll dice')]).toEqual([everyone(placing), everyone(placing)]);
+      // During the game, Roll dice shows only to the seat whose turn it is, and follows the turn.
       const manual = playing().p;
-      expect([hiddenFrom(manual, 'Game setup button'), hiddenFrom(manual, 'Roll dice')]).toEqual([everyone(manual), []]);
+      expect([hiddenFrom(manual, 'Game setup button'), hiddenFrom(manual, 'Roll dice')]).toEqual([everyone(manual), everyone(manual).slice(1)]);
+      const passed = applyCommand(manual, { type: 'endTurn' }, manual.players[0].id);
+      expect(errors(passed)).toEqual([]);
+      expect(hiddenFrom(passed, 'Roll dice')).toEqual(everyone(passed).filter((_, index) => index !== 1));
       // Turning autoRoll on in memory hides Roll dice again; with it on from the start, Roll dice never shows.
       const auto = applyCommand(manual, { type: 'memory', changes: [{ path: ['autoRoll'], value: true }] }, manual.players[0].id);
       expect(errors(auto)).toEqual([]);
       expect(hiddenFrom(auto, 'Roll dice')).toEqual(everyone(auto));
       const automatic = playing(true).p;
       expect(hiddenFrom(automatic, 'Roll dice')).toEqual(everyone(automatic));
-      // Game setup (the button) opens the popup again for whoever presses it, who becomes the host.
+      // Game setup (the button) opens the popup again for the host.
       const closed = { ...game, popups: [] };
-      const reopened = applyCommand(closed, { type: 'call', name: 'openSetup', piece: piecesOf(game, 'Game setup button')[0].id, args: [], seed: 1 }, game.players[1].id);
+      const reopened = applyCommand(closed, { type: 'call', name: 'openSetup', piece: piecesOf(game, 'Game setup button')[0].id, args: [], seed: 1 }, game.players[0].id);
       expect(errors(reopened)).toEqual([]);
-      expect(popupsOf(reopened, 'Game setup').map(popup => popup.to)).toEqual([[game.players[1].id]]);
-      expect(reopened.memory!.host).toBe(game.players[1].id);
+      expect(popupsOf(reopened, 'Game setup').map(popup => popup.to)).toEqual([[game.players[0].id]]);
     });
 
     it('rolls by itself when a turn starts once the game is on, names the players beside the squall, and declares the winner', () => {

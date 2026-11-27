@@ -1,3 +1,22 @@
+import { seatPlacementAt } from './domain';
+
+/** The four colours of Tidewater Isles, in seat order. */
+export const TIDEWATER_COLORS = [
+  { color: 'crimson', name: 'Crimson', fill: '#b8483a', edge: '#5e2018' }, { color: 'azure', name: 'Azure', fill: '#3b6fa8', edge: '#1c3657' },
+  { color: 'ivory', name: 'Ivory', fill: '#efe8d4', edge: '#7c7259' }, { color: 'amber', name: 'Amber', fill: '#d99a2b', edge: '#6e4c10' },
+];
+
+/**
+ * Where each colour's player sits, clockwise from the bottom: the bottom, left, top and right of the table. `ring` is the
+ * spot on the seat ring their pieces are laid out from; the top and bottom seats themselves sit 60 px further out, so
+ * the cards fanned above their table hands stay clear of the pieces in front of them.
+ */
+export const TIDEWATER_SEATS = TIDEWATER_COLORS.map((color, index) => {
+  const ring = seatPlacementAt(index * 90);
+  const out = index % 2 ? 0 : index ? -60 : 60;
+  return { ...color, ring, x: ring.x, y: ring.y + out, rotation: ring.rotation };
+});
+
 /**
  * The beginner island of Tidewater Isles, which the sample lays out and the host can deal again: the terrains of its
  * rows of 3, 4, 5, 4 and 3 tiles (top row first, each row left to right), the tide marker numbers on them (0 on the
@@ -13,44 +32,53 @@ export const TIDEWATER_ISLAND = {
 };
 
 const luaList = (values: (string | number)[]) => `{ ${values.map(value => typeof value === 'string' ? `"${value}"` : value).join(', ')} }`;
+const luaSeats = () => `{\n${TIDEWATER_SEATS.map(seat =>
+  `  { color = "${seat.color}", name = "${seat.name}", fill = "${seat.fill}", x = ${seat.x}, y = ${seat.y}, rotation = ${seat.rotation} },`).join('\n')}\n}`;
 
 /**
  * The Tidewater Isles rules script (Lua, run by the table's scripting engine; see Scripting in the README). The game
  * goes through three phases, kept in memory.phase:
  *
- * - "setup": the host (the first seat, or whoever presses Game setup) chooses the settings in the Game setup popup
- *   and deals the island: the beginner island, or a shuffled one (terrains, tide markers and harbors, with no 6 and 8
- *   next to each other), the points to win and whether the dice roll by themselves.
- * - "placing": the setup rounds. In turn order and back again, each player places a hut on a corner of the island
- *   and a boardwalk beside it. Pieces placed out of turn, too close to another hut or away from the new hut go back
+ * - "setup": the table starts with the host's seat alone. The host chooses the settings in the Game setup popup and
+ *   deals the island: the number of players (3 or 4; an unused colour's pieces are hidden), the beginner island or a
+ *   shuffled one (terrains, tide markers and harbors, with no 6 and 8 next to each other), the points to win and
+ *   whether the dice roll by themselves.
+ * - "placing": the setup rounds. Seats for the other players are added clockwise (left, top, right), each colour's
+ *   pieces are locked (and order-locked) for every seat but its own, and in turn order and back again, each player
+ *   places a hut on a corner of the island and a boardwalk beside it. Pieces placed out of turn, too close to another hut or away from the new hut go back
  *   to their pile with a note saying why; placed pairs stay locked until the game begins.
  * - "playing": it begins by itself after the last placement, dealing each player one resource for every tile
  *   touching the hut they placed in the second round. The dice roll when a turn starts (or with Roll dice), huts and
  *   lighthouses beside the rolled tiles take resources, a 7 brings the squall, and building points are kept for the
- *   scoreboard, with a Victory popup once a colour's buildings alone reach the goal.
+ *   scoreboard, with a Victory popup once a colour's buildings alone reach the goal. The dice and the squall are
+ *   locked for every seat but the one whose turn it is, and only that seat sees Roll dice.
  *
  * It tells players what happens with popups: the Status banner says whose turn it is to place, Notice shows rolls and
  * events in the corner (also written to the console), and buttons that don't apply are hidden from every seat.
  *
- * Memory it uses: `colors` (the colour each seat plays, in seat order), `phase`, `host`, `randomIsland`, `shuffled`,
+ * Memory it uses: `colors` (the colours in play, in seat order), `playerCount`, `inPlay` (each colour: in play or
+ * not, for the scoreboard), `phase`, `host`, `randomIsland`, `shuffled`,
  * `goal`, `autoRoll`, `round`, `lastRoll`, `points` (building points per colour), `winner`, and for the setup rounds
  * `order` (seat ids in placing order), `step`, `stepHut`, `secondHuts` and `placedPieces`.
  */
 export const TIDEWATER_SCRIPT = String.raw`-- Tidewater Isles: the game setup, the setup rounds, rolls, resources and the squall.
 --
--- Seats play the colours in memory.colors, in seat order (seat 1 crimson, 2 azure, 3 ivory, 4 amber); change the list
--- in the Memory window to match your table.
+-- Seats play the colours in memory.colors, in seat order (seat 1 crimson, 2 azure, 3 ivory, 4 amber), sitting clockwise
+-- from the bottom of the table (bottom, left, top, right).
 --
--- 1. Game setup (memory.phase "setup"): the host chooses the island (memory.randomIsland), the points to win
---    (memory.goal) and whether the dice roll by themselves (memory.autoRoll) in the Game setup popup, which also deals
---    the island. Game setup (the button) opens the popup again, for whoever presses it.
--- 2. The setup rounds ("placing"): in turn order and back again, each player places a hut on a corner of the island
---    and a boardwalk beside it. The Status banner says whose turn it is; pieces placed out of turn, on a corner next
+-- 1. Game setup (memory.phase "setup"): the table starts with the host's seat alone. The host chooses the number of
+--    players (memory.playerCount), the island (memory.randomIsland), the points to win (memory.goal) and whether the
+--    dice roll by themselves (memory.autoRoll) in the Game setup popup, which also deals the island. Game setup (the
+--    button, which only the host sees) opens the popup again.
+-- 2. The setup rounds ("placing"): the other players' seats are added, each colour's pieces are locked for every
+--    other seat, and in turn order and back again, each player places a hut on a corner of the island and a boardwalk
+--    beside it. The Status banner says whose turn it is; pieces placed out of turn, on a corner next
 --    to another hut or away from the new hut go back to their pile.
 -- 3. The game ("playing") begins after the last placement: each player takes one resource for every tile touching the
 --    hut they placed in the second round. From then on the dice roll whenever a turn starts (or with Roll dice, which
 --    only shows while memory.autoRoll is false). Every hut on a corner of a tile showing the rolled number takes one
---    of its resource and every lighthouse two, unless the squall is on that tile. A 7 brings the squall instead.
+--    of its resource and every lighthouse two, unless the squall is on that tile. A 7 brings the squall instead. The
+--    dice and the squall are locked for every seat but the one whose turn it is.
 
 local CORNER = 56        -- from a tile's centre to its corners
 local HALF_EDGE = 28     -- from the middle of a tile edge (a boardwalk) to its corners (huts)
@@ -67,6 +95,9 @@ local BEGINNER = {
   numbers = ${luaList(TIDEWATER_ISLAND.markers.flat().filter(number => number))},
   harbors = ${luaList(TIDEWATER_ISLAND.harbors.map(row => row + 1))},
 }
+
+-- Each colour's seat, clockwise from the bottom, with the name of its pieces' group ("Crimson pieces").
+local SEATS = ${luaSeats()}
 
 local function distance(a, b) return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2) end
 local function onTable(component) return game.pieces({ component = component, holder = false }) end
@@ -112,6 +143,48 @@ local function seated()
   return seats
 end
 
+-- The colours in play: the first playerCount colours. Out-of-play colours' pieces are hidden from everyone, and so
+-- is their scoreboard row (memory.inPlay).
+local function setPlayerCount(count)
+  local list, inPlay = {}, {}
+  for index, seat in ipairs(SEATS) do
+    inPlay[seat.color] = index <= count
+    if index <= count then table.insert(list, seat.color) end
+    game.hideGroup(seat.name .. " pieces", index > count)
+  end
+  memory.playerCount = count
+  memory.colors = list
+  memory.inPlay = inPlay
+end
+
+-- Adds the seats still missing for the colours in play, each at its colour's place: clockwise from the host at the
+-- bottom, the left, top and right of the table.
+local function addSeats()
+  for index = #game.players() + 1, #colors() do
+    local seat = SEATS[index]
+    game.addPlayer({ name = "Player " .. index, color = seat.fill, x = seat.x, y = seat.y, rotation = seat.rotation })
+  end
+end
+
+-- Each colour's pieces are its player's: locked for every other seat, and so is their place in the order. An
+-- out-of-play colour's pieces are locked for everyone (and stay hidden).
+local function claimPieces()
+  local seats = game.players()
+  for index, seat in ipairs(SEATS) do
+    local group, owner = seat.name .. " pieces", seats[index]
+    if index <= #colors() and owner then
+      local others = {}
+      for _, other in ipairs(seats) do
+        if other.id ~= owner.id then table.insert(others, other.id) end
+      end
+      game.lockGroup(group, false, false, others)
+      game.lockGroup(group, false, true, others)
+    else
+      game.lockGroup(group, true)
+    end
+  end
+end
+
 -- Popups ----------------------------------------------------------------------------------------------------------
 
 -- A note in the corner (the Notice popup) for everyone or only some seats, closing by itself after seconds (6 when
@@ -127,36 +200,45 @@ local function notify(title, text, players, seconds)
   game.log(title .. ": " .. text)
 end
 
--- The banner at the bottom (the Status popup): text for everyone, or with a seat, its own text for that seat (nothing
--- when mine is nil) and text for the others. Without text, the banner goes away.
+-- The banner at the bottom (the Status popup): text for everyone (watchers too), or with a seat, its own text for
+-- that seat (nothing when mine is nil) and text for everyone else. Without text, the banner goes away.
 local function status(text, seat, mine)
   game.closePopup("Status")
   if not text then return end
-  if not seat then
-    game.popup("Status", { data = { text = text } })
-    return
+  local shown = game.popup("Status", { data = { text = text } })
+  if seat then
+    game.closePopup(shown, seat)
+    if mine then game.popup("Status", { players = seat, data = { text = mine } }) end
   end
-  local others = {}
-  for _, other in ipairs(game.players()) do
-    if other.id ~= seat.id then table.insert(others, other.id) end
-  end
-  if #others > 0 then game.popup("Status", { players = others, data = { text = text } }) end
-  if mine then game.popup("Status", { players = seat, data = { text = mine } }) end
 end
 
--- Shows only the buttons that make sense now and hides the others from every seat: Game setup until the setup
--- rounds start, then Roll dice during the game while the dice don't roll by themselves (memory.autoRoll is false).
+-- Shows each button only to the seat it's for, hidden from everyone else (seats that join later too): Game setup to
+-- the host until the setup rounds start, and Roll dice to the seat whose turn it is during the game, while the dice
+-- don't roll by themselves (memory.autoRoll is false).
 local function showButtons()
-  local everyone = {}
-  for _, seat in ipairs(game.players()) do table.insert(everyone, seat.id) end
-  local function shownWhen(shown, component)
+  local function showTo(component, seat)
     local pieces = onTable(component)
-    if #pieces > 0 then
-      if shown then game.hideFrom(pieces, {}) else game.hideFrom(pieces, everyone) end
-    end
+    if #pieces > 0 then game.hide(pieces, true, seat and { seat } or {}) end
   end
-  shownWhen(memory.phase == "setup", "Game setup button")
-  shownWhen(memory.phase == "playing" and memory.autoRoll == false, "Roll dice")
+  local host = memory.host and game.player(memory.host)
+  showTo("Game setup button", memory.phase == "setup" and host and host.id or nil)
+  local current = game.currentPlayer()
+  showTo("Roll dice", memory.phase == "playing" and memory.autoRoll == false and current and current.id or nil)
+end
+
+-- The dice and the squall belong to the seat whose turn it is during the game: they're locked for every other seat,
+-- and for every seat outside the game. (The locks name the seats they cover, so the script can still roll and move
+-- them.)
+local function turnLocks()
+  local current = memory.phase == "playing" and game.currentPlayer() or nil
+  local others, pieces = {}, {}
+  for _, seat in ipairs(game.players()) do
+    if not (current and seat.id == current.id) then table.insert(others, seat.id) end
+  end
+  for _, component in ipairs({ "Die", "Squall" }) do
+    for _, piece in ipairs(onTable(component)) do table.insert(pieces, piece) end
+  end
+  if #pieces > 0 then game.lock(pieces, false, others) end
 end
 
 -- Scoring ---------------------------------------------------------------------------------------------------------
@@ -435,6 +517,8 @@ local function promptPlacer()
 end
 
 local function beginPlacing()
+  addSeats()
+  claimPieces()
   local order, seats = {}, seated()
   for _, seat in ipairs(seats) do table.insert(order, seat.id) end
   for index = #seats, 1, -1 do table.insert(order, seats[index].id) end
@@ -445,6 +529,7 @@ local function beginPlacing()
   memory.secondHuts = {}
   memory.placedPieces = {}
   showButtons()
+  turnLocks()
   notify("The setup rounds", "In turn order and back again, each player places a hut on a corner of the island and a boardwalk beside it. The second hut earns your starting resources.", nil, 10)
   promptPlacer()
 end
@@ -460,7 +545,6 @@ local function beginGame()
   end
   if #placed > 0 then game.unlock(placed) end
   status(nil)
-  showButtons()
   local gains, tiles = {}, islandTiles()
   for color, id in pairs(memory.secondHuts or {}) do
     local hut = game.piece(id)
@@ -475,6 +559,8 @@ local function beginGame()
   local lines = handOut(gains)
   local first = seated()[1]
   if first then game.setTurn(first) end
+  showButtons()
+  turnLocks()
   local text = (#lines > 0 and ("Starting resources: " .. table.concat(lines, "; ") .. ".") or "Nobody's second hut touches a producing tile.")
   text = text .. " First to " .. (memory.goal or 10) .. " points wins."
   tally()
@@ -558,6 +644,10 @@ function gameSetup(popup, player, layer)
   elseif layer == "Beginner island" then
     memory.randomIsland = false
     if layIsland(BEGINNER.terrains, BEGINNER.numbers, BEGINNER.harbors) then memory.shuffled = false end
+  elseif layer == "Three players" then
+    setPlayerCount(3)
+  elseif layer == "Four players" then
+    setPlayerCount(4)
   elseif layer == "Fewer points" then
     memory.goal = math.max(5, (memory.goal or 10) - 1)
   elseif layer == "More points" then
@@ -597,6 +687,9 @@ function onTurnStart(player)
   end
   if memory.phase ~= "playing" then return end
   if player and player.seat == 1 then memory.round = (memory.round or 0) + 1 end
+  -- Roll dice, the dice and the squall pass to the new seat.
+  showButtons()
+  turnLocks()
   if memory.autoRoll ~= false then rollFor(player) end
 end
 
