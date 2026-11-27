@@ -55,4 +55,20 @@ describe('order locks', () => {
     expect(p.groups![0].orderLocked).toBeUndefined();
     expect(order(run(p, { type: 'zOrder', ids: ['piece-b'], move: 'front' }))).toBe('adcb');
   });
+  it('can be set on groups by scripts, as can their lock, by name or id', () => {
+    const source = `
+      function hold() game.lockGroup("Pair") end
+      function order() game.lockGroup("pair", true, true) end
+      function release() game.lockGroup("Pair", false); game.lockGroup("Pair", false, true) end
+      function missing() game.lockGroup("Nowhere") end`;
+    const p = run(table(), { type: 'script', script: { id: 's', name: 'Rules', source } });
+    const call = (project: Project, name: string) => run(project, { type: 'call', name, args: [], seed: 1 });
+    const pair = (project: Project) => project.groups!.find(group => group.id === 'pair')!;
+    const held = call(call(p, 'hold'), 'order');
+    expect(pair(held)).toMatchObject({ locked: true, orderLocked: true });
+    expect(withGroupLocks(held).instances.find(item => item.id === 'piece-b')).toMatchObject({ locked: true, orderLocked: true });
+    const released = call(held, 'release');
+    expect([pair(released).locked, pair(released).orderLocked]).toEqual([undefined, undefined]);
+    expect(call(p, 'missing').scriptLog!.at(-1)!.text).toContain('There is no group Nowhere.');
+  });
 });

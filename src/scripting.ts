@@ -75,6 +75,7 @@ export const SCRIPT_API = [
   { name: 'game.lock', args: '(pieces, locked?)', doc: 'Locks pieces in place (or unlocks them with false). Scripts follow locks too: unlock pieces to move them.' },
   { name: 'game.unlock', args: '(pieces)', doc: 'Unlocks pieces.' },
   { name: 'game.lockOrder', args: '(pieces, locked?)', doc: 'Keeps pieces in their places in the table order and their groups (or lets them go with false); they can still move on the table.' },
+  { name: 'game.lockGroup', args: '(group, locked?, order?)', doc: 'Locks a Pieces-panel group (by name or id), holding its pieces and subgroups in place, or unlocks it with false; with order true, it locks or unlocks the group’s place in the order instead.' },
   { name: 'game.setRow', args: '(pieces, row)', doc: 'Shows variant, page or face number row (from 1).' },
   { name: 'game.roll', args: '(dice)', doc: 'Rolls dice and returns them; piece.row is the face rolled.' },
   { name: 'game.stack', args: '(pieces)', doc: 'Stacks pieces (the first at the bottom) and returns the stack id.' },
@@ -761,6 +762,13 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
     lockOrder: L => {
       const items = pieces(arg(L, 1, 'pieces'));
       if (items.length) act({ type: 'move', ids: items.map(i => i.id), patch: { orderLocked: arg(L, 2, 'locked') !== false } });
+      return 0;
+    },
+    lockGroup: L => {
+      const key = text(arg(L, 1, 'group'), 'group'), groups = state.live.groups ?? [];
+      const group = groups.find(item => item.id === key) ?? groups.find(item => item.name === key);
+      if (!group) throw new ScriptError(`There is no group ${key}.`);
+      act({ type: 'lockGroups', ids: [group.id], locked: arg(L, 2, 'locked') !== false, ...arg(L, 3, 'order') === true ? { order: true } : {} });
       return 0;
     },
     setRow: L => {

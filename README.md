@@ -344,7 +344,7 @@ Event handlers run inside the player's action. If a handler fails, its error is 
 | `game.pieces(filter?)` (a table such as `{ component = "Spirit cards", holder = false }`, or a function) | `game.move(pieces, x, y)`, `game.moveBy(pieces, dx, dy)` |
 | `game.piece(id)`, `game.hand(player)` | `game.rotate(pieces, degrees)`, `game.setRotation(pieces, degrees)` |
 | `game.stackOf(idOrPiece)`, `game.stacks()` | `game.flip(pieces)`, `game.setFaceUp(pieces, faceUp)`, `game.setScale(pieces, scale)` |
-| `game.components()`, `game.component(nameOrId)` | `game.lock(pieces, locked?)`, `game.unlock(pieces)`, `game.lockOrder(pieces, locked?)`, `game.setRow(pieces, row)`, `game.roll(dice)` |
+| `game.components()`, `game.component(nameOrId)` | `game.lock(pieces, locked?)`, `game.unlock(pieces)`, `game.lockOrder(pieces, locked?)`, `game.lockGroup(group, locked?, order?)` (a Pieces-panel group by name or id), `game.setRow(pieces, row)`, `game.roll(dice)` |
 | `game.players()`, `game.player(idOrNameOrSeat)` | `game.stack(pieces)`, `game.stackOnto(pieces, stack)`, `game.unstack(stack)`, `game.shuffle(stack)`, `game.setStackFilter(stack, { { has = {"blue", "red"} }, { lacks = {"white"} } })` |
 | `game.currentPlayer()`, `game.actor()` | `game.draw(stack, player?, count?, faceUp?)`, `game.give(pieces, player)`, `game.play(pieces, x, y)` |
 | `game.settings()` | `game.spawn(component, { x, y, row, rotation, scale, faceUp, locked, count })`, `game.delete(pieces)` |
