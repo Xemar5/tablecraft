@@ -137,7 +137,8 @@ export function Playground({ project: source, actor, owner, host = false, viewer
   // Persistent stacks (domain.ts): the empty ones show as slots on the table that can be selected, moved and dropped into.
   const persistentStacks = p.stacks ?? [];
   const persistentIds = new Set(persistentStacks.map(record => record.id));
-  const emptySlots = persistentStacks.filter(record => !p.instances.some(i => i.stack === record.id));
+  // A persistent stack is empty when no piece is in it, hidden pieces included: a stack hidden from you shows no slot either.
+  const emptySlots = persistentStacks.filter(record => !source.instances.some(i => i.stack === record.id));
   const [selectedSlot, setSelectedSlot] = useState<string>();
   const slotRecord = emptySlots.find(record => record.id === selectedSlot);
   const [slotPreview, setSlotPreview] = useState<{ id: string; x: number; y: number }>();
