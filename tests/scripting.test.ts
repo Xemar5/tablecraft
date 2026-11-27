@@ -117,6 +117,20 @@ describe('table scripts', () => {
     expect(applyCommand(starterTable(), { type: 'tick', dt: 1, seed: 1 }).memory).toBeUndefined();
   });
 
+  it('add empty seats after the others, at a given place or the next free spot', () => {
+    const source = `function seat() local placed = game.addPlayer({ name = "Guest", color = "#336699", x = 100, y = 200, rotation = 90 }); memory.seat = placed.seat; memory.id = placed.id end
+      function free() game.addPlayer() end
+      function wrong() game.addPlayer("Guest") end`;
+    const p = withScript(source), before = p.players.length;
+    const added = applyCommand(p, call('seat'), p.players[0].id);
+    expect(errors(added)).toEqual([]);
+    expect(added.players.at(-1)).toMatchObject({ id: added.memory!.id, name: 'Guest', color: '#336699', x: 100, y: 200, rotation: 90, owner: '' });
+    expect(added.memory!.seat).toBe(before + 1);
+    const named = applyCommand(added, call('free'), p.players[0].id);
+    expect(named.players.at(-1)).toMatchObject({ name: `Player ${before + 2}`, owner: '' });
+    expect(errors(applyCommand(p, call('wrong'), p.players[0].id))[0]).toMatch(/game.addPlayer options should be a table/);
+  });
+
   it('keep lists, empty lists and tables apart in memory', () => {
     const p = withScript(`function shape()
       memory.list = { "a", "b" }; memory.empty = memory.empty; memory.map = { [3] = true }; memory.nested = { x = { 1, 2 } }

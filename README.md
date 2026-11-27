@@ -356,7 +356,7 @@ Event handlers run inside the player's action. If a handler fails, its error is 
 | `game.players()`, `game.player(idOrNameOrSeat)` | `game.stack(pieces)`, `game.stackOnto(pieces, stack)`, `game.unstack(stack)`, `game.shuffle(stack)`, `game.setStackFilter(stack, { { has = {"blue", "red"} }, { lacks = {"white"} } })` |
 | `game.currentPlayer()`, `game.actor()` | `game.draw(stack, player?, count?, faceUp?)`, `game.give(pieces, player)`, `game.play(pieces, x, y)` |
 | `game.settings()` | `game.spawn(component, { x, y, row, rotation, scale, faceUp, locked, count })`, `game.delete(pieces)` |
-| `json.encode(value)`, `json.decode(text)` | `game.ping(pieces, players?)`, `game.hideFrom(pieces, players)`, `game.toFront(pieces)`, `game.toBack(pieces)`, `game.endTurn()`, `game.setTurn(player)` |
+| `json.encode(value)`, `json.decode(text)` | `game.ping(pieces, players?)`, `game.hideFrom(pieces, players)`, `game.toFront(pieces)`, `game.toBack(pieces)`, `game.endTurn()`, `game.setTurn(player)`, `game.addPlayer({ name, color, x, y, rotation })` (an empty seat, last in turn order) |
 | `game.random(m?, n?)` (same as `math.random`) | `game.announce(text, players?)`, `game.log(...)` (same as `print`) |
 | `game.popups()` | `game.popup(popup, options?)`, `game.closePopup(popup?, players?)` |
 | `game.grids()` (grids pieces carry first, with their `piece` and `bounds`; their id is `"piece id/grid id"`), `game.gridPoint(grid, point)` (or `(grid, col, row)`), `game.gridPoints(grid)` | `game.snapTo(pieces, grid, point)` |

@@ -1859,7 +1859,11 @@ export function nextSeatPlacement(players: Pick<Player, 'x' | 'y'>[]): Pick<Play
   const taken = players.map(seat => (Math.atan2(-(seat.x - SEAT_RING.x) / SEAT_RING.rx, (seat.y - SEAT_RING.y) / SEAT_RING.ry) * 180 / Math.PI + 360) % 360);
   const gap = (angle: number) => Math.min(360, ...taken.map(other => { const d = Math.abs(angle - other) % 360; return Math.min(d, 360 - d); }));
   // Take the first spot in "opposite, left, right, then in between" order that is furthest from every existing seat.
-  const angle = SEAT_ANGLES.reduce((best, candidate) => gap(candidate) > gap(best) + 0.01 ? candidate : best);
+  return seatPlacementAt(SEAT_ANGLES.reduce((best, candidate) => gap(candidate) > gap(best) + 0.01 ? candidate : best));
+}
+
+/** The seat at an angle of the ring around the table (0 the bottom edge, 90 the left, 180 the top, 270 the right), facing the centre. */
+export function seatPlacementAt(angle: number): Pick<Player, 'x' | 'y' | 'rotation'> {
   const radians = angle * Math.PI / 180;
   return { x: Math.round(SEAT_RING.x - SEAT_RING.rx * Math.sin(radians)), y: Math.round(SEAT_RING.y + SEAT_RING.ry * Math.cos(radians)),
     rotation: angle > 180 ? angle - 360 : angle };

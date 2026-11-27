@@ -15,7 +15,7 @@ import {
   type LuaCFunction, type LuaState,
 } from './vendor/fengari.js';
 import {
-  appendScriptLog, componentTags, memoryAt, memoryPathText, setMemory, stackFilterOf, stackMembers, visibleBack, visibleStackMembers,
+  appendScriptLog, componentTags, memoryAt, memoryPathText, nextSeatPlacement, playerSchema, setMemory, stackFilterOf, stackMembers, visibleBack, visibleStackMembers,
   type Command, type Component, type Instance, type Memory, type MemoryPath, type MemoryValue, type Player, type Project, type Script, type ScriptLogEntry,
 } from './domain';
 import { nearestPlacedPoint, placedGrids, placedPointPosition, snapOf, type PlacedGrid } from './grids';
@@ -103,6 +103,7 @@ export const SCRIPT_API = [
   { name: 'game.toBack', args: '(pieces)', doc: 'Lowers pieces below the others (boards stay underneath).' },
   { name: 'game.endTurn', args: '()', doc: 'Passes the turn to the next seat.' },
   { name: 'game.setTurn', args: '(player)', doc: 'Gives the turn to a seat.' },
+  { name: 'game.addPlayer', args: '(options?)', doc: 'Adds an empty seat after the others in turn order and returns it. options: { name, color, x, y, rotation }; left out, it is called "Player N" and takes the next free spot around the table. Players take it like any empty seat.' },
   { name: 'game.announce', args: '(text, players?)', doc: 'Shows a message to everyone at the table, or only to these seats (a seat or a list of seats; an empty list reaches no one). The console lists it either way.' },
   { name: 'game.popup', args: '(popup, options?)', doc: 'Shows a popup component on screen and returns its id. options: { players, row, data = { field = "value" }, layout ("layout" or "fixed"), anchor ("center", "top", "top-left", ...), margin, fit ("none", "shrink" or "fill"), x, y, scale, blur, draggable, closable, dismiss ("each" or "all"), duration, closeOnAction }; settings left out come from the popup’s Behavior tab. players limits it to these seats; data fills its {{fields}}. Clicking one of its layers runs its script action with (popup, player, layer name).' },
   { name: 'game.closePopup', args: '(popup?, players?)', doc: 'Closes a popup (by id, or every open popup of a popup component), or all popups when nil: for everyone, or only for these seats.' },
@@ -926,6 +927,20 @@ function openState(state: RunState, apply: Apply, actor: string | undefined, see
       const seat = player(arg(L, 1, 'player'));
       act({ type: 'settings', patch: { turn: state.live.players.indexOf(seat) } });
       return 0;
+    },
+    addPlayer: L => {
+      const options = arg(L, 1, 'options') ?? {};
+      if (typeof options !== 'object' || Array.isArray(options)) throw new ScriptError('game.addPlayer options should be a table.');
+      const players = state.live.players, spot = nextSeatPlacement(players);
+      let id = newId('player');
+      while (players.some(seat => seat.id === id)) id = newId('player');
+      // An empty seat (no owner), which a player takes in a live room; offline, anyone at the screen plays it.
+      const parsed = playerSchema.safeParse({ id, owner: '', name: options.name ?? `Player ${players.length + 1}`, color: options.color ?? '#8a8f98',
+        x: options.x ?? spot.x, y: options.y ?? spot.y, rotation: options.rotation ?? spot.rotation });
+      if (!parsed.success) throw new ScriptError(`game.addPlayer ${parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; ')}`);
+      act({ type: 'player', player: parsed.data });
+      pushValue(L, playerInfo(state.live, id));
+      return 1;
     },
     announce: L => { say('announce', String(arg(L, 1, 'text') ?? ''), seats(arg(L, 2, 'players'))); state.changed = true; return 0; },
     popup: L => {
