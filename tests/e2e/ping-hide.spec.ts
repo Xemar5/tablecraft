@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openBlock } from './blocks';
 import { savedWorkspace } from './savedWorkspace';
 import { toggleHeader } from './headerMenus';
 
@@ -34,6 +35,7 @@ test('P pings the hovered piece, and pieces hidden from a seat come back labelle
   // Hide the token from your own seat: it stays, faded, while it's selected, and leaves the table once it isn't, until
   // hidden pieces are shown.
   await piece.click();
+  await openBlock(page, 'Hidden from');
   const seats = page.getByRole('group', { name: 'Hidden from', exact: true });
   await seats.getByRole('button', { name: /Player 1/ }).click();
   await expect(piece).toHaveClass(/hidden-from-you/);

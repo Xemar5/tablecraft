@@ -130,6 +130,21 @@ export function InfoTip({ text }: { text: string }) {
   return <span className="info-tip" role="img" aria-label={text} title={text} tabIndex={0}><Info size={12} aria-hidden="true" /></span>;
 }
 /** A compact heading for a group of inspector settings, with optional actions on the right. */
+/** Which collapsible blocks are open, by name: kept for the session, so a block stays open (or closed) across selections. */
+const openBlocks = new Map<string, boolean>();
+/**
+ * A setting whose size varies (seat lists, tag filters, tags, point lists) folded into a block: its title and a
+ * one-line summary of its value, opening to the full control. Closed at first; it stays as you leave it.
+ */
+export function Collapsible({ name, title, summary, hint, children }: { name: string; title: string; summary?: ReactNode; hint?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(() => openBlocks.get(name) ?? false);
+  return <details className="collapsible-block" open={open} onToggle={event => { const next = event.currentTarget.open; openBlocks.set(name, next); setOpen(next); }}>
+    <summary><ChevronRight size={12} className="collapsible-chevron" aria-hidden="true" /><span className="collapsible-title">{title}</span>
+      {summary !== undefined && <span className="collapsible-summary">{summary}</span>}{hint && <InfoTip text={hint} />}</summary>
+    <div className="collapsible-body">{children}</div>
+  </details>;
+}
+
 export function SectionTitle({ title, hint, children }: { title: string; hint?: string; children?: ReactNode }) {
   return <div className="inspector-subtitle"><h4>{title}{hint && <InfoTip text={hint} />}</h4>{children && <div className="inspector-subtitle-actions">{children}</div>}</div>;
 }

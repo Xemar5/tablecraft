@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openBlock } from './blocks';
 import { savedWorkspace } from './savedWorkspace';
 import { choose } from './searchSelect';
 
@@ -7,6 +8,7 @@ test('components list stack tags, and a selected stack shows and edits its filte
   // Stack tags are chips in the Behavior tab.
   await page.getByRole('button', { name: 'Edit Amber token', exact: true }).click();
   await page.locator('.inspector-tabs').getByRole('button', { name: 'Behavior', exact: true }).click();
+  await openBlock(page, 'Stack tags');
   const tags = page.getByRole('group', { name: 'Stack tags', exact: true });
   await expect(tags.locator('.tag-chip')).toHaveText(['amber']);
   await tags.getByRole('textbox', { name: 'Add stack tags', exact: true }).fill('gold');
@@ -20,6 +22,7 @@ test('components list stack tags, and a selected stack shows and edits its filte
   await rows.nth(0).click();
   await rows.nth(1).click({ modifiers: ['Control'] });
   await page.locator('.action-grid').getByRole('button', { name: /Stack selected pieces/ }).click();
+  await openBlock(page, 'Stack filter');
   const filter = page.getByRole('group', { name: 'Stack filter', exact: true });
   await expect(filter.locator('.filter-summary')).toContainText('Takes amber or gold.');
 

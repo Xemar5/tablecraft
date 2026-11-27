@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { block, openBlock } from './blocks';
 
 type Saved = { instances: { id: string; stack: string | null; holder: string | null }[]; stacks?: { id: string; tag: string; filter?: unknown }[] };
 const saved = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0]) as Promise<Saved>;
@@ -41,6 +42,9 @@ test('a single piece becomes a persistent stack that keeps its filter, editable 
   const id = await page.locator('.table-viewport').getByRole('button', { name: 'Amber token', exact: true }).first().getAttribute('data-piece-id');
   await page.locator(`.table-piece[data-piece-id="${id}"]`).click();
   await grid(page).getByRole('button', { name: 'Make a persistent stack' }).click();
+  // The stack filter is a collapsible block, summarised while it's closed.
+  await expect(block(page, 'Stack filter').locator('.collapsible-summary')).toHaveText('Takes amber');
+  await openBlock(page, 'Stack filter');
   const filter = page.getByRole('group', { name: 'Stack filter', exact: true });
   await expect(filter.locator('.filter-summary')).toContainText('Takes amber.');
   await filter.getByRole('button', { name: 'Or pieces with…', exact: true }).click();

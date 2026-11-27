@@ -1593,9 +1593,9 @@ export function Playground({ project: source, actor, owner, host = false, viewer
           </div>
           {piece.locked && !ownLockCovers && <p className="help-text">Held in place by its locked group. Unlock the group in the Pieces panel to move it.</p>}
           {piece.orderLocked && !ownOrderCovers && <p className="help-text">Kept in its place in the order by its group. Unlock the group’s order in the Pieces panel to reorder it.</p>}
-          {p.players.length > 0 && <AccessControls kinds={tablePieces.length ? ['hide', 'lock', 'orderLock'] : ['lock', 'orderLock']} players={p.players} seat={seat}
+          {p.players.length > 0 && <AccessControls name="piece" kinds={tablePieces.length ? ['hide', 'lock', 'orderLock'] : ['lock', 'orderLock']} players={p.players} seat={seat}
             scopes={pieceScopes} disabled={viewer && 'Take a seat to change who it’s hidden from or locked for. Viewers can only look.'} onChange={setPieceScope} />}
-          {selectionStack && <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, selectionStack)} suggestions={stackTags} disabled={viewer}
+          {selectionStack && <TagFilterEditor collapsible="stack-filter" label="Stack filter" filter={stackFilterOf(p, selectionStack)} suggestions={stackTags} disabled={viewer}
             hint="Which pieces may join this stack, by their components' stack tags (Behavior tab). A new stack takes every tag its pieces share."
             onChange={filter => void dispatch({ type: 'setStackFilter', stackId: selectionStack, filter })} />}
           <div className="field-grid">
@@ -1624,7 +1624,7 @@ export function Playground({ project: source, actor, owner, host = false, viewer
         : slotRecord ? <div className="inspector-section selected-inspector">
           <div className="section-title"><h3>Empty persistent stack</h3><button className="icon-button" aria-label="Clear selection" onClick={() => setSelectedSlot(undefined)}><X size={15} /></button></div>
           <p className="help-text">Drop pieces here to fill it. Drag it to move it.</p>
-          <TagFilterEditor label="Stack filter" filter={stackFilterOf(p, slotRecord.id)} suggestions={stackTags} disabled={viewer}
+          <TagFilterEditor collapsible="stack-filter" label="Stack filter" filter={stackFilterOf(p, slotRecord.id)} suggestions={stackTags} disabled={viewer}
             hint="Which pieces may join this stack, by their components' stack tags (Behavior tab)."
             onChange={filter => void dispatch({ type: 'setStackFilter', stackId: slotRecord.id, filter })} />
           {!viewer && <div className="action-grid"><button className="danger" onClick={() => { void dispatch({ type: 'unpersistStack', stackId: slotRecord.id }); setSelectedSlot(undefined); }}><Trash2 size={17} /><span>Remove stack</span></button></div>}
@@ -2023,7 +2023,7 @@ function GroupInspector({ groups, project: p, viewer, seat, available, onClose, 
       <button {...available(readOnly || kept, onUngroup, 'Remove the group; its pieces stay where they are')}><Ungroup size={17} /><span>Ungroup<kbd>Shift G</kbd></span></button>
     </div>
     {/* Hiding, locks and order locks of the group, for everyone or some seats; they cover its subgroups and pieces. */}
-    {p.players.length > 0 && <AccessControls kinds={['hide', 'lock', 'orderLock']} players={p.players} seat={seat} scopes={scopes}
+    {p.players.length > 0 && <AccessControls name="group" kinds={['hide', 'lock', 'orderLock']} players={p.players} seat={seat} scopes={scopes}
       disabled={readOnly} onChange={onScope} />}
   </div>;
 }

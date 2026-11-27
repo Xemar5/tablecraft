@@ -4,7 +4,7 @@ import { uid } from './domain';
 import { DEFAULT_POINT_RADIUS, type Grid } from './grids';
 import { gridColor, opaqueColor } from './GridLayers';
 import { TagFilterEditor } from './TagEditors';
-import { ColorField, Field, IconChoice, NumberField, Toggle } from './ui';
+import { Collapsible, ColorField, Field, IconChoice, NumberField, Toggle } from './ui';
 import { ANY_TAGS } from './tags';
 import './grids.css';
 
@@ -123,7 +123,7 @@ export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, o
       {selected.shape === 'points' && <>
         <NumberField deferred label="Snap distance (px)" hint="How close a piece's centre must come to a point to snap to it." value={selected.radius ?? DEFAULT_POINT_RADIUS} min={1} max={2000} onChange={radius => update({ radius })} />
         <p className="help-text">{(selected.points ?? []).length} points. Click {surface} to add one, drag points to move them, and select one to edit it (Delete removes it).</p>
-        {pointsList}
+        {pointsList && <Collapsible name="grid-points" title="Points" summary={`${(selected.points ?? []).length} point${(selected.points ?? []).length === 1 ? '' : 's'}`}>{pointsList}</Collapsible>}
         {selectedPoint && <div className="grid-point-editor" role="group" aria-label="Selected point">
           <div className="section-title"><h3>Point {selectedPoint.label || ''}</h3><button className="icon-button" aria-label="Deselect point" onClick={() => onSelectPoint(undefined)}><X size={13} /></button></div>
           <div className="field-grid">
@@ -143,7 +143,7 @@ export function GridEditor<G extends Grid>({ grids, selected, onSelect, point, o
         onChange={on => update({ rotation: on ? 0 : undefined })} />
       {selected.rotation !== undefined && <NumberField deferred label="Rotation (°)" value={selected.rotation} min={-360} max={360} onChange={rotation => update({ rotation })} />}
       <ColorField deferred label="Colour" value={selected.color || gridColor(selected, grids.indexOf(selected))} onChange={color => update({ color })} />
-      <TagFilterEditor label="Snaps pieces" filter={selected.filter ?? ANY_TAGS} suggestions={tags} disabled={disabled}
+      <TagFilterEditor collapsible="grid-filter" label="Snaps pieces" filter={selected.filter ?? ANY_TAGS} suggestions={tags} disabled={disabled}
         hint="Which pieces snap to this grid, by their components' grid tags (Behavior tab). Components can also turn snapping off."
         anything="Every piece snaps here." untagged="Pieces without grid tags snap to every grid."
         onChange={filter => update({ filter: filter.anyOf.length ? filter : undefined })} />

@@ -282,7 +282,7 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .hidden-seat .mini-avatar { width: 18px; height: 18px; font-size: 9px; }
 .hidden-seat.hidden { background: #efe9f5; border-color: #cdbfdc; color: #5b4a6e; text-decoration: line-through; text-decoration-color: #a593b8; }
 /* Hiding, locks and order locks (AccessControls.tsx): an Everyone switch, and chips showing which seats each covers now. */
-.access-controls { display: grid; gap: 10px; margin: 12px 0; }
+.access-controls { margin: 12px 0; }
 .access-row { margin: 0; }
 .access-row > span { display: flex; align-items: center; gap: 4px; }
 .access-seats { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -290,7 +290,6 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 .access-everyone.on { background: #e5eedb; border-color: #9fb889; color: #2f4f3a; }
 .access-lock .access-seat.hidden, .access-orderLock .access-seat.hidden { text-decoration: none; background: #f6efe2; border-color: #dcc59c; color: #6b5126; }
 .access-seats [aria-disabled="true"] { opacity: .55; cursor: default; }
-.access-summary { display: block; margin-top: 4px; color: #8a9a7c; font-size: 10px; }
 /* A group locked for some seats only keeps its lock button shown, fainter. */
 .group-lock.is-locked.partly { opacity: .6; }
 /* Ping pins (PingPins.tsx): a fixed-size pin with the pinging player's avatar and name above what was pinged, or at
@@ -320,3 +319,15 @@ input[type="number"]::-webkit-inner-spin-button { height: auto; min-height: 22px
 /* Selection buttons that can't be used look disabled but stay focusable, so their tooltip says why (see available()). */
 button[aria-disabled="true"] { opacity: .36; cursor: not-allowed; }
 .action-grid button[aria-disabled="true"]:hover { background: inherit; }
+/* Collapsible blocks (ui.tsx Collapsible): settings whose size varies, folded to a title and a one-line summary. */
+.collapsible-block { margin: 6px 0; border: 1px solid var(--line); border-radius: 8px; background: #fbfcf8; }
+.collapsible-block > summary { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 7px 9px; cursor: pointer; list-style: none; }
+.collapsible-block > summary::-webkit-details-marker { display: none; }
+.collapsible-block > summary:hover { background: #f3f6ee; border-radius: 8px; }
+.collapsible-chevron { flex-shrink: 0; color: #869a73; transition: transform .15s; }
+.collapsible-block[open] > summary .collapsible-chevron { transform: rotate(90deg); }
+.collapsible-title { flex-shrink: 0; font-size: 11px; font-weight: 600; color: #4e5b4f; }
+.collapsible-summary { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #8a9a7c; }
+.collapsible-block > summary .info-tip { margin-left: auto; flex-shrink: 0; }
+.collapsible-body { padding: 2px 9px 10px; }
+.collapsible-body > .field { margin: 0; }

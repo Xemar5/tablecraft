@@ -1312,7 +1312,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
             <Toggle label="Can be put in hand" checked={component.hand} onChange={hand => update({ hand })} />
             <Toggle label="Hide front in hand" description="Only the holder sees the front" checked={component.hideInHand} onChange={hideInHand => update({ hideInHand })} disabled={!component.hand} />
             <Toggle label="Can be stacked" checked={component.stackable} onChange={stackable => update({ stackable })} />
-            {component.stackable && <TagListField label="Stack tags" tags={componentTags(component)}
+            {component.stackable && <TagListField collapsible="stack-tags" label="Stack tags" tags={componentTags(component)}
               suggestions={normalizeTags(components.flatMap(componentTags)).sort((a, b) => a.localeCompare(b))}
               hint="Pieces with a stack tag in common can stack, and a new stack takes the tags they share as its filter (editable when the stack is selected). Pieces without tags stack with anything."
               onChange={stackTags => update({ stackTags, stackTag: '' })} />}
@@ -1328,7 +1328,7 @@ export function Designer({ component: incoming, components, functions = [], onCh
                 : 'Selected pieces get a Run button that calls this function of the project’s scripts, for everyone. Write functions in the Scripts window.'} />} />
             {component.kind !== 'popup' && <>
             <Toggle label="Can snap to grids" description="Its pieces snap to the table's grids when dropped" checked={component.snapToGrid !== false} onChange={snapToGrid => update({ snapToGrid: snapToGrid ? undefined : false })} />
-            {component.snapToGrid !== false && <TagListField label="Grid tags" tags={componentGridTags(component)}
+            {component.snapToGrid !== false && <TagListField collapsible="grid-tags" label="Grid tags" tags={componentGridTags(component)}
               suggestions={normalizeTags(components.flatMap(componentGridTags)).sort((a, b) => a.localeCompare(b))}
               hint="Each grid's filter decides by these tags whether its pieces snap to it (edit grids with the Grids tool on the table). Without grid tags, its pieces snap to every grid."
               onChange={gridTags => update({ gridTags: gridTags.length ? gridTags : undefined })} />}

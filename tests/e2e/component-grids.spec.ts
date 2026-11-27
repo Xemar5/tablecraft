@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { block, openBlock } from './blocks';
 
 const field = (page: Page, name: string) => page.getByRole('spinbutton', { name, exact: true });
 const centre = async (page: Page, selector: string) => {
@@ -61,6 +62,9 @@ test('a component carries grids whose bounds are set in the designer, and pieces
   await page.mouse.click(canvas.x, canvas.y);
   await page.mouse.click(canvas.x + 120 * zoom, canvas.y);
   await page.mouse.click(canvas.x - 120 * zoom, canvas.y);
+  // The points list is a collapsible block in the grid's settings.
+  await expect(block(page, 'Points').locator('.collapsible-summary')).toHaveText('3 points');
+  await openBlock(page, 'Points');
   const points = page.locator('.grid-points-list').getByRole('treeitem');
   await expect(points).toHaveCount(3);
   await expect(points.nth(2)).toHaveAttribute('aria-selected', 'true');
@@ -69,7 +73,8 @@ test('a component carries grids whose bounds are set in the designer, and pieces
   // Dropping a row on itself keeps the order; dropping it below the next one moves it there.
   const where = page.locator('.grid-points-list .point-row-detail'), order = await where.allTextContents();
   const rowBox = (await points.nth(0).boundingBox())!;
-  await points.nth(0).dragTo(points.nth(0), { targetPosition: { x: rowBox.width / 2, y: rowBox.height * .3 } });
+  // (The last row: Playwright doesn't start a second drag from the row it just dragged.)
+  await points.nth(2).dragTo(points.nth(2), { targetPosition: { x: rowBox.width / 2, y: rowBox.height * .3 } });
   await expect(where).toHaveText(order);
   await points.nth(0).dragTo(points.nth(1), { targetPosition: { x: rowBox.width / 2, y: rowBox.height * .8 } });
   await expect(where).toHaveText([order[1], order[0], order[2]]);

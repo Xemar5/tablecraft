@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { block, openBlock } from './blocks';
 
 const saved = (page: Page) => page.evaluate(() => JSON.parse(localStorage.getItem('tablecraft.workspace.v1')!).projects[0]);
 const instance = async (page: Page, id: string | null) => (await saved(page)).instances.find((item: { id: string }) => item.id === id);
@@ -10,18 +11,22 @@ test('hiding, locks and order locks share one control: an Everyone switch and se
   const token = page.locator(`.table-piece[data-piece-id="${id}"]`);
   await token.click();
   const inspector = page.locator('.playground-inspector');
+  // Each setting is a collapsible block, summarised while it's closed.
+  await expect(block(page, 'Locked for').locator('.collapsible-summary')).toHaveText('No one');
+  await openBlock(page, 'Locked for');
   const lock = inspector.getByRole('group', { name: 'Locked for', exact: true });
+  const lockSummary = block(page, 'Locked for').locator('.collapsible-summary');
   // Locked for Player 2 only: their chip is on, and nobody else's.
   await lock.getByRole('button', { name: 'Lock for Player 2', exact: true }).click();
   await expect.poll(async () => instance(page, id)).toMatchObject({ locked: false, lockPlayers: ['player-2'] });
-  await expect(lock).toContainText('Only Player 2');
+  await expect(lockSummary).toHaveText('Only Player 2');
   // Everyone starts afresh: every seat, seats that join later too. Then Player 1 is left out.
   await lock.getByRole('switch', { name: /Everyone/ }).click();
   await expect.poll(async () => instance(page, id)).toMatchObject({ locked: true });
   await expect(lock.getByRole('button', { name: 'Unlock for Player 1', exact: true })).toHaveAttribute('aria-pressed', 'true');
   await lock.getByRole('button', { name: 'Unlock for Player 1', exact: true }).click();
   await expect.poll(async () => instance(page, id)).toMatchObject({ locked: true, lockPlayers: ['player-1'] });
-  await expect(lock).toContainText('Everyone but Player 1, and seats that join later');
+  await expect(lockSummary).toHaveText('Everyone but Player 1, and seats that join later');
   // Player 1 is left out of the lock, so they can still move it.
   const start = await instance(page, id), box = (await token.boundingBox())!;
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -30,6 +35,7 @@ test('hiding, locks and order locks share one control: an Everyone switch and se
   await page.mouse.up();
   await expect.poll(async () => (await instance(page, id)).x).not.toBe(start.x);
   // Hidden from everyone but Player 1: it stays on Player 1's table.
+  await openBlock(page, 'Hidden from');
   const hide = inspector.getByRole('group', { name: 'Hidden from', exact: true });
   await hide.getByRole('switch', { name: /Everyone/ }).click();
   // Hidden from you too, it stays on the table, faded, while it's selected.
@@ -55,6 +61,7 @@ test('groups take the same controls: an order lock for one seat keeps the group 
   await page.keyboard.press('g');
   const groupRow = panel.getByRole('button', { name: /^Group .*, 2 pieces/ });
   await groupRow.click();
+  await openBlock(page, 'Order locked for');
   const order = page.locator('.group-inspector').getByRole('group', { name: 'Order locked for', exact: true });
   await order.getByRole('button', { name: 'Lock order for Player 2', exact: true }).click();
   await expect.poll(async () => (await saved(page)).groups[0]).toMatchObject({ orderLockPlayers: ['player-2'] });

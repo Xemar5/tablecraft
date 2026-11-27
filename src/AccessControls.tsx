@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { EyeOff, ListOrdered, LockKeyhole } from 'lucide-react';
 import { appliesTo, toggleSeat, type AccessKind, type Scope } from './access';
 import type { Player } from './domain';
-import { InfoTip } from './ui';
+import { Collapsible } from './ui';
 
 const KINDS: Record<AccessKind, { title: string; icon: ReactNode; on: string; off: string; hint: string }> = {
   hide: {
@@ -27,11 +27,14 @@ export function scopeSummary(scope: Scope, players: Player[]) {
 }
 
 /**
- * Hiding, locks and order locks for pieces or groups, all alike: an Everyone switch, and a chip for each seat that shows
- * whether the setting covers it now. With Everyone off, the chips pick the seats it covers; with it on, it covers every
- * seat (seats that join later too) but those whose chips are turned off. Turning Everyone on or off starts afresh.
+ * Hiding, locks and order locks for pieces or groups, all alike, each in a collapsible block summarising who it covers:
+ * an Everyone switch, and a chip for each seat that shows whether the setting covers it now. With Everyone off, the
+ * chips pick the seats it covers; with it on, it covers every seat (seats that join later too) but those whose chips are
+ * turned off. Turning Everyone on or off starts afresh.
  */
-export function AccessControls({ kinds, scopes, players, seat, disabled, onChange }: {
+export function AccessControls({ name, kinds, scopes, players, seat, disabled, onChange }: {
+  /** Names the blocks (pieces' and groups' open separately). */
+  name: string;
   kinds: AccessKind[]; scopes: Record<AccessKind, Scope>; players: Player[]; seat?: string;
   /** Why the controls can't be used (viewers). */
   disabled?: string | false;
@@ -39,8 +42,8 @@ export function AccessControls({ kinds, scopes, players, seat, disabled, onChang
 }) {
   return <div className="access-controls">{kinds.map(kind => {
     const { title, icon, on, off, hint } = KINDS[kind], scope = scopes[kind];
-    return <div key={kind} className={`field access-row access-${kind}`} role="group" aria-label={title}>
-      <span>{title}<InfoTip text={hint} /></span>
+    return <Collapsible key={kind} name={`${name}-${kind}`} title={title} hint={hint} summary={scopeSummary(scope, players)}>
+      <div className={`field access-row access-${kind}`} role="group" aria-label={title}>
       <div className="access-seats">
         <button type="button" role="switch" aria-checked={scope.all} className={`access-everyone${scope.all ? ' on' : ''}`} aria-disabled={!!disabled || undefined}
           title={disabled || (scope.all ? `Covers every seat, seats that join later too, but those left out. Turn off to cover no one.` : 'Cover every seat, seats that join later too')}
@@ -54,7 +57,7 @@ export function AccessControls({ kinds, scopes, players, seat, disabled, onChang
           </button>;
         })}
       </div>
-      <small className="access-summary">{scopeSummary(scope, players)}</small>
-    </div>;
+      </div>
+    </Collapsible>;
   })}</div>;
 }

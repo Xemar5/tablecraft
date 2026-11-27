@@ -1,6 +1,6 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Plus, X } from 'lucide-react';
-import { InfoTip } from './ui';
+import { Collapsible, InfoTip } from './ui';
 import { SearchSelect } from './SearchSelect';
 import { describeFilter, normalizeTags, tagKey, type TagFilter, type TagRule } from './tags';
 import './tags.css';
@@ -38,11 +38,22 @@ function Chip({ children, onRemove, label, tone, disabled }: { children: ReactNo
 }
 
 /** A component's list of tags, edited as chips. */
-export function TagListField({ label, hint, tags, suggestions, onChange, disabled, empty = 'No tags' }: {
+export function TagListField({ label, hint, tags, suggestions, onChange, disabled, empty = 'No tags', collapsible }: {
   label: string; hint?: string; tags: string[]; suggestions: string[]; onChange: (tags: string[]) => void; disabled?: boolean; empty?: string;
+  /** Folds it into a Collapsible block of this name, summarised by its tags. */
+  collapsible?: string;
+}) {
+  if (collapsible) return <Collapsible name={collapsible} title={label} hint={hint} summary={tags.length ? tags.join(', ') : empty}>
+    <TagListBody label={label} tags={tags} suggestions={suggestions} onChange={onChange} disabled={disabled} empty={empty} bare />
+  </Collapsible>;
+  return <TagListBody label={label} hint={hint} tags={tags} suggestions={suggestions} onChange={onChange} disabled={disabled} empty={empty} />;
+}
+
+function TagListBody({ label, hint, tags, suggestions, onChange, disabled, empty, bare }: {
+  label: string; hint?: string; tags: string[]; suggestions: string[]; onChange: (tags: string[]) => void; disabled?: boolean; empty: string; bare?: boolean;
 }) {
   return <div className="field tag-field" role="group" aria-label={label}>
-    <span>{label}{hint && <InfoTip text={hint} />}</span>
+    {!bare && <span>{label}{hint && <InfoTip text={hint} />}</span>}
     <div className="tag-chips">
       {tags.map(tag => <Chip key={tag} label={`Remove ${tag}`} disabled={disabled} onRemove={() => onChange(tags.filter(other => other !== tag))}>{tag}</Chip>)}
       {!tags.length && disabled && <span className="tag-empty">{empty}</span>}
@@ -55,8 +66,21 @@ export function TagListField({ label, hint, tags, suggestions, onChange, disable
  * A tag filter as plain rules: each rule lists tags a component must have and tags it must not have, and a component
  * fits when it matches any rule. No brackets or operators to type.
  */
-export function TagFilterEditor({ label, filter, suggestions, onChange, disabled, hint, anything = 'Any piece can join.', untagged = 'Pieces without tags always fit.' }: {
+export function TagFilterEditor({ label, filter, suggestions, onChange, disabled, hint, anything = 'Any piece can join.', untagged = 'Pieces without tags always fit.', collapsible, bare }: {
   label: string; filter: TagFilter; suggestions: string[]; onChange: (filter: TagFilter) => void; disabled?: boolean; hint?: string; anything?: string; untagged?: string;
+  /** Folds it into a Collapsible block of this name, summarised by what it takes. */
+  collapsible?: string;
+  /** Without its own label (inside a Collapsible, which has it). */
+  bare?: boolean;
+}) {
+  if (collapsible) return <Collapsible name={collapsible} title={label} hint={hint} summary={filter.anyOf.length ? `Takes ${describeFilter(filter)}` : anything}>
+    <TagFilterEditor label={label} filter={filter} suggestions={suggestions} onChange={onChange} disabled={disabled} anything={anything} untagged={untagged} bare />
+  </Collapsible>;
+  return <TagFilterBody label={label} filter={filter} suggestions={suggestions} onChange={onChange} disabled={disabled} hint={hint} anything={anything} untagged={untagged} bare={bare} />;
+}
+
+function TagFilterBody({ label, filter, suggestions, onChange, disabled, hint, anything, untagged, bare }: {
+  label: string; filter: TagFilter; suggestions: string[]; onChange: (filter: TagFilter) => void; disabled?: boolean; hint?: string; anything: string; untagged: string; bare?: boolean;
 }) {
   const [adding, setAdding] = useState<{ rule: number; part: 'has' | 'lacks' }>();
   const rules = filter.anyOf;
@@ -77,7 +101,7 @@ export function TagFilterEditor({ label, filter, suggestions, onChange, disabled
     </div>;
   };
   return <div className="field tag-filter" role="group" aria-label={label}>
-    <span>{label}{hint && <InfoTip text={hint} />}</span>
+    {!bare && <span>{label}{hint && <InfoTip text={hint} />}</span>}
     <p className="filter-summary" aria-live="polite">{rules.length ? <>Takes <strong>{describeFilter(filter)}</strong>.</> : anything} {untagged}</p>
     {rules.map((rule, index) => <div key={index}>
       {index > 0 && <div className="filter-or" aria-hidden="true"><span>or</span></div>}
