@@ -77,7 +77,9 @@ describe('Wildwood sample', () => {
       const stone = placedPointPosition(placedGrids(state).find(grid => grid.host === board.id)!, 'stone-3')!;
       const moved = applyCommand(state, { type: 'transform', ids: [walker.id], dx: stone.x + 12 - walker.x, dy: stone.y - 9 - walker.y, snap: true }, 'player-1');
       expect(moved.instances.find(item => item.id === walker.id)).toMatchObject({ x: stone.x, y: stone.y });
-      expect(moved.scriptLog?.at(-1)?.text).toBe(`${walker.row ? 'Ember' : 'Moss'} wanderer reaches the ${label}.`);
+      // The script shows the Stone reached popup to everyone, saying who reached which stone.
+      expect(moved.popups?.at(-1)).toMatchObject({ componentId: byName('Stone reached').id, data: { name: `${walker.row ? 'Ember' : 'Moss'} wanderer`, stone: label } });
+      expect(moved.popups?.at(-1)?.to).toBeUndefined();
       return stone;
     };
     const before = dropNear(project);
@@ -86,6 +88,30 @@ describe('Wildwood sample', () => {
     const shifted = applyCommand(unlocked, { type: 'transform', ids: [board.id], dx: -300, dy: 80 }, 'player-1');
     const after = dropNear(shifted);
     expect(after.x).toBeCloseTo(before.x - 300); expect(after.y).toBeCloseTo(before.y + 80);
+  });
+
+  it('shows sample popups: the heart of the wood in its wanderer’s row, and Quick rules toggled by its button', () => {
+    const project = wildwoodProject();
+    const byName = (name: string) => project.components.find(component => component.name === name)!;
+    expect(project.components.filter(component => component.kind === 'popup').map(component => component.name))
+      .toEqual(['Amber milestone', 'Stone reached', 'Heart of the wood', 'Quick rules']);
+    // Each sample shows popup settings of its own.
+    expect(byName('Stone reached').popup).toMatchObject({ anchor: 'top-right', duration: 4, dismiss: 'all' });
+    expect(byName('Heart of the wood').popup).toMatchObject({ fit: 'fill', blur: true });
+    expect(byName('Quick rules').popup).toMatchObject({ layout: 'fixed', draggable: true });
+    // The last stone opens the Heart of the wood with the data row of the wanderer that reached it.
+    const board = project.instances.find(item => item.componentId === byName('Wanderer’s path').id)!;
+    const walker = project.instances.filter(item => item.componentId === byName('Wanderer').id).find(item => item.row === 1)!;
+    const heart = placedPointPosition(placedGrids(project).find(grid => grid.host === board.id)!, 'stone-5')!;
+    const arrived = applyCommand(project, { type: 'transform', ids: [walker.id], dx: heart.x - walker.x, dy: heart.y - walker.y, snap: true }, 'player-1');
+    expect(arrived.popups?.at(-1)).toMatchObject({ componentId: byName('Heart of the wood').id, row: 1 });
+    expect(byName('Heart of the wood').rows[1]).toMatchObject({ color: 'ember', wanderer: 'Ember wanderer' });
+    // The Quick rules button opens the panel for whoever pressed it, and closes it on the next press.
+    const button = project.instances.find(item => item.componentId === byName('Quick rules button').id)!;
+    const press = (state: typeof project) => applyCommand(state, { type: 'call', name: 'showRules', piece: button.id, args: [], seed: 3 }, 'player-2');
+    const opened = press(project);
+    expect(opened.popups).toEqual([expect.objectContaining({ componentId: byName('Quick rules').id, to: ['player-2'] })]);
+    expect(press(opened).popups).toBeUndefined();
   });
 
   it('gives the card template one drawing for every variant, fitted inside its frame without stretching', () => {

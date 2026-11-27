@@ -77,7 +77,10 @@ test('the Wildwood sample shows its showcase: shared art, a scripted button with
   await page.mouse.move(box.x + box.width / 2 + (stone.x + 10 - start.x) * zoom, box.y + box.height / 2 + (stone.y - 10 - start.y) * zoom, { steps: 6 });
   await page.mouse.up();
   await expect.poll(async () => (await project()).instances.find((item: { id: string }) => item.id === id)).toMatchObject({ x: stone.x, y: stone.y });
-  await expect(page.getByText(`reaches the ${stone.label}.`)).toBeVisible();
+  // It shows the Stone reached popup in the corner, which closes by itself after a few seconds.
+  const reached = page.locator('.table-popup[aria-label="Stone reached"]');
+  await expect(reached).toContainText(`reaches the ${stone.label}.`);
+  await expect(reached).toHaveCount(0, { timeout: 8000 });
 });
 
 test('Home searches projects by name, description or component, and shows them as a list or a remembered grid', async ({ page }) => {

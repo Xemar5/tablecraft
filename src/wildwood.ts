@@ -30,8 +30,9 @@ const guidePages = [
   { page: '3', title: 'Designs', text: 'Spirit cards take their names, costs and art from CSV rows. The botanical art is one linked artwork with three variants, fitted inside cards, tokens and the board.\n\nThe moon is a live boolean shape, each wanderer a union of two, and this page a vertical stack whose title hugs its text.' },
   { page: '4', title: 'Fitting text', text: 'Card names, rules and these pages use Auto font size: the text shrinks to fit its box, so The elder oak of the deep wood fits on one line.\n\nThe power number has its pivot at its bottom-right corner and hugs its digits, so a 10 grows to the left. Page numbers are pivoted at their bottom middle and stay centred.' },
   { page: '5', title: 'Grids', text: 'The table has a faint square grid (the Grids tool, under the select and pan tools, edits it). The stepping stones are a grid the Wanderer’s path board carries, so they travel with it: unlock and move the board, and they go along. It only takes wanderers, by their grid tag: drop one near a stone and it snaps on.\n\nOpen the path in the designer: its Stepping stones grid sits above its layers in the Layers panel. Select it to list its stones and see how close a wanderer must come to snap to each.' },
-  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Actions → Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows. When the supply runs out, the tally shows Supply empty: a layer whose Conditional visibility reads memory. Every fifth amber, the Amber milestone popup shows on the gatherer’s screen only (game.popup with players), filled in with data; its buttons run a script action.\n\nWanderers announce the stone they reach.' },
-  { page: '7', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots with Actions → Save, load them with Actions → Load (panels and scripting are in that menu too), and invite players to play together.' },
+  { page: '6', title: 'Scripts and memory', text: 'Gather amber runs a Lua function from Actions → Scripting → Scripts. It draws from the amber supply, a stack that keeps its place even when empty, and counts in memory, which the Amber tally shows. When the supply runs out, the tally shows Supply empty: a layer whose Conditional visibility reads memory. Every fifth amber, the Amber milestone popup shows on the gatherer’s screen only (game.popup with players), filled in with data; its buttons run a script action.' },
+  { page: '7', title: 'Popups', text: 'Popups are components scripts show on screen, each placed and behaving its own way. A wanderer reaching a stone shows Stone reached in the corner, which closes by itself; at the Heart of the wood, a popup fills the blurred table with that wanderer’s row. Quick rules opens a panel at a fixed spot that you can drag, with the amber count kept live, and closes it again.\n\nWhile playing, click a popup in the library to preview it.' },
+  { page: '8', title: 'Make it yours', text: 'Change anything, add components from the library, or start a new game from Home.\n\nSave snapshots with Actions → Save, load them with Actions → Load (panels and scripting are in that menu too), and invite players to play together.' },
 ];
 
 /** Path stones of the Wanderer's path board, from the start (bottom) to the heart of the wood (top), in board pixels. */
@@ -51,8 +52,8 @@ export const WILDWOOD_SCRIPT = String.raw`-- Wildwood's table script: a small ta
 --
 -- Gather amber (the button) draws an amber token from the amber supply into the hand of whoever pressed it (or the
 -- current player) and counts it in memory.gathered, which the Amber tally card shows. Every fifth amber, the Amber
--- milestone popup shows on the gatherer's screen alone. A wanderer that comes to rest on a stone of the Wanderer's path
--- announces where it is.
+-- milestone popup shows on the gatherer's screen alone. Quick rules (the other button) shows a rules panel to whoever
+-- pressed it. A wanderer that comes to rest on a stone of the Wanderer's path shows a popup saying where it is.
 
 local SUPPLY = "amber-supply"
 
@@ -90,6 +91,19 @@ function amberMilestone(popup, player, layer)
   end
 end
 
+-- The Quick rules button: shows the Quick rules popup to whoever pressed it, or closes it if it's already open for them
+-- (game.popups lists the open popups and who they're for).
+function showRules(button, player)
+  if not player then return end
+  for _, popup in ipairs(game.popups()) do
+    if popup.component == "Quick rules" and popup.players and popup.players[1] == player.id then
+      game.closePopup(popup.id)
+      return
+    end
+  end
+  game.popup("Quick rules", { players = player })
+end
+
 -- Amber put back on the supply fills it again.
 function onStack(stack, pieces, player)
   if stack.id == SUPPLY then memory.supplyEmpty = false end
@@ -99,7 +113,13 @@ function onSnap(pieces, player)
   for _, piece in ipairs(pieces) do
     -- The stones are a grid on the path board; each stone's label names it.
     if piece.component == "Wanderer" and piece.snap and piece.snap.label then
-      game.announce(piece.data.name .. " reaches the " .. piece.snap.label .. ".")
+      if piece.snap.label == "Heart of the wood" then
+        -- The last stone: a popup over the blurred table, showing the data row of the wanderer's own colour.
+        game.popup("Heart of the wood", { row = piece.row })
+      else
+        -- A small popup in the corner for everyone, which closes by itself.
+        game.popup("Stone reached", { data = { name = piece.data.name, stone = piece.snap.label } })
+      end
     end
   end
 end
@@ -312,6 +332,75 @@ function amberMilestone(artId: string): Component {
   });
 }
 
+/** The Quick rules button: shows (or closes) the Quick rules popup for whoever pressed it. */
+function rulesButton(): Component {
+  return component('Quick rules button', 'button', 150, 44, {
+    color: '#fbf8ef', action: 'showRules',
+    front: [
+      makeNode('shape', { name: 'Edge', x: 0, y: 0, width: 150, height: 44, fill: 'transparent', stroke: '#365d46', strokeWidth: 1.5, radius: 6 }),
+      makeNode('text', { name: 'Label', x: 0, y: 0, width: 150, height: 44, text: 'Quick rules', color: '#365d46', fontSize: 15, font: 'DM Sans', fontWeight: 600, align: 'center', verticalAlign: 'center' }),
+    ],
+  });
+}
+
+/**
+ * A corner popup for everyone when a wanderer comes to rest on a stone: top right of the table view at its own size,
+ * closing by itself after a few seconds, and for everyone when anyone closes it.
+ */
+function stoneReached(): Component {
+  return component('Stone reached', 'popup', 280, 64, {
+    rows: [{ name: 'Moss wanderer', stone: 'Mossy hollow' }],
+    popup: { anchor: 'top-right', margin: 18, fit: 'none', duration: 4, dismiss: 'all' },
+    front: [
+      makeNode('shape', { name: 'Card', x: 0, y: 0, width: 280, height: 64, fill: '#fbf8ef', stroke: '#c9bf9f', strokeWidth: 1, radius: 12 }),
+      makeNode('shape', { name: 'Stone', shapeKind: 'ellipse', x: 16, y: 18, width: 34, height: 28, fill: '#a9a68f', stroke: '#7d7a64', strokeWidth: 1.5 }),
+      makeNode('text', { name: 'Message', x: 62, y: 12, width: 204, height: 40, text: '{{name}} reaches the {{stone}}.', fontSize: 14, font: 'Lora', color: '#24413a', align: 'start', verticalAlign: 'center', autoFontSize: true, minFontSize: 10 }),
+    ],
+  });
+}
+
+/**
+ * A popup filling the blurred table view (within a wide margin) when a wanderer reaches the last stone. Each wanderer
+ * has its data row; the script picks it with the row option, and conditional visibility shows that wanderer's art.
+ */
+function heartOfTheWood(artId: string): Component {
+  return component('Heart of the wood', 'popup', 420, 250, {
+    rows: [
+      { color: 'moss', wanderer: 'Moss wanderer', text: 'The moss wanderer has walked the whole path. The old trees lean in to listen.' },
+      { color: 'ember', wanderer: 'Ember wanderer', text: 'The ember wanderer has walked the whole path. Fireflies gather round to light the way home.' },
+    ],
+    popup: { anchor: 'center', margin: 90, fit: 'fill', blur: true, dismiss: 'all' },
+    front: [
+      makeNode('shape', { name: 'Card', x: 0, y: 0, width: 420, height: 250, fill: '#24413a', stroke: '#d39b3a', strokeWidth: 2, radius: 18 }),
+      ...artLayer(artId, { x: 28, y: 56, width: 120, height: 120, ...when('color', 'moss') }, 'fern'),
+      ...artLayer(artId, { x: 28, y: 56, width: 120, height: 120, ...when('color', 'ember') }, 'sun'),
+      makeNode('text', { name: 'Label', x: 168, y: 40, width: 224, height: 14, text: 'THE HEART OF THE WOOD', fontSize: 9, letterSpacing: 1.6, color: '#d39b3a', align: 'start' }),
+      makeNode('text', { name: 'Title', x: 168, y: 60, width: 224, height: 36, text: '{{wanderer}} arrives', fontSize: 24, font: 'Lora', color: '#eef6e2', align: 'start', autoFontSize: true, minFontSize: 14 }),
+      makeNode('text', { name: 'Text', x: 168, y: 106, width: 224, height: 100, text: '{{text}}', fontSize: 14, color: '#c9d8bd', align: 'start', autoFontSize: true, minFontSize: 9 }),
+    ],
+  });
+}
+
+/**
+ * A rules panel at a fixed spot of the table view (beside the table tools) at its own size, which each player can drag
+ * and close; its amber count is a memory binding, so it stays up to date while it's open.
+ */
+function quickRules(): Component {
+  const line = (n: number, text: string) => makeNode('text', { name: `Rule ${n}`, x: 20, y: 52 + (n - 1) * 34, width: 220, height: 30, text, fontSize: 11, color: '#4e5b4f', align: 'start' });
+  return component('Quick rules', 'popup', 260, 236, {
+    popup: { layout: 'fixed', x: 84, y: 18, draggable: true },
+    front: [
+      makeNode('shape', { name: 'Card', x: 0, y: 0, width: 260, height: 236, fill: '#fbf8ef', stroke: '#c9bf9f', strokeWidth: 1, radius: 12 }),
+      makeNode('text', { name: 'Title', x: 20, y: 18, width: 220, height: 26, text: 'Quick rules', fontSize: 18, font: 'Lora', color: '#24413a', align: 'start' }),
+      line(1, 'Draw spirit cards: double-click the deck, or hover it and press 1–9.'),
+      line(2, 'Gather amber with the button; every fifth amber is a milestone.'),
+      line(3, 'Walk a wanderer up the path, stone by stone, to the heart of the wood.'),
+      line(4, 'Drag this panel anywhere, and close it with × or Quick rules.'),
+      makeNode('text', { name: 'Amber count', x: 20, y: 194, width: 220, height: 22, text: 'Amber gathered so far: {{memory.gathered}}', fontSize: 11, fontWeight: 600, color: '#365d46', align: 'start' }),
+    ],
+  });
+}
+
 function amberTally(artId: string): Component {
   return component('Amber tally', 'card', 150, 92, {
     color: '#f3eedf', previewWhenLocked: true,
@@ -337,7 +426,9 @@ export const WILDWOOD = { name: 'Wildwood', description: 'A little magic. A lot 
 export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.description, profile = { name: 'Player 1', color: '#b7cc91' }): Project {
   const art = botanicalArt();
   const card = spiritCards(art.id), token = amberToken(art.id), board = forestClearing(art.id), die = spiritDie();
-  const walker = wanderer(), path = wanderersPath(), guide = wanderersGuide(), button = gatherButton(), tally = amberTally(art.id), milestone = amberMilestone(art.id);
+  const walker = wanderer(), path = wanderersPath(), guide = wanderersGuide(), button = gatherButton(), tally = amberTally(art.id);
+  // Popups (never on the table) and the button that shows Quick rules.
+  const milestone = amberMilestone(art.id), stone = stoneReached(), heart = heartOfTheWood(art.id), rules = quickRules(), rulesPress = rulesButton();
   const deck = Array.from({ length: 12 }, (_, n) => ({
     ...makeInstance(card.id, n % 6, 600, 400), stack: 'starter-deck', order: n, flipped: true, scale: 0.72,
   }));
@@ -366,6 +457,7 @@ export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.des
     { ...makeInstance(guide.id, 0, 330, 420), scale: 0.6, group: 'group-guide' },
     { ...makeInstance(button.id, 0, 330, 590), locked: true, group: 'group-guide' },
     { ...makeInstance(tally.id, 0, 330, 680), locked: true, group: 'group-guide' },
+    { ...makeInstance(rulesPress.id, 0, 330, 770), locked: true, group: 'group-guide' },
   ];
   // The path board carries its stones' grid (see wanderersPath), which only takes wanderers; everything else carries
   // the "table" grid tag, so it snaps only to the square table grid (when its snapping is turned on).
@@ -376,7 +468,7 @@ export function wildwoodProject(name = WILDWOOD.name, description = WILDWOOD.des
   const tableTag = (item: Component) => item.kind === 'artwork' || item.kind === 'popup' || item.gridTags ? item : { ...item, gridTags: ['table'] };
   return {
     id: uid('project'), name, description,
-    components: [card, token, board, die, art, walker, path, guide, button, tally, milestone].map(tableTag),
+    components: [card, token, board, die, art, walker, path, guide, button, rulesPress, tally, milestone, stone, heart, rules].map(tableTag),
     instances,
     players: [
       { id: 'player-1', owner: 'local', name: profile.name, color: profile.color, x: 980, y: 1000, rotation: 0 },

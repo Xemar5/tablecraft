@@ -55,6 +55,23 @@ test('scripts show popups on screen: laid out over the table, blurred behind, dr
   await expect(popup).toHaveCount(0);
 });
 
+test('the Quick rules button opens a fixed, draggable rules panel with a live amber count, and closes it again', async ({ page }) => {
+  await page.goto('/');
+  const button = page.locator('[data-testid="table-piece"][aria-label="Quick rules button"]');
+  await button.click();
+  const rules = page.locator('.table-popup[aria-label="Quick rules"]');
+  await expect(rules).toContainText('Amber gathered so far: 0');
+  // It sits at its fixed place: 84, 18 from the table view's top-left corner (inside its border), at its own size.
+  const view = (await page.locator('.popup-layer').boundingBox())!;
+  // (Once its opening animation has settled.)
+  await expect.poll(async () => { const box = (await rules.boundingBox())!; return [box.x - view.x, box.y - view.y, box.width].map(Math.round); }).toEqual([84, 18, 260]);
+  // Its amber count follows memory while it's open.
+  await page.locator('[data-testid="table-piece"][aria-label="Gather amber"]').click();
+  await expect(rules).toContainText('Amber gathered so far: 1');
+  await button.click();
+  await expect(rules).toHaveCount(0);
+});
+
 test('a popup scripts show only to some seats stays off other screens until it is theirs', async ({ page }) => {
   await page.goto('/');
   await page.evaluate(() => {
